@@ -29,6 +29,7 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
     *   All downstream dependent repositories will be cloned from GitHub. To mitigate performance issues, Tako will cache these repositories locally in a well-known directory (`~/.tako/cache/repos`). On subsequent runs, it will fetch updates instead of performing a full clone.
     *   This caching mechanism will be responsible for cleaning up old repositories.
 *   **Authentication:** Tako will rely on the user's local Git and SSH configuration for authentication with Git hosts. The initial version will prioritize SSH key authentication. Future versions will explicitly support credential helpers and integration with tools like the `gh` CLI.
+*   **Platform Support:** The primary development target is a Unix-like environment (Linux, macOS). Windows support, particularly around container volume mounting and path handling, will be considered a future enhancement and is not a goal for the initial versions.
 
 ### 2.2. Dependency Graph
 *   **Definition:** The dependency graph is defined manually via `tako.yml` files within each repository.
@@ -41,7 +42,8 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 *   **Error Handling & Recovery:**
     *   Execution halts on the first error by default. `--continue-on-error` and `--summarize-errors` flags provide more flexible control.
     *   For path-based overrides, file restoration is guaranteed.
-    *   **Recommendation:** For transient network errors (e.g., cloning a repo, pulling a container image), Tako should implement a configurable retry mechanism.
+    *   For transient network errors (e.g., cloning a repo, pulling a container image), Tako will implement a configurable retry mechanism.
+    *   Errors will be structured with unique codes (e.g., `TAKO_E001`) to aid in debugging and programmatic handling.
 *   **Observability:** Tako will use OpenTelemetry for logging and metrics. This will provide insights into command duration, successes, and failures, which can be exported to a variety of backends.
 
 ### 2.4. Inter-Repository Artifacts & Local Testing
@@ -70,7 +72,7 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 
 ## 4. Configuration (`tako.yml`)
 
-*   **Schema Versioning:** A `version` field will be included. Tako will be backward compatible with older schema versions to a documented extent.
+*   **Schema Versioning:** A `version` field will be included. Tako will be backward compatible with older schema versions to a documented extent. A `tako migrate` command is a potential future feature to help users upgrade their configuration files.
 
     ```yaml
     # Version of the tako.yml schema
