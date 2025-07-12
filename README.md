@@ -24,8 +24,11 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 
 ### 2.1. Workspace & Repository Management
 *   **Workspace Root:** A "workspace" is not a formal concept with a global configuration file. For any given `tako` command, the **workspace root is the repository from which the command is executed**.
-*   **Repository Sourcing:** The initial implementation of Tako will operate with a hybrid model. The workspace root repository is the local version, which can have uncommitted changes. All downstream dependent repositories will be cloned fresh from GitHub into a temporary directory for the duration of the command execution.
-*   **Future Support:** Future versions will support using existing local copies of dependent repositories to allow for more complex, multi-repository changes.
+*   **Repository Sourcing & Caching:**
+    *   The workspace root repository is the local version, which can have uncommitted changes.
+    *   All downstream dependent repositories will be cloned from GitHub. To mitigate performance issues, Tako will cache these repositories locally in a well-known directory (`~/.tako/cache/repos`). On subsequent runs, it will fetch updates instead of performing a full clone.
+    *   This caching mechanism will be responsible for cleaning up old repositories.
+*   **Authentication:** Tako will rely on the user's local Git and SSH configuration for authentication with Git hosts. The initial version will prioritize SSH key authentication. Future versions will explicitly support credential helpers and integration with tools like the `gh` CLI.
 
 ### 2.2. Dependency Graph
 *   **Definition:** The dependency graph is defined manually via `tako.yml` files within each repository.
@@ -35,102 +38,92 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 
 ### 2.3. Execution Model
 *   **Order & Parallelism:** Operations are executed based on a topological sort of the dependency graph. Independent branches are processed in parallel by default (`--serial` flag available).
-*   **Error Handling:** Execution halts on the first error by default. `--continue-on-error` and `--summarize-errors` flags provide more flexible control.
-*   **Rollback:** For path-based overrides, file restoration is guaranteed. For other multi-step workflow failures, the initial version will offer "best-effort" cleanup. True transactional rollback is a future goal.
+*   **Error Handling & Recovery:**
+    *   Execution halts on the first error by default. `--continue-on-error` and `--summarize-errors` flags provide more flexible control.
+    *   For path-based overrides, file restoration is guaranteed.
+    *   **Recommendation:** For transient network errors (e.g., cloning a repo, pulling a container image), Tako should implement a configurable retry mechanism.
+*   **Observability:** Tako will use OpenTelemetry for logging and metrics. This will provide insights into command duration, successes, and failures, which can be exported to a variety of backends.
 
 ### 2.4. Inter-Repository Artifacts & Local Testing
-For testing local changes against dependent repositories, Tako will use a **Path-Based Override** strategy. This is managed through an `artifacts` block in the `tako.yml` of the source repository.
-
-*   **Artifact Definition:** A source repository can define multiple, named artifacts. Each artifact has its own build command, output path, and a corresponding `install_command` that instructs dependents on how to consume it.
-*   **Granular Dependency:** A dependent repository declares which specific named artifact(s) it requires from its dependencies.
-*   **Execution Flow:**
-    1.  When a `tako` workflow is run, it identifies which artifacts are required by downstream repositories.
-    2.  It runs the `command` for **only the required artifacts** in the source repository.
-    3.  For each dependent, it executes the corresponding `install_command`, passing the path to the freshly built artifact.
-*   **Guarantee:** Tako **must** guarantee that any files modified by an `install_command` are reverted to their original state after the run, regardless of success or failure.
+*   **Mechanism:** Tako uses a **Path-Based Override** strategy, managed through an `artifacts` block in the `tako.yml` of the source repository.
+*   **Artifact Caching:**
+    *   To avoid redundant builds, Tako will cache generated artifacts. The cache key should be a hash of the artifact's build command, its source files, and the git commit of the repository. This ensures that artifacts are only rebuilt when their inputs change.
+*   **Version Conflicts:**
+    *   The initial version of Tako will not support workflows where a single dependent needs to test against multiple, different versions of the same artifact simultaneously. This is a highly complex edge case that can be addressed in the future if a strong use case emerges.
+*   **Cleanup:** All generated artifacts and temporary directories will be cleaned up by Tako after execution, unless a debug flag (`--preserve-tmp`) is passed.
 
 ### 2.5. Containerized Execution Environments
-To solve the problem of managing complex, language-specific toolchains, Tako supports running workflows and **artifact builds** in a containerized environment.
-*   **Mechanism:** A workflow or an artifact definition can optionally specify a Docker `image`. If specified, Tako will not execute commands on the host machine. Instead, it will:
-    1.  Start a Docker container using the specified image.
-    2.  Mount the repository's directory into the container's working directory.
-    3.  Execute all commands inside the container.
-*   **Workspace Consistency:** This ensures that every team member, and the CI/CD system, runs commands in the exact same environment, eliminating "it works on my machine" issues.
-*   **Prerequisites:** This feature requires the user to have Docker installed and running on the host machine.
+*   **Mechanism:** A workflow or an artifact definition can optionally specify a Docker `image`. If specified, Tako will execute commands inside a container.
+*   **Network Access:**
+    *   By default, containers will have network access. A `network: none` option should be available in the `tako.yml` for workflows that need to run in a hermetic environment.
+*   **Resource Constraints:**
+    *   The `tako.yml` should support optional `memory` and `cpu` limits for containers to prevent resource exhaustion.
+*   **Artifact Path Handling:** When an artifact is built in a container, Tako will manage copying it out of the build container and mounting it into any subsequent dependent containers, ensuring seamless handoff.
+*   **Docker Unavailability:** If a workflow requires an image but Docker is not running, the command will fail with a clear error message. A fallback to local execution is not planned, as it would violate the principle of a consistent environment.
 
 ## 3. Command-Line Interface (CLI)
 
 *   **Syntax:** `tako <command> [options] [args]`
-*   **Core Commands:** `version`, `graph`, `run <command>`, `exec <workflow>`
-*   **Flags:**
-    *   `--dry-run`: Preview the commands that would be executed without running them.
-    *   `--verbose`/`--debug`: Provide detailed output for troubleshooting.
-    *   `--only <repo>` / `--ignore <repo>`: Allow filtering to target specific parts of the dependency graph.
-*   **UX:**
-    *   **Interrupts:** `Ctrl+C` should gracefully stop all running tasks and perform necessary cleanup.
-    *   **Timeouts:** Commands will have a configurable global timeout.
-    *   **Progress:** A progress indicator will be displayed for long-running operations.
+*   **Core Commands:** `version`, `graph`, `run`, `exec`, `init`, `doctor`, `artifacts`, `deps`
+*   **`tako doctor`:** A command to validate the workspace health, checking `tako.yml` syntax, dependency availability, and Docker connectivity.
+*   **Flags:** `--dry-run`, `--verbose`, `--debug`, `--only`, `--ignore`, `--serial`, `--continue-on-error`, `--summarize-errors`, `--preserve-tmp`.
 
 ## 4. Configuration (`tako.yml`)
 
-The `tako.yml` file is the heart of Tako.
-*   **Schema Versioning:** A `version` field will be included for future compatibility.
-*   **Artifact-centric Schema:**
+*   **Schema Versioning:** A `version` field will be included. Tako will be backward compatible with older schema versions to a documented extent.
 
     ```yaml
     # Version of the tako.yml schema
-    version: "1.1"
+    version: "1.2"
 
     # Metadata about the repository
     metadata:
       name: "my-service"
-      description: "Core API service"
 
     # Defines the artifacts this repository can produce for local testing.
     artifacts:
       api-client:
         description: "The generated Go API client"
-        # This build runs in a container to ensure the right tools are present.
-        image: "golang:1.21-alpine"
+        image: "golang:1.21-alpine" # Optional: build in a container
         command: "make generate-go-client"
         path: "./sdk/go/client.zip"
-        # How a dependent should consume THIS artifact.
-        # ${TAKO_ARTIFACT_PATH} is replaced by the absolute path to the artifact.
         install_command: "unzip -o ${TAKO_ARTIFACT_PATH} -d ./vendor/api-client"
+        # Optional: command to verify the artifact was installed correctly
+        verify_command: "go mod verify"
       docs:
         description: "The generated API documentation"
         command: "make generate-docs"
         path: "./dist/docs.tar.gz"
-        install_command: "tar -xzf ${TAKO_ARTIFACT_PATH} -C ./public/docs"
+        install_command: "tar -xzf ${TAKO_ARTIFACT_PATH} -C ./public/docs"    
 
     # Repositories that depend on this one.
     dependents:
       - repo: "my-org/client-a:main"
-        # This dependent needs the 'api-client' artifact.
         artifacts: ["api-client"]
         # Optionally, limit the workflows that are propagated to this dependent repo
         workflows: ["test-ci"]
       - repo: "my-org/docs-website:main"
         # This dependent needs the 'docs' artifact.
         artifacts: ["docs"]
-
+    
     # Pre-defined command sequences.
     workflows:
-      test-local:
-        # This workflow runs on the host machine.
-        steps:
-          - go clean -testcache
-          - go test ./...
       test-ci:
-        # This workflow runs inside a container for consistency.
         image: "golang:1.21-alpine"
+        # Optional: environment variables for the container
+        env:
+          CGO_ENABLED: "0"
+        # Optional: resource limits
+        resources:
+          cpu: "2"
+          memory: "4Gi"
         steps:
           - go test -v ./...
     ```
 
 ## 5. Security
-*   **Command Execution:** Tako executes shell commands defined in `tako.yml` files. This implies a level of trust in the repositories being used. A flag (e.g., `--allow-unsafe-workflows`) may be required to run potentially destructive workflows.
-*   **Path Validation:** All file paths read from configuration will be validated to prevent directory traversal attacks.
+*   **Command Execution:**  Tako executes shell commands defined in `tako.yml` files. This implies a level of trust in the repositories being used. A flag (e.g., `--allow-unsafe-workflows`) may be required to run potentially destructive workflows (TBD).
+*   **Path Validation:** All file paths will be validated to prevent directory traversal attacks.
 
 ---
 
@@ -144,13 +137,13 @@ The `tako.yml` file is the heart of Tako.
 ### Milestone 1: Project Foundation & Graphing
 *Goal: Establish the project and visualize the dependency graph.*
 1.  **Project Setup:** Initialize Go module, Cobra CLI, and directory structure.
-2.  **Configuration & Validation:** Implement `config` loading for `tako.yml`. Add validation for schema, paths, and cycles.
-3.  **Graph Construction:** Implement the `graph` package to build the dependency graph from a starting repository.
+2.  **Authentication & Repo Caching:** Implement basic Git authentication (SSH) and repository caching.
+3.  **Configuration & Validation:** Implement `config` loading for `tako.yml`. Add validation for schema, paths, and cycles.
 4.  **`tako graph` Command:** Implement the `tako graph` command with text and DOT output.
 
 ### Milestone 2: Basic Command Execution
 *Goal: Run a single command across all repositories.*
-1.  **Command Runner:** Implement the `runner` package with support for timeouts and interrupt handling.
+1.  **Command Runner:** Implement the `runner` package with support for timeouts, interrupt handling, and basic retry logic for transient errors.
 2.  **`tako run` Command:** Implement `tako run` with support for `--dry-run`, `--only`, and `--ignore`.
 3.  **Execution & Output:** Implement parallel execution with topological sorting and grouped output.
 
@@ -158,32 +151,30 @@ The `tako.yml` file is the heart of Tako.
 *Goal: Enable multi-step workflows and downstream testing.*
 1.  **Workflow Engine:** Extend the runner to execute multi-step workflows defined in `tako.yml`.
 2.  **Path-Override Logic:** Implement the file modification and guaranteed restoration logic for local testing.
-3.  **`tako exec` Command:** Implement the `tako exec` command to run workflows.
-4.  **Context Passing:** Implement environment variable context passing (`TAKO_...`).
+3.  **Artifact Caching:** Implement a basic artifact caching mechanism.
+4.  **`tako exec` Command:** Implement the `tako exec` command to run workflows.
 
 ### Milestone 4: Containerized Workflows & Builds
 *Goal: Enable reproducible builds by running workflows and artifact builds in Docker containers.*
-1.  **Docker Integration:** Implement the logic to detect an `image` property on workflows and artifacts, and execute the corresponding steps/commands using `docker run`.
-2.  **Volume Mounting:** Ensure the repository directory is correctly mounted into the container.
-3.  **Workspace & Artifacts:** Ensure that `TAKO_` environment variables and paths to dependent artifacts are correctly passed into the container.
+1.  **Docker Integration:** Implement the logic to detect an `image` property and execute commands using `docker run`.
+2.  **Volume Mounting & Artifact Handoff:** Ensure correct volume mounting and that artifacts can be passed between containers.
 
 ### Milestone 5: Polish & Developer Experience
 *Goal: Make Tako robust and user-friendly.*
-1.  **`tako init`:** Create a command to bootstrap a new `tako.yml` file.
-2.  **`tako doctor`:** Create a command to validate the workspace and configuration, including checking for Docker availability.
-3.  **Shell Completion:** Add shell completion support (bash, zsh, fish).
-4.  **Logging:** Implement a robust logging strategy with multiple levels (`info`, `debug`).
+1.  **`tako init` & `tako doctor`:** Implement the bootstrapping and health-check commands.
+2.  **Shell Completion:** Add shell completion support.
+3.  **Observability:** Implement OpenTelemetry for logging and metrics.
 
 ### Milestone 6: Distribution & Documentation
 *Goal: Prepare Tako for its first release.*
-1.  **Git Commands:** Implement the built-in convenience commands (`tako status`, etc.).
-2.  **CI/CD:** Set up GitHub Actions to build, run unit tests, and run integration tests (including containerized workflows).
-3.  **Release Automation:** Automate cross-platform binary builds and releases.
-4.  **Documentation:** Write a comprehensive user guide and create examples for both local and containerized workflows.
-5.  **Homebrew:** Create and document the Homebrew formula.
+1.  **CI/CD:** Set up GitHub Actions to build, run unit tests, and run integration tests.
+2.  **Release Automation:** Automate cross-platform binary builds and releases.
+3.  **Documentation:** Write a comprehensive user guide and create examples.
+4.  **Homebrew:** Create and document the Homebrew formula.
 
 ## 7. Future Features
 *   Watch mode for automatic rebuilds on file changes.
 *   A plugin system for custom command types and integrations.
 *   Caching of dependency resolution and build artifacts.
 *   Support for using local copies of dependent repositories.
+*   Remote mode, where Tako uploads the local workspace to an object store, and launches the workflow in a container orchestration service, like GKE.
