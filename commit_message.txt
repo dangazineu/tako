@@ -1,0 +1,8 @@
+test(ci): add project validation tests and fix failures
+
+This commit introduces a new test suite (all_test.go) to validate the project's health, checking for formatting, dependency consistency, and vulnerabilities.
+
+To make these new tests pass, the following fixes were implemented:
+- Formatting: Ran gofmt on tako_poc/validate_overrides.go.
+- Dependencies: Executed go mod tidy to clean up the go.mod file.
+- Security: Updated the Go version in go.mod to 1.24.4 to resolve a known vulnerability.
