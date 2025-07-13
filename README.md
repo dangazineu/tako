@@ -133,33 +133,36 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 
 ### Milestone 0: Research & Validation
 *Goal: Prove the core concepts with a minimal prototype.*
-1.  **Prototype:** Build a proof-of-concept script with 2-3 real repositories to validate the inverse dependency model and the path-based override mechanism.
-2.  **Refine Spec:** Adjust the specification based on prototype findings.
+1.  **Initialize Go Project:** Set up the basic Go module, Cobra CLI, and project structure.
+2.  **Prototype Core Logic:** Build a proof-of-concept script to validate the inverse dependency model and the path-based override mechanism.
+3.  **Refine Spec:** Adjust the specification based on prototype findings.
 
 ### Milestone 1: Project Foundation & Graphing
 *Goal: Establish the project and visualize the dependency graph.*
-1.  **Project Setup:** Initialize Go module, Cobra CLI, and directory structure.
-2.  **Authentication & Repo Caching:** Implement basic Git authentication (SSH) and repository caching.
-3.  **Configuration & Validation:** Implement `config` loading for `tako.yml`. Add validation for schema, paths, and cycles.
-4.  **`tako graph` Command:** Implement the `tako graph` command with text and DOT output.
+1.  **Repository Authentication & Caching:** Implement basic Git authentication (SSH) and repository caching.
+2.  **Configuration Validation (Basic & Semantic):** Implement multi-layered validation for `tako.yml` files, checking syntax, schema, and logical consistency.
+3.  **Graph Construction:** Implement the `graph` package to build the dependency graph, including cycle detection.
+4.  **`tako graph` Command:** Implement the `tako graph` command with both text and DOT output.
 
 ### Milestone 2: Basic Command Execution
-*Goal: Run a single command across all repositories.*
-1.  **Command Runner:** Implement the `runner` package with support for timeouts, interrupt handling, and basic retry logic for transient errors.
-2.  **`tako run` Command:** Implement `tako run` with support for `--dry-run`, `--only`, and `--ignore`.
-3.  **Execution & Output:** Implement parallel execution with topological sorting and grouped output.
+*Goal: Run a single command across all repositories with robust error handling.*
+1.  **`tako run` Command:** Implement the core `tako run` command.
+2.  **Error Handling Framework:** Implement structured error codes and a retry mechanism for transient network failures.
+3.  **Filtering & Dry Runs:** Add support for `--only`, `--ignore`, and `--dry-run` flags.
 
 ### Milestone 3: Workflows & Local Testing
-*Goal: Enable multi-step workflows and downstream testing.*
-1.  **Workflow Engine:** Extend the runner to execute multi-step workflows defined in `tako.yml`.
-2.  **Path-Override Logic:** Implement the file modification and guaranteed restoration logic for local testing.
-3.  **Artifact Caching:** Implement a basic artifact caching mechanism.
-4.  **`tako exec` Command:** Implement the `tako exec` command to run workflows.
+*Goal: Enable multi-step, artifact-aware workflows for downstream testing.*
+1.  **`tako exec` Command & Workflow Engine:** Implement the ability to run multi-step workflows from `tako.yml`.
+2.  **Artifact Caching:** Implement a cache for build artifacts to avoid redundant work.
+3.  **Artifact Building:** Implement the logic to build artifacts as defined in `tako.yml`.
+4.  **Configuration Modification:** Implement the crash-safe logic for modifying and restoring dependent configuration files.
+5.  **Downstream Execution:** Run workflows in the modified dependent repositories.
 
 ### Milestone 4: Containerized Workflows & Builds
 *Goal: Enable reproducible builds by running workflows and artifact builds in Docker containers.*
 1.  **Docker Integration:** Implement the logic to detect an `image` property and execute commands using `docker run`.
 2.  **Volume Mounting & Artifact Handoff:** Ensure correct volume mounting and that artifacts can be passed between containers.
+3.  **Resource & Network Controls:** Add support for configuring container CPU, memory, and network access.
 
 ### Milestone 5: Polish & Developer Experience
 *Goal: Make Tako robust and user-friendly.*
@@ -169,14 +172,13 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 
 ### Milestone 6: Distribution & Documentation
 *Goal: Prepare Tako for its first release.*
-1.  **CI/CD:** Set up GitHub Actions to build, run unit tests, and run integration tests.
-2.  **Release Automation:** Automate cross-platform binary builds and releases.
-3.  **Documentation:** Write a comprehensive user guide and create examples.
-4.  **Homebrew:** Create and document the Homebrew formula.
+1.  **Core Documentation:** Create the essential "Getting Started" guide and command references.
+2.  **Advanced Examples & Repos:** Create detailed examples for advanced features and set up public example repositories.
+3.  **CI/CD & Release Automation:** Set up GitHub Actions to build, test, and release cross-platform binaries with checksums.
 
 ## 7. Future Features
 *   Watch mode for automatic rebuilds on file changes.
 *   A plugin system for custom command types and integrations.
-*   Caching of dependency resolution and build artifacts.
 *   Support for using local copies of dependent repositories.
 *   Remote mode, where Tako uploads the local workspace to an object store, and launches the workflow in a container orchestration service, like GKE.
+*   A more advanced filtering syntax might be needed in the future to support ignoring a single repo without ignoring its downstream dependencies. For example, a flag like `--ignore-single <repo>` could be introduced.
