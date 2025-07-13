@@ -33,7 +33,7 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 
 ### 2.2. Dependency Graph
 *   **Definition:** The dependency graph is defined manually via `tako.yml` files within each repository.
-*   **Dependency Declaration:** The `tako.yml` file lists the repositories that *depend on* the current repository, specified in the format `owner/repo:branch`. This inverse declaration is crucial for propagating operations outwards.
+*   **Dependency Declaration:** The `tako.yml` file lists the repositories that *depend on* the current repository. This inverse declaration is crucial for propagating operations outwards. Each dependent is an object with a `repo` key in the format `owner/repo:branch`.
 *   **Multiple Dependencies (Fan-in):** The graph model fully supports scenarios where a single repository is a dependent of multiple upstream repositories (e.g., a web client depending on both an API service and a shared library). The topological sort execution model ensures that any given repository is processed only once per `tako` run, after all of its direct dependencies have completed their execution.
 *   **Circular Dependencies:** If a circular dependency is detected, Tako will refuse to operate and will output a clear error message identifying the cycle.
 
@@ -41,13 +41,15 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 *   **Order & Parallelism:** Operations are executed based on a topological sort of the dependency graph. Independent branches are processed in parallel by default (`--serial` flag available).
 *   **Error Handling & Recovery:**
     *   Execution halts on the first error by default. `--continue-on-error` and `--summarize-errors` flags provide more flexible control.
-    *   For path-based overrides, file restoration is guaranteed.
+    *   For path-based overrides, file restoration is guaranteed. Tako modifies the dependent's configuration file in place and uses a mechanism similar to Go's `defer` to ensure the file is restored to its original state, even if the command fails.
     *   For transient network errors (e.g., cloning a repo, pulling a container image), Tako will implement a configurable retry mechanism.
     *   Errors will be structured with unique codes (e.g., `TAKO_E001`) to aid in debugging and programmatic handling.
 *   **Observability:** Tako will use OpenTelemetry for logging and metrics. This will provide insights into command duration, successes, and failures, which can be exported to a variety of backends.
 
 ### 2.4. Inter-Repository Artifacts & Local Testing
-*   **Mechanism:** Tako uses a **Path-Based Override** strategy, managed through an `artifacts` block in the `tako.yml` of the source repository.
+*   **Mechanism:** Tako uses a **Path-Based Override** strategy, managed through an `artifacts` block in the `tako.yml` of the source repository. When a dependent repository needs an artifact, Tako will:
+    1.  Build the artifact in the source repository.
+    2.  Execute the `install_command` in the dependent repository's directory. The `install_command` is a shell command that can use the `${TAKO_ARTIFACT_PATH}` environment variable to access the built artifact.
 *   **Artifact Caching:**
     *   To avoid redundant builds, Tako will cache generated artifacts. The cache key should be a hash of the artifact's build command, its source files, and the git commit of the repository. This ensures that artifacts are only rebuilt when their inputs change.
 *   **Version Conflicts:**
@@ -101,6 +103,7 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
     # Repositories that depend on this one.
     dependents:
       - repo: "my-org/client-a:main"
+        # A list of artifact names defined in the `artifacts` block.
         artifacts: ["api-client"]
         # Optionally, limit the workflows that are propagated to this dependent repo
         workflows: ["test-ci"]
