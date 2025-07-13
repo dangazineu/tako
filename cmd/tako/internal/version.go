@@ -23,7 +23,7 @@ var versionCmd = &cobra.Command{
 
 func Version(_ *cobra.Command, _ []string) {
 	if version, err := deriveVersion(); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "%q", err)
+		_, _ = fmt.Fprintf(os.Stderr, "%q\n", err)
 	} else {
 		fmt.Println(version)
 	}
