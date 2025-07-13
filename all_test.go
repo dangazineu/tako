@@ -33,6 +33,14 @@ func TestGovulncheck(t *testing.T) {
 	rungo(t, "run", "golang.org/x/vuln/cmd/govulncheck@latest", "./...")
 }
 
+func TestGodocLint(t *testing.T) {
+	rungo(t, "run", "github.com/godoc-lint/godoc-lint/cmd/godoclint@latest", "./...")
+}
+
+func TestCoverage(t *testing.T) {
+	rungo(t, "test", "-coverprofile=coverage.out", "./internal/...", "./cmd/...")
+}
+
 func rungo(t *testing.T, args ...string) {
 	t.Helper()
 
