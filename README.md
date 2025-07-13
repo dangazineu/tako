@@ -183,5 +183,5 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 *   Watch mode for automatic rebuilds on file changes.
 *   A plugin system for custom command types and integrations.
 *   Support for using local copies of dependent repositories.
-*   Remote mode, where Tako uploads the local workspace to an object store, and launches the workflow in a container orchestration service, like GKE.
+*   **Asynchronous, Observable Workflows:** A "remote mode" where Tako can execute long-running, asynchronous workflows in a cloud environment. This would transform Tako into a powerful automation platform with features like human-in-the-loop approvals and a centralized web UI for observing progress. See issue #47 for the detailed vision.
 *   A more advanced filtering syntax might be needed in the future to support ignoring a single repo without ignoring its downstream dependencies. For example, a flag like `--ignore-single <repo>` could be introduced.
