@@ -6,6 +6,7 @@ import (
 	"github.com/dangazineu/tako/internal/git"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -64,11 +65,24 @@ func buildGraphRecursive(path string, visited map[string]*Node) (*Node, error) {
 
 var Clone = git.Clone
 
+// getRepoPath resolves the local path to a dependent repository.
+//
+// If the repo path is relative (starts with "."), it is resolved relative to the
+// current repository's path.
+//
+// If the repo path is a remote repository (e.g., "owner/repo:branch"), it is
+// resolved to a standard location within the Tako cache
+// (`~/.tako/cache/repos/owner/repo`).
+//
+// If the repository does not exist in the cache, it is cloned from GitHub. If it
+// already exists, it is updated with a `git pull`.
 func getRepoPath(repo string, currentPath string) (string, error) {
 	if strings.HasPrefix(repo, ".") {
+		// Local path - resolve relative to current path
 		return filepath.Clean(filepath.Join(currentPath, strings.Split(repo, ":")[0])), nil
 	}
 
+	// Remote repository - use cache directory
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get home dir: %w", err)
@@ -86,6 +100,12 @@ func getRepoPath(repo string, currentPath string) (string, error) {
 		cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", repoOwner, repoName)
 		if err := Clone(cloneURL, repoPath); err != nil {
 			return "", err
+		}
+	} else {
+		// Repository exists, update it
+		cmd := exec.Command("git", "-C", repoPath, "pull")
+		if err := cmd.Run(); err != nil {
+			return "", fmt.Errorf("failed to update repo %s: %w", repo, err)
 		}
 	}
 

@@ -119,6 +119,46 @@ dependents: []
 			},
 		},
 	},
+	"deep-graph": {
+		Name: "deep-graph",
+		Repositories: []Repository{
+			{
+				Name: "repo-x",
+				Files: map[string]string{
+					"tako.yml": `
+version: 0.1.0
+metadata:
+  name: repo-x
+dependents:
+  - repo: tako-test/repo-y:main
+`,
+				},
+			},
+			{
+				Name: "repo-y",
+				Files: map[string]string{
+					"tako.yml": `
+version: 0.1.0
+metadata:
+  name: repo-y
+dependents:
+  - repo: tako-test/repo-z:main
+`,
+				},
+			},
+			{
+				Name: "repo-z",
+				Files: map[string]string{
+					"tako.yml": `
+version: 0.1.0
+metadata:
+  name: repo-z
+dependents: []
+`,
+				},
+			},
+		},
+	},
 }
 
 func GetClient() (*github.Client, error) {
@@ -164,20 +204,29 @@ func (tc *TestCase) Setup(client *github.Client) error {
 	return nil
 }
 
-func (tc *TestCase) SetupLocal(baseDir string) error {
+func (tc *TestCase) SetupLocal() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	cacheDir := filepath.Join(homeDir, ".tako", "cache", "repos")
+	testCaseDir := filepath.Join(cacheDir, Org, tc.Name)
+	os.RemoveAll(testCaseDir)
+	os.MkdirAll(testCaseDir, 0755)
+
 	for _, repo := range tc.Repositories {
-		repoPath := filepath.Join(baseDir, repo.Name)
+		repoPath := filepath.Join(testCaseDir, repo.Name)
 		os.MkdirAll(repoPath, 0755)
 		for path, content := range repo.Files {
 			filePath := filepath.Join(repoPath, path)
 			os.MkdirAll(filepath.Dir(filePath), 0755)
 			err := os.WriteFile(filePath, []byte(content), 0644)
 			if err != nil {
-				return err
+				return "", err
 			}
 		}
 	}
-	return nil
+	return testCaseDir, nil
 }
 
 func (tc *TestCase) Cleanup(client *github.Client) error {

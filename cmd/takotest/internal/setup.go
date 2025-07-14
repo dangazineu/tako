@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/dangazineu/tako/test/e2e"
 	"github.com/spf13/cobra"
-	"os"
 )
 
 func NewSetupCmd() *cobra.Command {
@@ -21,12 +20,13 @@ func NewSetupCmd() *cobra.Command {
 			}
 
 			if local {
-				tmpDir, err := os.MkdirTemp("", "tako-test")
+				fmt.Printf("Setting up local test case\n")
+				testCaseDir, err := testCase.SetupLocal()
 				if err != nil {
 					return err
 				}
-				fmt.Printf("Setting up local test case in: %s\n", tmpDir)
-				return testCase.SetupLocal(tmpDir)
+				fmt.Printf("Test case set up in: %s\n", testCaseDir)
+				return nil
 			}
 
 			client, err := e2e.GetClient()

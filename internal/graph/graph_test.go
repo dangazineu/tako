@@ -53,14 +53,14 @@ version: 0.1.0
 metadata:
   name: repo-a
 dependents:
-  - repo: ../repo-b
+  - repo: ../repo-b:main
 `
 	takoB := `
 version: 0.1.0
 metadata:
   name: repo-b
 dependents:
-  - repo: ../repo-c
+  - repo: ../repo-c:main
 `
 	takoC := `
 version: 0.1.0
