@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -59,13 +60,57 @@ func Load(path string) (*TakoConfig, error) {
 		return nil, fmt.Errorf("could not unmarshal config: %w", err)
 	}
 
-	if config.Version == "" {
-		return nil, fmt.Errorf("missing required field: version")
-	}
-
-	if config.Dependents == nil {
-		return nil, fmt.Errorf("missing required field: dependents")
+	if err := validate(&config); err != nil {
+		return nil, err
 	}
 
 	return &config, nil
+}
+
+func validate(config *TakoConfig) error {
+	if config.Version == "" {
+		return fmt.Errorf("missing required field: version")
+	}
+
+	if config.Dependents == nil {
+		return fmt.Errorf("missing required field: dependents")
+	}
+
+	for _, dependent := range config.Dependents {
+		if err := validateRepoFormat(dependent.Repo); err != nil {
+			return err
+		}
+		if err := validateArtifacts(dependent.Artifacts, config.Artifacts); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateRepoFormat(repo string) error {
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid repo format: %s", repo)
+	}
+	if !strings.Contains(parts[1], ":") {
+		return fmt.Errorf("invalid repo format, missing branch: %s", repo)
+	}
+	return nil
+}
+
+func validateArtifacts(dependentArtifacts []string, definedArtifacts []Artifact) error {
+	for _, dependentArtifact := range dependentArtifacts {
+		found := false
+		for _, definedArtifact := range definedArtifacts {
+			if dependentArtifact == definedArtifact.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("dependent artifact not found: %s", dependentArtifact)
+		}
+	}
+	return nil
 }

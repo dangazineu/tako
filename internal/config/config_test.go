@@ -7,15 +7,24 @@ import (
 	"testing"
 )
 
-func buildYAML(version *string, dependents []string) string {
+func buildYAML(version *string, dependents []string, artifacts []string, dependentArtifacts []string) string {
 	var sb strings.Builder
 	if version != nil {
 		sb.WriteString(fmt.Sprintf("version: %q\n", *version))
 	}
+	if artifacts != nil {
+		sb.WriteString("artifacts:\n")
+		for _, a := range artifacts {
+			sb.WriteString(fmt.Sprintf("  - name: %q\n", a))
+		}
+	}
 	if dependents != nil {
 		sb.WriteString("dependents:\n")
-		for _, d := range dependents {
+		for i, d := range dependents {
 			sb.WriteString(fmt.Sprintf("  - repo: %q\n", d))
+			if dependentArtifacts != nil && i < len(dependentArtifacts) {
+				sb.WriteString(fmt.Sprintf("    artifacts: [%q]\n", dependentArtifacts[i]))
+			}
 		}
 	}
 	return sb.String()
@@ -27,11 +36,13 @@ func stringPtr(s string) *string {
 
 func TestLoad(t *testing.T) {
 	testCases := []struct {
-		name        string
-		version     *string
-		dependents  []string
-		extra       string
-		expectError bool
+		name               string
+		version            *string
+		dependents         []string
+		artifacts          []string
+		dependentArtifacts  []string
+		extra              string
+		expectError        bool
 	}{
 		{
 			name:        "valid config",
@@ -58,6 +69,26 @@ func TestLoad(t *testing.T) {
 			extra:       "  - invalid",
 			expectError: true,
 		},
+		{
+			name:        "invalid repo format",
+			version:     stringPtr("1.2"),
+			dependents:  []string{"my-org-client-a:main"},
+			expectError: true,
+		},
+		{
+			name:        "invalid repo format no branch",
+			version:     stringPtr("1.2"),
+			dependents:  []string{"my-org/client-a"},
+			expectError: true,
+		},
+		{
+			name:               "dependent artifact not found",
+			version:            stringPtr("1.2"),
+			dependents:         []string{"my-org/client-a:main"},
+			artifacts:          []string{"art-a"},
+			dependentArtifacts: []string{"art-b"},
+			expectError:        true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -68,7 +99,7 @@ func TestLoad(t *testing.T) {
 			}
 			defer os.Remove(tmpfile.Name())
 
-			content := buildYAML(tc.version, tc.dependents) + tc.extra
+			content := buildYAML(tc.version, tc.dependents, tc.artifacts, tc.dependentArtifacts) + tc.extra
 			if _, err := tmpfile.Write([]byte(content)); err != nil {
 				t.Fatal(err)
 			}
