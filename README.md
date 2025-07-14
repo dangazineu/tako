@@ -179,58 +179,91 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 2.  **Advanced Examples & Repos:** Create detailed examples for advanced features and set up public example repositories.
 3.  **CI/CD & Release Automation:** Set up GitHub Actions to build, test, and release cross-platform binaries with checksums.
 
-## 8. E2E Testing
+## 8. Testing
 
-This project includes a set of end-to-end (E2E) tests that create and interact with real GitHub repositories.
+This project includes a comprehensive suite of tests to ensure the quality and correctness of the code.
 
-### Prerequisites
+### Running Unit Tests
 
-- A GitHub Personal Access Token with `repo` and `delete_repo` scopes.
-- The `GITHUB_PERSONAL_ACCESS_TOKEN` environment variable must be set to your token.
+To run the unit tests, use the following command:
 
-### Running the Tests Manually
+```bash
+go test ./...
+```
 
-1.  **Install the tools:**
+### Running End-to-End (E2E) Tests
 
-    ```bash
-    go install ./cmd/tako
-    go install ./cmd/takotest
-    ```
+The E2E tests create and interact with real GitHub repositories. They are designed to be run in two modes: `local` and `remote`.
 
-2.  **Set up the test environment:**
+**Prerequisites for Remote Tests:**
 
-    This command will create the necessary repositories in the `tako-test` organization on GitHub.
+*   A GitHub Personal Access Token with `repo` and `delete_repo` scopes.
+*   The `GITHUB_PERSONAL_ACCESS_TOKEN` environment variable must be set to your token.
 
-    ```bash
-    takotest setup simple-graph
-    ```
+**Running All E2E Tests:**
 
-3.  **Run the `tako graph` command:**
+To run all E2E tests in both local and remote mode, use the following command:
 
-    ```bash
-    # Clone the test repository
-    git clone https://github.com/tako-test/repo-a.git /tmp/tako-e2e-test
+```bash
+go test -v -tags=e2e ./...
+```
 
-    # Navigate into the repository
-    cd /tmp/tako-e2e-test
+**Running Only Local E2E Tests:**
 
-    # Run the command
-    tako graph
-    ```
+To run only the local E2E tests (which do not require a GitHub token), use the `-short` flag:
 
-    Expected output:
-    ```
-    repo-a
-    └── repo-b
-    ```
+```bash
+go test -v -tags=e2e -short ./...
+```
 
-4.  **Clean up the test environment:**
+### Manual Verification
 
-    This command will delete the repositories created in the setup step.
+To manually verify the application's behavior, you can use the `takotest` CLI tool to set up and tear down the test infrastructure.
 
-    ```bash
-    takotest cleanup simple-graph
-    ```
+**1. Install the tools:**
+
+```bash
+go install ./cmd/tako
+go install ./cmd/takotest
+```
+
+**2. Set up the test environment:**
+
+To set up the test environment on your local filesystem, use the `--local` flag:
+
+```bash
+takotest setup deep-graph --local
+```
+
+To set up the test environment on GitHub, make sure your `GITHUB_PERSONAL_ACCESS_TOKEN` is set and run:
+
+```bash
+takotest setup deep-graph
+```
+
+**3. Run the `tako graph` command:**
+
+If you are testing locally, the path to the test case will be printed to the console. You can then run:
+
+```bash
+tako graph --root <path-to-test-case>/repo-x
+```
+
+If you are testing remotely, you can clone the repository and run the command:
+
+```bash
+git clone https://github.com/tako-test/repo-x.git /tmp/tako-e2e-test
+cd /tmp/tako-e2e-test
+tako graph
+```
+
+**4. Clean up the test environment:**
+
+To clean up the remote test environment, run:
+
+```bash
+takotest cleanup deep-graph
+```
 
 ## 7. Future Features
 *   Watch mode for automatic rebuilds on file changes.
