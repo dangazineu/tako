@@ -19,7 +19,8 @@ func NewGraphCmd() *cobra.Command {
 					return err
 				}
 			}
-			root, err := graph.BuildGraph(rootPath)
+			localOnly, _ := cmd.Flags().GetBool("local")
+			root, err := graph.BuildGraph(rootPath, localOnly)
 			if err != nil {
 				return err
 			}
@@ -28,5 +29,6 @@ func NewGraphCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("root", "", "The root directory of the project")
+	cmd.Flags().Bool("local", false, "Only use local repositories, do not clone or update remote repositories")
 	return cmd
 }

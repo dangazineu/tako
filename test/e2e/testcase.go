@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/go-github/v63/github"
@@ -159,6 +160,71 @@ dependents: []
 			},
 		},
 	},
+	"diamond-dependency-graph": {
+		Name: "diamond-dependency-graph",
+		Repositories: []Repository{
+			{
+				Name: "repo-a",
+				Files: map[string]string{
+					"tako.yml": `
+version: 0.1.0
+metadata:
+  name: repo-a
+dependents:
+  - repo: tako-test/repo-b:main
+  - repo: tako-test/repo-d:main
+`,
+				},
+			},
+			{
+				Name: "repo-b",
+				Files: map[string]string{
+					"tako.yml": `
+version: 0.1.0
+metadata:
+  name: repo-b
+dependents:
+  - repo: tako-test/repo-c:main
+`,
+				},
+			},
+			{
+				Name: "repo-c",
+				Files: map[string]string{
+					"tako.yml": `
+version: 0.1.0
+metadata:
+  name: repo-c
+dependents:
+  - repo: tako-test/repo-e:main
+`,
+				},
+			},
+			{
+				Name: "repo-d",
+				Files: map[string]string{
+					"tako.yml": `
+version: 0.1.0
+metadata:
+  name: repo-d
+dependents:
+  - repo: tako-test/repo-e:main
+`,
+				},
+			},
+			{
+				Name: "repo-e",
+				Files: map[string]string{
+					"tako.yml": `
+version: 0.1.0
+metadata:
+  name: repo-e
+dependents: []
+`,
+				},
+			},
+		},
+	},
 }
 
 func GetClient() (*github.Client, error) {
@@ -194,6 +260,7 @@ func (tc *TestCase) Setup(client *github.Client) error {
 			_, _, err := client.Repositories.CreateFile(context.Background(), Org, repo.Name, path, &github.RepositoryContentFileOptions{
 				Message: github.String("initial commit"),
 				Content: []byte(content),
+				Branch:  github.String("main"),
 			})
 			if err != nil {
 				return err
@@ -205,28 +272,30 @@ func (tc *TestCase) Setup(client *github.Client) error {
 }
 
 func (tc *TestCase) SetupLocal() (string, error) {
-	homeDir, err := os.UserHomeDir()
+	tmpDir, err := os.MkdirTemp("", tc.Name)
 	if err != nil {
 		return "", err
 	}
-	cacheDir := filepath.Join(homeDir, ".tako", "cache", "repos")
-	testCaseDir := filepath.Join(cacheDir, Org, tc.Name)
-	os.RemoveAll(testCaseDir)
-	os.MkdirAll(testCaseDir, 0755)
 
 	for _, repo := range tc.Repositories {
-		repoPath := filepath.Join(testCaseDir, repo.Name)
+		repoPath := filepath.Join(tmpDir, repo.Name)
 		os.MkdirAll(repoPath, 0755)
 		for path, content := range repo.Files {
 			filePath := filepath.Join(repoPath, path)
 			os.MkdirAll(filepath.Dir(filePath), 0755)
+
+			// Modify the content for local testing
+			if strings.Contains(content, "tako-test/") {
+				content = strings.ReplaceAll(content, "tako-test/", "../")
+			}
+
 			err := os.WriteFile(filePath, []byte(content), 0644)
 			if err != nil {
 				return "", err
 			}
 		}
 	}
-	return testCaseDir, nil
+	return tmpDir, nil
 }
 
 func (tc *TestCase) Cleanup(client *github.Client) error {

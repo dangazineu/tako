@@ -21,11 +21,11 @@ func (n *Node) AddChild(child *Node) {
 	n.Children = append(n.Children, child)
 }
 
-func BuildGraph(path string) (*Node, error) {
-	return buildGraphRecursive(path, make(map[string]*Node))
+func BuildGraph(path string, localOnly bool) (*Node, error) {
+	return buildGraphRecursive(path, make(map[string]*Node), localOnly)
 }
 
-func buildGraphRecursive(path string, visited map[string]*Node) (*Node, error) {
+func buildGraphRecursive(path string, visited map[string]*Node, localOnly bool) (*Node, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get absolute path: %w", err)
@@ -47,12 +47,12 @@ func buildGraphRecursive(path string, visited map[string]*Node) (*Node, error) {
 	visited[absPath] = root
 
 	for _, dependent := range cfg.Dependents {
-		repoPath, err := getRepoPath(dependent.Repo, absPath)
+		repoPath, err := getRepoPath(dependent.Repo, absPath, localOnly)
 		if err != nil {
 			return nil, err
 		}
 
-		child, err := buildGraphRecursive(repoPath, visited)
+		child, err := buildGraphRecursive(repoPath, visited, localOnly)
 		if err != nil {
 			// For now, just skip if the dependent is not found
 			continue
@@ -76,40 +76,52 @@ var Clone = git.Clone
 //
 // If the repository does not exist in the cache, it is cloned from GitHub. If it
 // already exists, it is updated with a `git pull`.
-func getRepoPath(repo string, currentPath string) (string, error) {
+func getRepoPath(repo string, currentPath string, localOnly bool) (string, error) {
 	if strings.HasPrefix(repo, ".") {
-		// Local path - resolve relative to current path
+		// Local relative path - always resolve relative to current path
 		return filepath.Clean(filepath.Join(currentPath, strings.Split(repo, ":")[0])), nil
 	}
 
-	// Remote repository - use cache directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home dir: %w", err)
-	}
-	cacheDir := filepath.Join(homeDir, ".tako", "cache", "repos")
-
-	repoParts := strings.Split(repo, "/")
-	repoOwner := repoParts[0]
-	repoName := strings.Split(repoParts[1], ":")[0]
-
-	repoPath := filepath.Join(cacheDir, repoOwner, repoName)
-
-	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
-		// Repository does not exist, clone it
-		cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", repoOwner, repoName)
-		if err := Clone(cloneURL, repoPath); err != nil {
-			return "", err
+	if strings.Contains(repo, "/") {
+		// Remote repository reference (e.g., "tako-test/repo-y:main")
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get home dir: %w", err)
 		}
-	} else {
-		// Repository exists, update it
-		cmd := exec.Command("git", "-C", repoPath, "pull")
-		if err := cmd.Run(); err != nil {
-			return "", fmt.Errorf("failed to update repo %s: %w", repo, err)
+
+		repoParts := strings.Split(repo, "/")
+		if len(repoParts) < 2 {
+			return "", fmt.Errorf("invalid remote repository format: %s", repo)
+		}
+		repoOwner := repoParts[0]
+		repoName := strings.Split(repoParts[1], ":")[0]
+		repoPath := filepath.Join(homeDir, ".tako", "cache", "repos", repoOwner, repoName)
+
+		if localOnly {
+			// In local mode, only use if it exists in cache
+			if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+				return "", fmt.Errorf("repository %s not found in cache (local mode)", repo)
+			}
+			return repoPath, nil
+		} else {
+			// In remote mode, clone/update as needed (current behavior)
+			if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+				cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", repoOwner, repoName)
+				if err := Clone(cloneURL, repoPath); err != nil {
+					return "", err
+				}
+			} else {
+				cmd := exec.Command("git", "-C", repoPath, "pull")
+				if err := cmd.Run(); err != nil {
+					return "", fmt.Errorf("failed to update repo %s: %w", repo, err)
+				}
+			}
+			return repoPath, nil
 		}
 	}
 
-	return repoPath, nil
+	// Fallback for other patterns - treat as local relative path
+	return filepath.Clean(filepath.Join(currentPath, strings.Split(repo, ":")[0])), nil
 }
 
 func PrintGraph(w io.Writer, node *Node) {

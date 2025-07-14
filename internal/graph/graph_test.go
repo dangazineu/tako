@@ -81,8 +81,8 @@ dependents: []
 		t.Fatalf("failed to write tako.yml: %v", err)
 	}
 
-	// Build the graph
-	root, err := graph.BuildGraph(repoA)
+	// Build the graph in local-only mode
+	root, err := graph.BuildGraph(repoA, true)
 	if err != nil {
 		t.Fatalf("failed to build graph: %v", err)
 	}
