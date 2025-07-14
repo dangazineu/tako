@@ -14,6 +14,10 @@ var rootCmd = &cobra.Command{
 It allows you to run commands across your repositories in the correct order, ensuring that changes are built, tested, and released reliably.`,
 }
 
+func init() {
+	rootCmd.AddCommand(NewGraphCmd())
+}
+
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)

@@ -179,6 +179,59 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 2.  **Advanced Examples & Repos:** Create detailed examples for advanced features and set up public example repositories.
 3.  **CI/CD & Release Automation:** Set up GitHub Actions to build, test, and release cross-platform binaries with checksums.
 
+## 8. E2E Testing
+
+This project includes a set of end-to-end (E2E) tests that create and interact with real GitHub repositories.
+
+### Prerequisites
+
+- A GitHub Personal Access Token with `repo` and `delete_repo` scopes.
+- The `GITHUB_PERSONAL_ACCESS_TOKEN` environment variable must be set to your token.
+
+### Running the Tests Manually
+
+1.  **Install the tools:**
+
+    ```bash
+    go install ./cmd/tako
+    go install ./cmd/takotest
+    ```
+
+2.  **Set up the test environment:**
+
+    This command will create the necessary repositories in the `tako-test` organization on GitHub.
+
+    ```bash
+    takotest setup simple-graph
+    ```
+
+3.  **Run the `tako graph` command:**
+
+    ```bash
+    # Clone the test repository
+    git clone https://github.com/tako-test/repo-a.git /tmp/tako-e2e-test
+
+    # Navigate into the repository
+    cd /tmp/tako-e2e-test
+
+    # Run the command
+    tako graph
+    ```
+
+    Expected output:
+    ```
+    repo-a
+    └── repo-b
+    ```
+
+4.  **Clean up the test environment:**
+
+    This command will delete the repositories created in the setup step.
+
+    ```bash
+    takotest cleanup simple-graph
+    ```
+
 ## 7. Future Features
 *   Watch mode for automatic rebuilds on file changes.
 *   A plugin system for custom command types and integrations.
