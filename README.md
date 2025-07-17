@@ -208,20 +208,20 @@ The E2E tests create and interact with real GitHub repositories. They are design
 *   A GitHub Personal Access Token with `repo` and `delete_repo` scopes.
 *   The `GITHUB_PERSONAL_ACCESS_TOKEN` environment variable must be set to your token.
 
-**Running All E2E Tests:**
+**Running E2E Tests:**
 
-To run all E2E tests in both local and remote mode, use the following command:
+To run the E2E tests, you must specify either the `--local` or `--remote` flag.
+
+To run the local E2E tests (which do not require a GitHub token), use the `--local` flag:
 
 ```bash
-go test -v -tags=e2e ./...
+go test -v -tags=e2e --local ./...
 ```
 
-**Running Only Local E2E Tests:**
-
-To run only the local E2E tests (which do not require a GitHub token), set the `CI` environment variable to `true`:
+To run the remote E2E tests, use the `--remote` flag:
 
 ```bash
-CI=true go test -v -tags=e2e ./...
+go test -v -tags=e2e --remote ./...
 ```
 
 ### Manual Verification

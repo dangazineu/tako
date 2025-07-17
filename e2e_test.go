@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,11 @@ import (
 	"testing"
 
 	"github.com/dangazineu/tako/test/e2e"
+)
+
+var (
+	local  = flag.Bool("local", false, "run local tests")
+	remote = flag.Bool("remote", false, "run remote tests")
 )
 
 func findProjectRoot(start string) string {
@@ -29,18 +35,22 @@ func findProjectRoot(start string) string {
 }
 
 func TestE2E(t *testing.T) {
+	if !*local && !*remote {
+		t.Fatal("either -local or -remote must be set")
+	}
 	for name, tc := range e2e.TestCases {
 		tc := tc // capture range variable
 		t.Run(name, func(t *testing.T) {
-			t.Run("local", func(t *testing.T) {
-				runTest(t, &tc, "local")
-			})
-			t.Run("remote", func(t *testing.T) {
-				if os.Getenv("CI") != "" {
-					t.Skip("skipping remote test in CI environment")
-				}
-				runTest(t, &tc, "remote")
-			})
+			if *local {
+				t.Run("local", func(t *testing.T) {
+					runTest(t, &tc, "local")
+				})
+			}
+			if *remote {
+				t.Run("remote", func(t *testing.T) {
+					runTest(t, &tc, "remote")
+				})
+			}
 		})
 	}
 }
