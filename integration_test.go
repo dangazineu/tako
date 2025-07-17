@@ -1,8 +1,11 @@
+//go:build integration
+
 package main_test
 
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os/exec"
 	"testing"
 )
@@ -38,7 +41,44 @@ func TestGodocLint(t *testing.T) {
 }
 
 func TestCoverage(t *testing.T) {
-	rungo(t, "test", "-coverprofile=coverage.out", "./internal/...", "./cmd/...")
+	rungo(t, "test", "-coverprofile=coverage.out", "./internal/...", "./cmd/tako/...")
+
+	// Check coverage
+	out, err := exec.Command("go", "tool", "cover", "-func=coverage.out").Output()
+	if err != nil {
+		t.Fatalf("failed to get coverage: %v", err)
+	}
+
+	if testing.Verbose() {
+		t.Logf("Coverage per function:\n%s", out)
+	}
+
+	// Get total coverage
+	totalCoverage := 0.0
+	lines := bytes.Split(out, []byte("\n"))
+	for _, line := range lines {
+		if bytes.HasPrefix(line, []byte("total:")) {
+			fields := bytes.Fields(line)
+			if len(fields) > 2 {
+				coverageStr := bytes.TrimSuffix(fields[2], []byte("%"))
+				_, err := sscanf(string(coverageStr), "%f", &totalCoverage)
+				if err != nil {
+					t.Fatalf("failed to parse total coverage: %v", err)
+				}
+				break
+			}
+		}
+	}
+
+	if totalCoverage < 70.0 {
+		t.Errorf("expected coverage to be at least 70.0%%, got %.1f%%", totalCoverage)
+	}
+}
+
+// sscanf is a simple implementation of sscanf
+func sscanf(str, format string, a ...interface{}) (int, error) {
+	n, err := fmt.Sscanf(str, format, a...)
+	return n, err
 }
 
 func rungo(t *testing.T, args ...string) {

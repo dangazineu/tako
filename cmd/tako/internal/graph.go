@@ -20,7 +20,8 @@ func NewGraphCmd() *cobra.Command {
 				}
 			}
 			localOnly, _ := cmd.Flags().GetBool("local")
-			root, err := graph.BuildGraph(rootPath, localOnly)
+			cacheDir, _ := cmd.Flags().GetString("cache-dir")
+			root, err := graph.BuildGraph(rootPath, cacheDir, localOnly)
 			if err != nil {
 				return err
 			}

@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,11 @@ import (
 	"testing"
 
 	"github.com/dangazineu/tako/test/e2e"
+)
+
+var (
+	local  = flag.Bool("local", false, "run local tests")
+	remote = flag.Bool("remote", false, "run remote tests")
 )
 
 func findProjectRoot(start string) string {
@@ -29,18 +35,22 @@ func findProjectRoot(start string) string {
 }
 
 func TestE2E(t *testing.T) {
+	if !*local && !*remote {
+		t.Fatal("either -local or -remote must be set")
+	}
 	for name, tc := range e2e.TestCases {
 		tc := tc // capture range variable
 		t.Run(name, func(t *testing.T) {
-			t.Run("local", func(t *testing.T) {
-				runTest(t, &tc, "local")
-			})
-			t.Run("remote", func(t *testing.T) {
-				if testing.Short() {
-					t.Skip("skipping remote test in short mode")
-				}
-				runTest(t, &tc, "remote")
-			})
+			if *local {
+				t.Run("local", func(t *testing.T) {
+					runTest(t, &tc, "local")
+				})
+			}
+			if *remote {
+				t.Run("remote", func(t *testing.T) {
+					runTest(t, &tc, "remote")
+				})
+			}
 		})
 	}
 }
@@ -55,12 +65,6 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 			t.Fatalf("failed to setup local test case: %v", err)
 		}
 	} else {
-		// Clear cache before remote tests to avoid inconsistent state
-		homeDir, err := os.UserHomeDir()
-		if err == nil {
-			os.RemoveAll(filepath.Join(homeDir, ".tako", "cache", "repos", "tako-test"))
-		}
-
 		client, err := e2e.GetClient()
 		if err != nil {
 			t.Fatalf("failed to get github client: %v", err)
@@ -83,7 +87,11 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 	}
 
 	// Build the tako binary
-	takoPath := filepath.Join(t.TempDir(), "tako")
+	takoBinaryDir := t.TempDir()
+	t.Cleanup(func() {
+		os.RemoveAll(takoBinaryDir)
+	})
+	takoPath := filepath.Join(takoBinaryDir, "tako")
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("failed to get working directory: %v", err)
@@ -112,7 +120,11 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 		// For remote mode, testCaseDir is the cloned repository root
 		rootPath = testCaseDir
 	}
-	takoCmd := exec.Command(takoPath, "graph", "--root", rootPath)
+	cacheDir := t.TempDir()
+	t.Cleanup(func() {
+		os.RemoveAll(cacheDir)
+	})
+	takoCmd := exec.Command(takoPath, "graph", "--root", rootPath, "--cache-dir", cacheDir)
 	takoCmd.Stdout = &out
 	takoCmd.Stderr = &out
 	err = takoCmd.Run()
