@@ -89,6 +89,10 @@ func validate(config *TakoConfig) error {
 }
 
 func validateRepoFormat(repo string) error {
+	// Local paths are not validated
+	if strings.HasPrefix(repo, ".") {
+		return nil
+	}
 	parts := strings.Split(repo, "/")
 	if len(parts) != 2 {
 		return fmt.Errorf("invalid repo format: %s", repo)

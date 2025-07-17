@@ -40,7 +40,7 @@ func TestLoad(t *testing.T) {
 		version            *string
 		dependents         []string
 		artifacts          []string
-		dependentArtifacts  []string
+		dependentArtifacts []string
 		extra              string
 		expectError        bool
 	}{

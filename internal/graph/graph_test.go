@@ -1,0 +1,108 @@
+package graph_test
+
+import (
+	"bytes"
+	"github.com/dangazineu/tako/internal/graph"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestPrintGraph(t *testing.T) {
+	root := &graph.Node{
+		Name: "root",
+		Children: []*graph.Node{
+			{
+				Name: "child1",
+				Children: []*graph.Node{
+					{Name: "grandchild"},
+				},
+			},
+			{Name: "child2"},
+		},
+	}
+
+	var buf bytes.Buffer
+	graph.PrintGraph(&buf, root)
+
+	expected := `root
+├── child1
+│   └── grandchild
+└── child2
+`
+	if expected != buf.String() {
+		t.Errorf("expected %q, got %q", expected, buf.String())
+	}
+}
+
+func TestBuildGraph(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create mock repositories
+	repoA := filepath.Join(tmpDir, "repo-a")
+	repoB := filepath.Join(tmpDir, "repo-b")
+	repoC := filepath.Join(tmpDir, "repo-c")
+
+	os.Mkdir(repoA, 0755)
+	os.Mkdir(repoB, 0755)
+	os.Mkdir(repoC, 0755)
+
+	// Create mock tako.yml files
+	takoA := `
+version: 0.1.0
+metadata:
+  name: repo-a
+dependents:
+  - repo: ../repo-b:main
+`
+	takoB := `
+version: 0.1.0
+metadata:
+  name: repo-b
+dependents:
+  - repo: ../repo-c:main
+`
+	takoC := `
+version: 0.1.0
+metadata:
+  name: repo-c
+dependents: []
+`
+	err := os.WriteFile(filepath.Join(repoA, "tako.yml"), []byte(takoA), 0644)
+	if err != nil {
+		t.Fatalf("failed to write tako.yml: %v", err)
+	}
+	err = os.WriteFile(filepath.Join(repoB, "tako.yml"), []byte(takoB), 0644)
+	if err != nil {
+		t.Fatalf("failed to write tako.yml: %v", err)
+	}
+	err = os.WriteFile(filepath.Join(repoC, "tako.yml"), []byte(takoC), 0644)
+	if err != nil {
+		t.Fatalf("failed to write tako.yml: %v", err)
+	}
+
+	// Build the graph in local-only mode
+	root, err := graph.BuildGraph(repoA, true)
+	if err != nil {
+		t.Fatalf("failed to build graph: %v", err)
+	}
+
+	// Assert the graph is correct
+	if root.Name != "repo-a" {
+		t.Errorf("expected root name to be 'repo-a', got %q", root.Name)
+	}
+	if len(root.Children) != 1 {
+		t.Fatalf("expected root to have 1 child, got %d", len(root.Children))
+	}
+	childB := root.Children[0]
+	if childB.Name != "repo-b" {
+		t.Errorf("expected child name to be 'repo-b', got %q", childB.Name)
+	}
+	if len(childB.Children) != 1 {
+		t.Fatalf("expected childB to have 1 child, got %d", len(childB.Children))
+	}
+	childC := childB.Children[0]
+	if childC.Name != "repo-c" {
+		t.Errorf("expected child name to be 'repo-c', got %q", childC.Name)
+	}
+}
