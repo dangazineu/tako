@@ -36,8 +36,8 @@ func TestE2E(t *testing.T) {
 				runTest(t, &tc, "local")
 			})
 			t.Run("remote", func(t *testing.T) {
-				if testing.Short() {
-					t.Skip("skipping remote test in short mode")
+				if os.Getenv("CI") != "" {
+					t.Skip("skipping remote test in CI environment")
 				}
 				runTest(t, &tc, "remote")
 			})
