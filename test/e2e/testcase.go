@@ -3,11 +3,13 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/dangazineu/tako/internal/config"
 	"github.com/google/go-github/v63/github"
 )
 
@@ -21,9 +23,9 @@ type TestCase struct {
 }
 
 type Repository struct {
-	Name     string
-	Files    map[string]string
-	CloneURL string
+	Name       string
+	TakoConfig *config.TakoConfig
+	CloneURL   string
 }
 
 var TestCases = map[string]TestCase{
@@ -32,25 +34,24 @@ var TestCases = map[string]TestCase{
 		Repositories: []Repository{
 			{
 				Name: "repo-a",
-				Files: map[string]string{
-					"tako.yml": `
-version: 0.1.0
-metadata:
-  name: repo-a
-dependents:
-  - repo: ../repo-b:main
-`,
+				TakoConfig: &config.TakoConfig{
+					Version: "0.1.0",
+					Metadata: config.Metadata{
+						Name: "repo-a",
+					},
+					Dependents: []config.Dependent{
+						{Repo: "../repo-b:main"},
+					},
 				},
 			},
 			{
 				Name: "repo-b",
-				Files: map[string]string{
-					"tako.yml": `
-version: 0.1.0
-metadata:
-  name: repo-b
-dependents: []
-`,
+				TakoConfig: &config.TakoConfig{
+					Version: "0.1.0",
+					Metadata: config.Metadata{
+						Name: "repo-b",
+					},
+					Dependents: []config.Dependent{},
 				},
 			},
 		},
@@ -60,62 +61,61 @@ dependents: []
 		Repositories: []Repository{
 			{
 				Name: "repo-a",
-				Files: map[string]string{
-					"tako.yml": `
-version: 0.1.0
-metadata:
-  name: repo-a
-dependents:
-  - repo: ../repo-b:main
-  - repo: ../repo-d:main
-`,
+				TakoConfig: &config.TakoConfig{
+					Version: "0.1.0",
+					Metadata: config.Metadata{
+						Name: "repo-a",
+					},
+					Dependents: []config.Dependent{
+						{Repo: "../repo-b:main"},
+						{Repo: "../repo-d:main"},
+					},
 				},
 			},
 			{
 				Name: "repo-b",
-				Files: map[string]string{
-					"tako.yml": `
-version: 0.1.0
-metadata:
-  name: repo-b
-dependents:
-  - repo: ../repo-c:main
-`,
+				TakoConfig: &config.TakoConfig{
+					Version: "0.1.0",
+					Metadata: config.Metadata{
+						Name: "repo-b",
+					},
+					Dependents: []config.Dependent{
+						{Repo: "../repo-c:main"},
+					},
 				},
 			},
 			{
 				Name: "repo-c",
-				Files: map[string]string{
-					"tako.yml": `
-version: 0.1.0
-metadata:
-  name: repo-c
-dependents:
-  - repo: ../repo-e:main
-`,
+				TakoConfig: &config.TakoConfig{
+					Version: "0.1.0",
+					Metadata: config.Metadata{
+						Name: "repo-c",
+					},
+					Dependents: []config.Dependent{
+						{Repo: "../repo-e:main"},
+					},
 				},
 			},
 			{
 				Name: "repo-d",
-				Files: map[string]string{
-					"tako.yml": `
-version: 0.1.0
-metadata:
-  name: repo-d
-dependents:
-  - repo: ../repo-e:main
-`,
+				TakoConfig: &config.TakoConfig{
+					Version: "0.1.0",
+					Metadata: config.Metadata{
+						Name: "repo-d",
+					},
+					Dependents: []config.Dependent{
+						{Repo: "../repo-e:main"},
+					},
 				},
 			},
 			{
 				Name: "repo-e",
-				Files: map[string]string{
-					"tako.yml": `
-version: 0.1.0
-metadata:
-  name: repo-e
-dependents: []
-`,
+				TakoConfig: &config.TakoConfig{
+					Version: "0.1.0",
+					Metadata: config.Metadata{
+						Name: "repo-e",
+					},
+					Dependents: []config.Dependent{},
 				},
 			},
 		},
@@ -125,37 +125,36 @@ dependents: []
 		Repositories: []Repository{
 			{
 				Name: "repo-x",
-				Files: map[string]string{
-					"tako.yml": `
-version: 0.1.0
-metadata:
-  name: repo-x
-dependents:
-  - repo: tako-test/repo-y:main
-`,
+				TakoConfig: &config.TakoConfig{
+					Version: "0.1.0",
+					Metadata: config.Metadata{
+						Name: "repo-x",
+					},
+					Dependents: []config.Dependent{
+						{Repo: "tako-test/repo-y:main"},
+					},
 				},
 			},
 			{
 				Name: "repo-y",
-				Files: map[string]string{
-					"tako.yml": `
-version: 0.1.0
-metadata:
-  name: repo-y
-dependents:
-  - repo: tako-test/repo-z:main
-`,
+				TakoConfig: &config.TakoConfig{
+					Version: "0.1.0",
+					Metadata: config.Metadata{
+						Name: "repo-y",
+					},
+					Dependents: []config.Dependent{
+						{Repo: "tako-test/repo-z:main"},
+					},
 				},
 			},
 			{
 				Name: "repo-z",
-				Files: map[string]string{
-					"tako.yml": `
-version: 0.1.0
-metadata:
-  name: repo-z
-dependents: []
-`,
+				TakoConfig: &config.TakoConfig{
+					Version: "0.1.0",
+					Metadata: config.Metadata{
+						Name: "repo-z",
+					},
+					Dependents: []config.Dependent{},
 				},
 			},
 		},
@@ -165,62 +164,61 @@ dependents: []
 		Repositories: []Repository{
 			{
 				Name: "repo-a",
-				Files: map[string]string{
-					"tako.yml": `
-version: 0.1.0
-metadata:
-  name: repo-a
-dependents:
-  - repo: tako-test/repo-b:main
-  - repo: tako-test/repo-d:main
-`,
+				TakoConfig: &config.TakoConfig{
+					Version: "0.1.0",
+					Metadata: config.Metadata{
+						Name: "repo-a",
+					},
+					Dependents: []config.Dependent{
+						{Repo: "tako-test/repo-b:main"},
+						{Repo: "tako-test/repo-d:main"},
+					},
 				},
 			},
 			{
 				Name: "repo-b",
-				Files: map[string]string{
-					"tako.yml": `
-version: 0.1.0
-metadata:
-  name: repo-b
-dependents:
-  - repo: tako-test/repo-c:main
-`,
+				TakoConfig: &config.TakoConfig{
+					Version: "0.1.0",
+					Metadata: config.Metadata{
+						Name: "repo-b",
+					},
+					Dependents: []config.Dependent{
+						{Repo: "tako-test/repo-c:main"},
+					},
 				},
 			},
 			{
 				Name: "repo-c",
-				Files: map[string]string{
-					"tako.yml": `
-version: 0.1.0
-metadata:
-  name: repo-c
-dependents:
-  - repo: tako-test/repo-e:main
-`,
+				TakoConfig: &config.TakoConfig{
+					Version: "0.1.0",
+					Metadata: config.Metadata{
+						Name: "repo-c",
+					},
+					Dependents: []config.Dependent{
+						{Repo: "tako-test/repo-e:main"},
+					},
 				},
 			},
 			{
 				Name: "repo-d",
-				Files: map[string]string{
-					"tako.yml": `
-version: 0.1.0
-metadata:
-  name: repo-d
-dependents:
-  - repo: tako-test/repo-e:main
-`,
+				TakoConfig: &config.TakoConfig{
+					Version: "0.1.0",
+					Metadata: config.Metadata{
+						Name: "repo-d",
+					},
+					Dependents: []config.Dependent{
+						{Repo: "tako-test/repo-e:main"},
+					},
 				},
 			},
 			{
 				Name: "repo-e",
-				Files: map[string]string{
-					"tako.yml": `
-version: 0.1.0
-metadata:
-  name: repo-e
-dependents: []
-`,
+				TakoConfig: &config.TakoConfig{
+					Version: "0.1.0",
+					Metadata: config.Metadata{
+						Name: "repo-e",
+					},
+					Dependents: []config.Dependent{},
 				},
 			},
 		},
@@ -256,15 +254,26 @@ func (tc *TestCase) Setup(client *github.Client) error {
 		}
 		repo.CloneURL = *createdRepo.CloneURL
 
-		for path, content := range repo.Files {
-			_, _, err := client.Repositories.CreateFile(context.Background(), Org, repo.Name, path, &github.RepositoryContentFileOptions{
-				Message: github.String("initial commit"),
-				Content: []byte(content),
-				Branch:  github.String("main"),
-			})
-			if err != nil {
-				return err
+		// Modify the content for remote testing
+		for i := range repo.TakoConfig.Dependents {
+			dep := &repo.TakoConfig.Dependents[i]
+			if strings.Contains(dep.Repo, "../") {
+				dep.Repo = strings.ReplaceAll(dep.Repo, "../", "tako-test/")
 			}
+		}
+
+		content, err := yaml.Marshal(repo.TakoConfig)
+		if err != nil {
+			return err
+		}
+
+		_, _, err = client.Repositories.CreateFile(context.Background(), Org, repo.Name, "tako.yml", &github.RepositoryContentFileOptions{
+			Message: github.String("initial commit"),
+			Content: content,
+			Branch:  github.String("main"),
+		})
+		if err != nil {
+			return err
 		}
 		time.Sleep(5 * time.Second)
 	}
@@ -280,19 +289,25 @@ func (tc *TestCase) SetupLocal() (string, error) {
 	for _, repo := range tc.Repositories {
 		repoPath := filepath.Join(tmpDir, repo.Name)
 		os.MkdirAll(repoPath, 0755)
-		for path, content := range repo.Files {
-			filePath := filepath.Join(repoPath, path)
-			os.MkdirAll(filepath.Dir(filePath), 0755)
+		filePath := filepath.Join(repoPath, "tako.yml")
+		os.MkdirAll(filepath.Dir(filePath), 0755)
 
-			// Modify the content for local testing
-			if strings.Contains(content, "tako-test/") {
-				content = strings.ReplaceAll(content, "tako-test/", "../")
+		// Modify the content for local testing
+		for i := range repo.TakoConfig.Dependents {
+			dep := &repo.TakoConfig.Dependents[i]
+			if strings.Contains(dep.Repo, "tako-test/") {
+				dep.Repo = strings.ReplaceAll(dep.Repo, "tako-test/", "../")
 			}
+		}
 
-			err := os.WriteFile(filePath, []byte(content), 0644)
-			if err != nil {
-				return "", err
-			}
+		content, err := yaml.Marshal(repo.TakoConfig)
+		if err != nil {
+			return "", err
+		}
+
+		err = os.WriteFile(filePath, content, 0644)
+		if err != nil {
+			return "", err
 		}
 	}
 	return tmpDir, nil
