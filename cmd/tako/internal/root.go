@@ -14,7 +14,10 @@ var rootCmd = &cobra.Command{
 It allows you to run commands across your repositories in the correct order, ensuring that changes are built, tested, and released reliably.`,
 }
 
+var cacheDir string
+
 func init() {
+	rootCmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", "~/.tako/cache", "The cache directory to use.")
 	rootCmd.AddCommand(NewGraphCmd())
 }
 

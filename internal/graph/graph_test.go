@@ -82,7 +82,8 @@ dependents: []
 	}
 
 	// Build the graph in local-only mode
-	root, err := graph.BuildGraph(repoA, true)
+	cacheDir := t.TempDir()
+	root, err := graph.BuildGraph(repoA, cacheDir, true)
 	if err != nil {
 		t.Fatalf("failed to build graph: %v", err)
 	}
