@@ -90,7 +90,7 @@ func validate(config *TakoConfig) error {
 
 func validateRepoFormat(repo string) error {
 	// Local paths are not validated
-	if strings.HasPrefix(repo, ".") {
+	if strings.HasPrefix(repo, ".") || strings.HasPrefix(repo, "file://") {
 		return nil
 	}
 	parts := strings.Split(repo, "/")

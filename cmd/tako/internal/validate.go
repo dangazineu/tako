@@ -7,10 +7,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	rootCmd.AddCommand(validateCmd)
-}
-
 var validateCmd = &cobra.Command{
 	Use:   "validate [file]",
 	Short: "Validate a tako.yml file",
@@ -21,7 +17,7 @@ var validateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Println("Validation successful!")
+		fmt.Fprintln(cmd.OutOrStdout(), "Validation successful!")
 		return nil
 	},
 }

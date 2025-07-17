@@ -54,8 +54,7 @@ func buildGraphRecursive(path, cacheDir string, visited map[string]*Node, localO
 
 		child, err := buildGraphRecursive(repoPath, cacheDir, visited, localOnly)
 		if err != nil {
-			// For now, just skip if the dependent is not found
-			continue
+			return nil, err
 		}
 		root.AddChild(child)
 	}
@@ -77,6 +76,9 @@ var Clone = git.Clone
 // If the repository does not exist in the cache, it is cloned from GitHub. If it
 // already exists, it is updated with a `git pull`.
 func getRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, error) {
+	if strings.HasPrefix(repo, "file://") {
+		return strings.Split(strings.TrimPrefix(repo, "file://"), ":")[0], nil
+	}
 	if strings.HasPrefix(repo, ".") {
 		// Local relative path - always resolve relative to current path
 		return filepath.Clean(filepath.Join(currentPath, strings.Split(repo, ":")[0])), nil
