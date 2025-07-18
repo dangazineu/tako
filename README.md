@@ -68,7 +68,9 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 ## 3. Command-Line Interface (CLI)
 
 *   **Syntax:** `tako <command> [options] [args]`
-*   **Core Commands:** `version`, `graph`, `run`, `exec`, `init`, `doctor`, `artifacts`, `deps`
+*   **Core Commands:** `version`, `graph`, `run`, `exec`, `init`, `doctor`, `artifacts`, `deps`, `cache`
+*   **`tako cache`:** A command to manage Tako's cache.
+    *   `tako cache clean`: Removes all cached repositories and artifacts from Tako's cache directory.
 *   **`tako doctor`:** A command to validate the workspace health, checking `tako.yml` syntax, dependency availability, and Docker connectivity.
 *   **Flags:** `--dry-run`, `--verbose`, `--debug`, `--only`, `--ignore`, `--serial`, `--continue-on-error`, `--summarize-errors`, `--preserve-tmp`.
 
