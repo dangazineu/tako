@@ -225,6 +225,16 @@ func createRepo(t *testing.T, dir, name string, cfg *config.TakoConfig) string {
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("failed to git init: %v", err)
 	}
+	cmd = exec.Command("git", "config", "user.email", "test@tako.dev")
+	cmd.Dir = repoDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("failed to set git user.email: %v", err)
+	}
+	cmd = exec.Command("git", "config", "user.name", "Tako Test")
+	cmd.Dir = repoDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("failed to set git user.name: %v", err)
+	}
 	// create tako.yml
 	takoFile := filepath.Join(repoDir, "tako.yml")
 	// marshal config to yaml

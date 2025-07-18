@@ -24,6 +24,17 @@ func TestCheckout(t *testing.T) {
 		t.Fatalf("failed to git clone: %v", err)
 	}
 
+	cmd = exec.Command("git", "config", "user.email", "test@tako.dev")
+	cmd.Dir = cloneDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("failed to set git user.email: %v", err)
+	}
+	cmd = exec.Command("git", "config", "user.name", "Tako Test")
+	cmd.Dir = cloneDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("failed to set git user.name: %v", err)
+	}
+
 	// Create a commit
 	if err := os.WriteFile(filepath.Join(cloneDir, "README.md"), []byte("hello"), 0644); err != nil {
 		t.Fatalf("failed to write file: %v", err)
