@@ -14,7 +14,9 @@ func TestGraphCmd(t *testing.T) {
 
 	// Create a mock repository
 	repoA := filepath.Join(tmpDir, "repo-a")
-	os.Mkdir(repoA, 0755)
+	if err := os.Mkdir(repoA, 0755); err != nil {
+		t.Fatalf("failed to create repoA: %v", err)
+	}
 	takoA := `
 version: 0.1.0
 metadata:

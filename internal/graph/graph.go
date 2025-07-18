@@ -100,16 +100,24 @@ func getRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, er
 		}
 		repoOwner := repoParts[0]
 		repoName := strings.Split(repoParts[1], ":")[0]
-		repoPath := filepath.Join(cacheDir, "repos", repoOwner, repoName)
+		var repoPath string
 
 		if localOnly {
-			// In local mode, only use if it exists in cache
-			if _, err := os.Stat(repoPath); os.IsNotExist(err) {
-				return "", fmt.Errorf("repository %s not found in cache (local mode)", repo)
+			// In local mode, try to resolve from the parent directory first
+			// to support nested E2E test structures.
+			localPath := filepath.Join(filepath.Dir(currentPath), repoName)
+			if _, err := os.Stat(localPath); err == nil {
+				repoPath = localPath
+			} else {
+				// Fallback to cache if not found in the immediate test structure
+				repoPath = filepath.Join(cacheDir, "repos", repoOwner, repoName)
+				if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+					return "", fmt.Errorf("repository %s not found in cache or local test structure", repo)
+				}
 			}
-			return repoPath, nil
 		} else {
-			// In remote mode, clone/update as needed (current behavior)
+			// In remote mode, always use the cache
+			repoPath = filepath.Join(cacheDir, "repos", repoOwner, repoName)
 			if _, err := os.Stat(repoPath); os.IsNotExist(err) {
 				cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", repoOwner, repoName)
 				if err := Clone(cloneURL, repoPath); err != nil {
@@ -121,8 +129,8 @@ func getRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, er
 					return "", fmt.Errorf("failed to update repo %s: %w", repo, err)
 				}
 			}
-			return repoPath, nil
 		}
+		return repoPath, nil
 	}
 
 	// Fallback for other patterns - treat as local relative path

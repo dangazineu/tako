@@ -13,8 +13,9 @@ func NewSetupCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			local, _ := cmd.Flags().GetBool("local")
+			owner, _ := cmd.Flags().GetString("owner")
 			testCaseName := args[0]
-			testCase, ok := e2e.TestCases[testCaseName]
+			testCase, ok := e2e.GetTestCases(owner)[testCaseName]
 			if !ok {
 				return fmt.Errorf("test case not found: %s", testCaseName)
 			}
@@ -39,5 +40,7 @@ func NewSetupCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Bool("local", false, "Setup the test case locally")
+	cmd.Flags().String("owner", "", "The owner of the repositories")
+	cmd.MarkFlagRequired("owner")
 	return cmd
 }

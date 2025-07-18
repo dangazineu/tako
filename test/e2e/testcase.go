@@ -6,16 +6,12 @@ import (
 	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/dangazineu/tako/internal/config"
 	"github.com/google/go-github/v63/github"
 )
 
-const (
-	Org = "tako-test"
-)
 
 type TestCase struct {
 	Name         string
@@ -23,207 +19,228 @@ type TestCase struct {
 }
 
 type Repository struct {
+	Owner      string
 	Name       string
 	TakoConfig *config.TakoConfig
 	CloneURL   string
 }
 
-var TestCases = map[string]TestCase{
-	"simple-graph": {
-		Name: "simple-graph",
-		Repositories: []Repository{
-			{
-				Name: "repo-a",
-				TakoConfig: &config.TakoConfig{
-					Version: "0.1.0",
-					Metadata: config.Metadata{
-						Name: "repo-a",
-					},
-					Dependents: []config.Dependent{
-						{Repo: "../repo-b:main"},
-					},
-				},
-			},
-			{
-				Name: "repo-b",
-				TakoConfig: &config.TakoConfig{
-					Version: "0.1.0",
-					Metadata: config.Metadata{
-						Name: "repo-b",
-					},
-					Dependents: []config.Dependent{},
-				},
-			},
-		},
-	},
-	"complex-graph": {
-		Name: "complex-graph",
-		Repositories: []Repository{
-			{
-				Name: "repo-a",
-				TakoConfig: &config.TakoConfig{
-					Version: "0.1.0",
-					Metadata: config.Metadata{
-						Name: "repo-a",
-					},
-					Dependents: []config.Dependent{
-						{Repo: "../repo-b:main"},
-						{Repo: "../repo-d:main"},
+func GetTestCases(owner string) map[string]TestCase {
+	return map[string]TestCase{
+		"simple-graph": {
+			Name: "simple-graph",
+			Repositories: []Repository{
+				{
+					Owner: owner,
+					Name:  "repo-a",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-a",
+						},
+						Dependents: []config.Dependent{
+							{Repo: fmt.Sprintf("%s/repo-b:main", owner)},
+						},
 					},
 				},
-			},
-			{
-				Name: "repo-b",
-				TakoConfig: &config.TakoConfig{
-					Version: "0.1.0",
-					Metadata: config.Metadata{
-						Name: "repo-b",
+				{
+					Owner: owner,
+					Name:  "repo-b",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-b",
+						},
+						Dependents: []config.Dependent{},
 					},
-					Dependents: []config.Dependent{
-						{Repo: "../repo-c:main"},
-					},
-				},
-			},
-			{
-				Name: "repo-c",
-				TakoConfig: &config.TakoConfig{
-					Version: "0.1.0",
-					Metadata: config.Metadata{
-						Name: "repo-c",
-					},
-					Dependents: []config.Dependent{
-						{Repo: "../repo-e:main"},
-					},
-				},
-			},
-			{
-				Name: "repo-d",
-				TakoConfig: &config.TakoConfig{
-					Version: "0.1.0",
-					Metadata: config.Metadata{
-						Name: "repo-d",
-					},
-					Dependents: []config.Dependent{
-						{Repo: "../repo-e:main"},
-					},
-				},
-			},
-			{
-				Name: "repo-e",
-				TakoConfig: &config.TakoConfig{
-					Version: "0.1.0",
-					Metadata: config.Metadata{
-						Name: "repo-e",
-					},
-					Dependents: []config.Dependent{},
 				},
 			},
 		},
-	},
-	"deep-graph": {
-		Name: "deep-graph",
-		Repositories: []Repository{
-			{
-				Name: "repo-x",
-				TakoConfig: &config.TakoConfig{
-					Version: "0.1.0",
-					Metadata: config.Metadata{
-						Name: "repo-x",
-					},
-					Dependents: []config.Dependent{
-						{Repo: "tako-test/repo-y:main"},
-					},
-				},
-			},
-			{
-				Name: "repo-y",
-				TakoConfig: &config.TakoConfig{
-					Version: "0.1.0",
-					Metadata: config.Metadata{
-						Name: "repo-y",
-					},
-					Dependents: []config.Dependent{
-						{Repo: "tako-test/repo-z:main"},
+		"complex-graph": {
+			Name: "complex-graph",
+			Repositories: []Repository{
+				{
+					Owner: owner,
+					Name:  "repo-a",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-a",
+						},
+						Dependents: []config.Dependent{
+							{Repo: fmt.Sprintf("%s/repo-b:main", owner)},
+							{Repo: fmt.Sprintf("%s/repo-d:main", owner)},
+						},
 					},
 				},
-			},
-			{
-				Name: "repo-z",
-				TakoConfig: &config.TakoConfig{
-					Version: "0.1.0",
-					Metadata: config.Metadata{
-						Name: "repo-z",
-					},
-					Dependents: []config.Dependent{},
-				},
-			},
-		},
-	},
-	"diamond-dependency-graph": {
-		Name: "diamond-dependency-graph",
-		Repositories: []Repository{
-			{
-				Name: "repo-a",
-				TakoConfig: &config.TakoConfig{
-					Version: "0.1.0",
-					Metadata: config.Metadata{
-						Name: "repo-a",
-					},
-					Dependents: []config.Dependent{
-						{Repo: "tako-test/repo-b:main"},
-						{Repo: "tako-test/repo-d:main"},
+				{
+					Owner: owner,
+					Name:  "repo-b",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-b",
+						},
+						Dependents: []config.Dependent{
+							{Repo: fmt.Sprintf("%s/repo-c:main", owner)},
+						},
 					},
 				},
-			},
-			{
-				Name: "repo-b",
-				TakoConfig: &config.TakoConfig{
-					Version: "0.1.0",
-					Metadata: config.Metadata{
-						Name: "repo-b",
-					},
-					Dependents: []config.Dependent{
-						{Repo: "tako-test/repo-c:main"},
-					},
-				},
-			},
-			{
-				Name: "repo-c",
-				TakoConfig: &config.TakoConfig{
-					Version: "0.1.0",
-					Metadata: config.Metadata{
-						Name: "repo-c",
-					},
-					Dependents: []config.Dependent{
-						{Repo: "tako-test/repo-e:main"},
+				{
+					Owner: owner,
+					Name:  "repo-c",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-c",
+						},
+						Dependents: []config.Dependent{
+							{Repo: fmt.Sprintf("%s/repo-e:main", owner)},
+						},
 					},
 				},
-			},
-			{
-				Name: "repo-d",
-				TakoConfig: &config.TakoConfig{
-					Version: "0.1.0",
-					Metadata: config.Metadata{
-						Name: "repo-d",
-					},
-					Dependents: []config.Dependent{
-						{Repo: "tako-test/repo-e:main"},
+				{
+					Owner: owner,
+					Name:  "repo-d",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-d",
+						},
+						Dependents: []config.Dependent{
+							{Repo: fmt.Sprintf("%s/repo-e:main", owner)},
+						},
 					},
 				},
-			},
-			{
-				Name: "repo-e",
-				TakoConfig: &config.TakoConfig{
-					Version: "0.1.0",
-					Metadata: config.Metadata{
-						Name: "repo-e",
+				{
+					Owner: owner,
+					Name:  "repo-e",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-e",
+						},
+						Dependents: []config.Dependent{},
 					},
-					Dependents: []config.Dependent{},
 				},
 			},
 		},
-	},
+		"deep-graph": {
+			Name: "deep-graph",
+			Repositories: []Repository{
+				{
+					Owner: owner,
+					Name:  "repo-x",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-x",
+						},
+						Dependents: []config.Dependent{
+							{Repo: fmt.Sprintf("%s/repo-y:main", owner)},
+						},
+					},
+				},
+				{
+					Owner: owner,
+					Name:  "repo-y",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-y",
+						},
+						Dependents: []config.Dependent{
+							{Repo: fmt.Sprintf("%s/repo-z:main", owner)},
+						},
+					},
+				},
+				{
+					Owner: owner,
+					Name:  "repo-z",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-z",
+						},
+						Dependents: []config.Dependent{},
+					},
+				},
+			},
+		},
+		"diamond-dependency-graph": {
+			Name: "diamond-dependency-graph",
+			Repositories: []Repository{
+				{
+					Owner: owner,
+					Name:  "repo-a",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-a",
+						},
+						Dependents: []config.Dependent{
+							{Repo: fmt.Sprintf("%s/repo-b:main", owner)},
+							{Repo: fmt.Sprintf("%s/repo-d:main", owner)},
+						},
+					},
+				},
+				{
+					Owner: owner,
+					Name:  "repo-b",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-b",
+						},
+						Dependents: []config.Dependent{
+							{Repo: fmt.Sprintf("%s/repo-c:main", owner)},
+						},
+					},
+				},
+				{
+					Owner: owner,
+					Name:  "repo-c",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-c",
+						},
+						Dependents: []config.Dependent{
+							{Repo: fmt.Sprintf("%s/repo-e:main", owner)},
+						},
+					},
+				},
+				{
+					Owner: owner,
+					Name:  "repo-d",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-d",
+						},
+						Dependents: []config.Dependent{
+							{Repo: fmt.Sprintf("%s/repo-e:main", owner)},
+						},
+					},
+				},
+				{
+					Owner: owner,
+					Name:  "repo-e",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-e",
+						},
+						Dependents: []config.Dependent{},
+					},
+				},
+			},
+		},
+	}
 }
+
+var TestCases = GetTestCases(Org)
+
 
 func GetClient() (*github.Client, error) {
 	token := os.Getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
@@ -238,15 +255,15 @@ func (tc *TestCase) Setup(client *github.Client) error {
 		repo := &tc.Repositories[i]
 
 		// Check if the repo exists, and if so, delete it
-		_, _, err := client.Repositories.Get(context.Background(), Org, repo.Name)
+		_, _, err := client.Repositories.Get(context.Background(), repo.Owner, repo.Name)
 		if err == nil {
-			_, err = client.Repositories.Delete(context.Background(), Org, repo.Name)
+			_, err = client.Repositories.Delete(context.Background(), repo.Owner, repo.Name)
 			if err != nil {
 				return err
 			}
 		}
 
-		createdRepo, _, err := client.Repositories.Create(context.Background(), Org, &github.Repository{
+		createdRepo, _, err := client.Repositories.Create(context.Background(), repo.Owner, &github.Repository{
 			Name: &repo.Name,
 		})
 		if err != nil {
@@ -254,20 +271,12 @@ func (tc *TestCase) Setup(client *github.Client) error {
 		}
 		repo.CloneURL = *createdRepo.CloneURL
 
-		// Modify the content for remote testing
-		for i := range repo.TakoConfig.Dependents {
-			dep := &repo.TakoConfig.Dependents[i]
-			if strings.Contains(dep.Repo, "../") {
-				dep.Repo = strings.ReplaceAll(dep.Repo, "../", "tako-test/")
-			}
-		}
-
 		content, err := yaml.Marshal(repo.TakoConfig)
 		if err != nil {
 			return err
 		}
 
-		_, _, err = client.Repositories.CreateFile(context.Background(), Org, repo.Name, "tako.yml", &github.RepositoryContentFileOptions{
+		_, _, err = client.Repositories.CreateFile(context.Background(), repo.Owner, repo.Name, "tako.yml", &github.RepositoryContentFileOptions{
 			Message: github.String("initial commit"),
 			Content: content,
 			Branch:  github.String("main"),
@@ -287,17 +296,13 @@ func (tc *TestCase) SetupLocal() (string, error) {
 	}
 
 	for _, repo := range tc.Repositories {
-		repoPath := filepath.Join(tmpDir, repo.Name)
-		os.MkdirAll(repoPath, 0755)
+		repoPath := filepath.Join(tmpDir, repo.Owner, repo.Name)
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			return "", err
+		}
 		filePath := filepath.Join(repoPath, "tako.yml")
-		os.MkdirAll(filepath.Dir(filePath), 0755)
-
-		// Modify the content for local testing
-		for i := range repo.TakoConfig.Dependents {
-			dep := &repo.TakoConfig.Dependents[i]
-			if strings.Contains(dep.Repo, "tako-test/") {
-				dep.Repo = strings.ReplaceAll(dep.Repo, "tako-test/", "../")
-			}
+		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+			return "", err
 		}
 
 		content, err := yaml.Marshal(repo.TakoConfig)
@@ -315,7 +320,7 @@ func (tc *TestCase) SetupLocal() (string, error) {
 
 func (tc *TestCase) Cleanup(client *github.Client) error {
 	for _, repo := range tc.Repositories {
-		_, err := client.Repositories.Delete(context.Background(), Org, repo.Name)
+		_, err := client.Repositories.Delete(context.Background(), repo.Owner, repo.Name)
 		if err != nil {
 			return err
 		}
