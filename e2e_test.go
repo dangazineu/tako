@@ -38,7 +38,7 @@ func TestE2E(t *testing.T) {
 	if !*local && !*remote {
 		t.Fatal("either -local or -remote must be set")
 	}
-	for name, tc := range e2e.TestCases {
+	for name, tc := range e2e.GetTestCases(e2e.Org) {
 		tc := tc // capture range variable
 		t.Run(name, func(t *testing.T) {
 			if *local {
@@ -115,7 +115,7 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 	var rootPath string
 	if mode == "local" {
 		// For local mode, testCaseDir is the root, and we point to the first repo inside it
-		rootPath = filepath.Join(testCaseDir, e2e.Org, tc.Repositories[0].Name)
+		rootPath = filepath.Join(testCaseDir, tc.Repositories[0].Owner, tc.Repositories[0].Name)
 	} else {
 		// For remote mode, testCaseDir is the cloned repository root
 		rootPath = testCaseDir

@@ -12,8 +12,9 @@ func NewCleanupCmd() *cobra.Command {
 		Short: "Cleanup a test case",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			owner, _ := cmd.Flags().GetString("owner")
 			testCaseName := args[0]
-			testCase, ok := e2e.TestCases[testCaseName]
+			testCase, ok := e2e.GetTestCases(owner)[testCaseName]
 			if !ok {
 				return fmt.Errorf("test case not found: %s", testCaseName)
 			}
@@ -27,5 +28,7 @@ func NewCleanupCmd() *cobra.Command {
 			return testCase.Cleanup(client)
 		},
 	}
+	cmd.Flags().String("owner", "", "The owner of the repositories")
+	cmd.MarkFlagRequired("owner")
 	return cmd
 }
