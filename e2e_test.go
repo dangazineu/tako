@@ -39,16 +39,18 @@ func TestE2E(t *testing.T) {
 		t.Fatal("either -local or -remote must be set")
 	}
 	for name, tc := range e2e.GetTestCases(e2e.Org) {
-		tc := tc // capture range variable
+		name, tc := name, tc // capture range variable
 		t.Run(name, func(t *testing.T) {
 			if *local {
+				localTC := tc
 				t.Run("local", func(t *testing.T) {
-					runTest(t, &tc, "local")
+					runTest(t, &localTC, "local")
 				})
 			}
 			if *remote {
+				remoteTC := tc
 				t.Run("remote", func(t *testing.T) {
-					runTest(t, &tc, "remote")
+					runTest(t, &remoteTC, "remote")
 				})
 			}
 		})
@@ -56,6 +58,7 @@ func TestE2E(t *testing.T) {
 }
 
 func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
+	t.Logf("Running test case: %s", tc.Name)
 	var testCaseDir string
 	var err error
 
@@ -64,6 +67,11 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 		if err != nil {
 			t.Fatalf("failed to setup local test case: %v", err)
 		}
+		t.Cleanup(func() {
+			if tc.Dirty {
+				os.RemoveAll(testCaseDir)
+			}
+		})
 	} else {
 		client, err := e2e.GetClient()
 		if err != nil {
@@ -72,11 +80,6 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 		if err := tc.Setup(client); err != nil {
 			t.Fatalf("failed to setup remote test case: %v", err)
 		}
-		t.Cleanup(func() {
-			if err := tc.Cleanup(client); err != nil {
-				t.Errorf("failed to cleanup remote test case: %v", err)
-			}
-		})
 		tmpDir := t.TempDir()
 		cmd := exec.Command("git", "clone", tc.Repositories[0].CloneURL, tmpDir)
 		err = cmd.Run()
@@ -84,6 +87,11 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 			t.Fatalf("failed to clone repo: %v", err)
 		}
 		testCaseDir = tmpDir
+		t.Cleanup(func() {
+			if err := tc.Cleanup(client); err != nil {
+				t.Errorf("failed to cleanup remote test case: %v", err)
+			}
+		})
 	}
 
 	// Build the tako binary
