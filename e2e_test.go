@@ -16,8 +16,10 @@ import (
 )
 
 var (
-	local  = flag.Bool("local", false, "run local tests")
-	remote = flag.Bool("remote", false, "run remote tests")
+	local                  = flag.Bool("local", false, "run local tests")
+	remote                 = flag.Bool("remote", false, "run remote tests")
+	withRepoEntryPoint     = flag.Bool("with-repo-entrypoint", false, "run tests with --repo flag")
+	withoutRepoEntryPoint  = flag.Bool("without-repo-entrypoint", false, "run tests with --root flag")
 )
 
 func findProjectRoot(start string) string {
@@ -38,26 +40,43 @@ func TestE2E(t *testing.T) {
 	if !*local && !*remote {
 		t.Fatal("either -local or -remote must be set")
 	}
+	if !*withRepoEntryPoint && !*withoutRepoEntryPoint {
+		t.Fatal("either -with-repo-entrypoint or -without-repo-entrypoint must be set")
+	}
+
 	for name, tc := range e2e.GetTestCases(e2e.Org) {
 		name, tc := name, tc // capture range variable
 		t.Run(name, func(t *testing.T) {
 			if *local {
 				localTC := tc
 				t.Run("local", func(t *testing.T) {
-					runTest(t, &localTC, "local")
+					if *withoutRepoEntryPoint {
+						t.Run("without-repo-entrypoint", func(t *testing.T) {
+							runTest(t, &localTC, "local", "path")
+						})
+					}
 				})
 			}
 			if *remote {
 				remoteTC := tc
 				t.Run("remote", func(t *testing.T) {
-					runTest(t, &remoteTC, "remote")
+					if *withRepoEntryPoint {
+						t.Run("with-repo-entrypoint", func(t *testing.T) {
+							runTest(t, &remoteTC, "remote", "repo")
+						})
+					}
+					if *withoutRepoEntryPoint {
+						t.Run("without-repo-entrypoint", func(t *testing.T) {
+							runTest(t, &remoteTC, "remote", "path")
+						})
+					}
 				})
 			}
 		})
 	}
 }
 
-func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
+func runTest(t *testing.T, tc *e2e.TestCase, mode, entrypoint string) {
 	t.Logf("Running test case: %s", tc.Name)
 	var testCaseDir string
 	var err error
@@ -120,22 +139,29 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 
 	// Run tako graph
 	var out bytes.Buffer
-	var rootPath string
-	if mode == "local" {
-		// For local mode, testCaseDir is the root, and we point to the first repo inside it
-		rootPath = filepath.Join(testCaseDir, tc.Repositories[0].Owner, tc.Repositories[0].Name)
-	} else {
-		// For remote mode, testCaseDir is the cloned repository root
-		rootPath = testCaseDir
-	}
 	cacheDir := t.TempDir()
-	t.Cleanup(func() {
-		os.RemoveAll(cacheDir)
+		t.Cleanup(func() {
+			os.RemoveAll(cacheDir)
 	})
-	args := []string{"graph", "--root", rootPath, "--cache-dir", cacheDir}
-	if mode == "local" {
-		args = append(args, "--local")
+
+	var args []string
+	if entrypoint == "repo" {
+		args = []string{"graph", "--repo", tc.GetRepoEntryPoint(), "--cache-dir", cacheDir}
+	} else {
+		var rootPath string
+		if mode == "local" {
+			// For local mode, testCaseDir is the root, and we point to the first repo inside it
+			rootPath = filepath.Join(testCaseDir, tc.Repositories[0].Owner, tc.Repositories[0].Name)
+		} else {
+			// For remote mode, testCaseDir is the cloned repository root
+			rootPath = testCaseDir
+		}
+		args = []string{"graph", "--root", rootPath, "--cache-dir", cacheDir}
+		if mode == "local" {
+			args = append(args, "--local")
+		}
 	}
+
 	takoCmd := exec.Command(takoPath, args...)
 	takoCmd.Stdout = &out
 	takoCmd.Stderr = &out
@@ -158,30 +184,13 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 func getExpectedOutput(testCaseName string) string {
 	switch testCaseName {
 	case "simple-graph":
-		return `repo-a
-└── repo-b
-`
+		return "simple-graph-repo-a\n└── simple-graph-repo-b\n"
 	case "complex-graph":
-		return `repo-a
-├── repo-b
-│   └── repo-c
-│       └── repo-e
-└── repo-d
-    └── repo-e
-`
+		return "complex-graph-repo-a\n├── complex-graph-repo-b\n│   └── complex-graph-repo-c\n│       └── complex-graph-repo-e\n└── complex-graph-repo-d\n    └── complex-graph-repo-e\n"
 	case "deep-graph":
-		return `repo-x
-└── repo-y
-    └── repo-z
-`
+		return "deep-graph-repo-x\n└── deep-graph-repo-y\n    └── deep-graph-repo-z\n"
 	case "diamond-dependency-graph":
-		return `repo-a
-├── repo-b
-│   └── repo-c
-│       └── repo-e
-└── repo-d
-    └── repo-e
-`
+		return "diamond-dependency-graph-repo-a\n├── diamond-dependency-graph-repo-b\n│   └── diamond-dependency-graph-repo-c\n│       └── diamond-dependency-graph-repo-e\n└── diamond-dependency-graph-repo-d\n    └── diamond-dependency-graph-repo-e\n"
 	default:
 		return ""
 	}

@@ -213,18 +213,19 @@ The E2E tests create and interact with real GitHub repositories. They are design
 
 **Running E2E Tests:**
 
-To run the E2E tests, you must specify either the `--local` or `--remote` flag.
+To run the E2E tests, you must specify either the `--local` or `--remote` flag, and either `--with-repo-entrypoint` or `--without-repo-entrypoint`.
 
 To run the local E2E tests (which do not require a GitHub token), use the `--local` flag:
 
 ```bash
-go test -v -tags=e2e --local ./...
+go test -v -tags=e2e --local --without-repo-entrypoint ./...
 ```
 
 To run the remote E2E tests, use the `--remote` flag:
 
 ```bash
-go test -v -tags=e2e --remote ./...
+go test -v -tags=e2e --remote --with-repo-entrypoint ./...
+go test -v -tags=e2e --remote --without-repo-entrypoint ./...
 ```
 
 ### Manual Verification
@@ -263,9 +264,7 @@ tako graph --root <path-to-test-case>/repo-x
 If you are testing remotely, you can clone the repository and run the command:
 
 ```bash
-git clone https://github.com/tako-test/repo-x.git /tmp/tako-e2e-test
-cd /tmp/tako-e2e-test
-tako graph
+tako graph --repo tako-test/deep-graph-repo-x:main
 ```
 
 **4. Clean up the test environment:**

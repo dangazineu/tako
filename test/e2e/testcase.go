@@ -3,13 +3,13 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/dangazineu/tako/internal/config"
 	"github.com/google/go-github/v63/github"
+	"sigs.k8s.io/yaml"
 )
 
 
@@ -27,27 +27,25 @@ type Repository struct {
 }
 
 func GetTestCases(owner string) map[string]TestCase {
-	return map[string]TestCase{
+	testCases := map[string]TestCase{
 		"simple-graph": {
 			Name:  "simple-graph",
 			Dirty: false,
 			Repositories: []Repository{
 				{
-					Owner: owner,
-					Name:  "repo-a",
+					Name: "repo-a",
 					TakoConfig: &config.TakoConfig{
 						Version: "0.1.0",
 						Metadata: config.Metadata{
 							Name: "repo-a",
 						},
 						Dependents: []config.Dependent{
-							{Repo: fmt.Sprintf("%s/repo-b:main", owner)},
+							{Repo: "repo-b:main"},
 						},
 					},
 				},
 				{
-					Owner: owner,
-					Name:  "repo-b",
+					Name: "repo-b",
 					TakoConfig: &config.TakoConfig{
 						Version: "0.1.0",
 						Metadata: config.Metadata{
@@ -63,61 +61,56 @@ func GetTestCases(owner string) map[string]TestCase {
 			Dirty: false,
 			Repositories: []Repository{
 				{
-					Owner: owner,
-					Name:  "repo-a",
+					Name: "repo-a",
 					TakoConfig: &config.TakoConfig{
 						Version: "0.1.0",
 						Metadata: config.Metadata{
 							Name: "repo-a",
 						},
 						Dependents: []config.Dependent{
-							{Repo: fmt.Sprintf("%s/repo-b:main", owner)},
-							{Repo: fmt.Sprintf("%s/repo-d:main", owner)},
+							{Repo: "repo-b:main"},
+							{Repo: "repo-d:main"},
 						},
 					},
 				},
 				{
-					Owner: owner,
-					Name:  "repo-b",
+					Name: "repo-b",
 					TakoConfig: &config.TakoConfig{
 						Version: "0.1.0",
 						Metadata: config.Metadata{
 							Name: "repo-b",
 						},
 						Dependents: []config.Dependent{
-							{Repo: fmt.Sprintf("%s/repo-c:main", owner)},
+							{Repo: "repo-c:main"},
 						},
 					},
 				},
 				{
-					Owner: owner,
-					Name:  "repo-c",
+					Name: "repo-c",
 					TakoConfig: &config.TakoConfig{
 						Version: "0.1.0",
 						Metadata: config.Metadata{
 							Name: "repo-c",
 						},
 						Dependents: []config.Dependent{
-							{Repo: fmt.Sprintf("%s/repo-e:main", owner)},
+							{Repo: "repo-e:main"},
 						},
 					},
 				},
 				{
-					Owner: owner,
-					Name:  "repo-d",
+					Name: "repo-d",
 					TakoConfig: &config.TakoConfig{
 						Version: "0.1.0",
 						Metadata: config.Metadata{
 							Name: "repo-d",
 						},
 						Dependents: []config.Dependent{
-							{Repo: fmt.Sprintf("%s/repo-e:main", owner)},
+							{Repo: "repo-e:main"},
 						},
 					},
 				},
 				{
-					Owner: owner,
-					Name:  "repo-e",
+					Name: "repo-e",
 					TakoConfig: &config.TakoConfig{
 						Version: "0.1.0",
 						Metadata: config.Metadata{
@@ -133,34 +126,31 @@ func GetTestCases(owner string) map[string]TestCase {
 			Dirty: false,
 			Repositories: []Repository{
 				{
-					Owner: owner,
-					Name:  "repo-x",
+					Name: "repo-x",
 					TakoConfig: &config.TakoConfig{
 						Version: "0.1.0",
 						Metadata: config.Metadata{
 							Name: "repo-x",
 						},
 						Dependents: []config.Dependent{
-							{Repo: fmt.Sprintf("%s/repo-y:main", owner)},
+							{Repo: "repo-y:main"},
 						},
 					},
 				},
 				{
-					Owner: owner,
-					Name:  "repo-y",
+					Name: "repo-y",
 					TakoConfig: &config.TakoConfig{
 						Version: "0.1.0",
 						Metadata: config.Metadata{
 							Name: "repo-y",
 						},
 						Dependents: []config.Dependent{
-							{Repo: fmt.Sprintf("%s/repo-z:main", owner)},
+							{Repo: "repo-z:main"},
 						},
 					},
 				},
 				{
-					Owner: owner,
-					Name:  "repo-z",
+					Name: "repo-z",
 					TakoConfig: &config.TakoConfig{
 						Version: "0.1.0",
 						Metadata: config.Metadata{
@@ -176,61 +166,56 @@ func GetTestCases(owner string) map[string]TestCase {
 			Dirty: false,
 			Repositories: []Repository{
 				{
-					Owner: owner,
-					Name:  "repo-a",
+					Name: "repo-a",
 					TakoConfig: &config.TakoConfig{
 						Version: "0.1.0",
 						Metadata: config.Metadata{
 							Name: "repo-a",
 						},
 						Dependents: []config.Dependent{
-							{Repo: fmt.Sprintf("%s/repo-b:main", owner)},
-							{Repo: fmt.Sprintf("%s/repo-d:main", owner)},
+							{Repo: "repo-b:main"},
+							{Repo: "repo-d:main"},
 						},
 					},
 				},
 				{
-					Owner: owner,
-					Name:  "repo-b",
+					Name: "repo-b",
 					TakoConfig: &config.TakoConfig{
 						Version: "0.1.0",
 						Metadata: config.Metadata{
 							Name: "repo-b",
 						},
 						Dependents: []config.Dependent{
-							{Repo: fmt.Sprintf("%s/repo-c:main", owner)},
+							{Repo: "repo-c:main"},
 						},
 					},
 				},
 				{
-					Owner: owner,
-					Name:  "repo-c",
+					Name: "repo-c",
 					TakoConfig: &config.TakoConfig{
 						Version: "0.1.0",
 						Metadata: config.Metadata{
 							Name: "repo-c",
 						},
 						Dependents: []config.Dependent{
-							{Repo: fmt.Sprintf("%s/repo-e:main", owner)},
+							{Repo: "repo-e:main"},
 						},
 					},
 				},
 				{
-					Owner: owner,
-					Name:  "repo-d",
+					Name: "repo-d",
 					TakoConfig: &config.TakoConfig{
 						Version: "0.1.0",
 						Metadata: config.Metadata{
 							Name: "repo-d",
 						},
 						Dependents: []config.Dependent{
-							{Repo: fmt.Sprintf("%s/repo-e:main", owner)},
+							{Repo: "repo-e:main"},
 						},
 					},
 				},
 				{
-					Owner: owner,
-					Name:  "repo-e",
+					Name: "repo-e",
 					TakoConfig: &config.TakoConfig{
 						Version: "0.1.0",
 						Metadata: config.Metadata{
@@ -242,6 +227,20 @@ func GetTestCases(owner string) map[string]TestCase {
 			},
 		},
 	}
+
+	for name, tc := range testCases {
+		for i := range tc.Repositories {
+			repo := &tc.Repositories[i]
+			repo.Owner = owner
+			repo.Name = fmt.Sprintf("%s-%s", name, repo.Name)
+			repo.TakoConfig.Metadata.Name = repo.Name
+			for j := range repo.TakoConfig.Dependents {
+				dependent := &repo.TakoConfig.Dependents[j]
+				dependent.Repo = fmt.Sprintf("%s/%s-%s", repo.Owner, name, dependent.Repo)
+			}
+		}
+	}
+	return testCases
 }
 
 var TestCases = GetTestCases(Org)
@@ -349,6 +348,10 @@ func (tc *TestCase) SetupLocal() (string, error) {
 		}
 	}
 	return tmpDir, nil
+}
+
+func (tc *TestCase) GetRepoEntryPoint() string {
+	return fmt.Sprintf("%s/%s:main", tc.Repositories[0].Owner, tc.Repositories[0].Name)
 }
 
 func (tc *TestCase) Cleanup(client *github.Client) error {

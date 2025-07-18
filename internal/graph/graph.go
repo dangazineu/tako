@@ -6,7 +6,6 @@ import (
 	"github.com/dangazineu/tako/internal/git"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -99,7 +98,14 @@ func getRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, er
 			return "", fmt.Errorf("invalid remote repository format: %s", repo)
 		}
 		repoOwner := repoParts[0]
-		repoName := strings.Split(repoParts[1], ":")[0]
+
+		repoAndRef := strings.Split(repoParts[1], ":")
+		repoName := repoAndRef[0]
+		var ref string
+		if len(repoAndRef) > 1 {
+			ref = repoAndRef[1]
+		}
+
 		var repoPath string
 
 		if localOnly {
@@ -123,11 +129,18 @@ func getRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, er
 				if err := Clone(cloneURL, repoPath); err != nil {
 					return "", err
 				}
-			} else {
-				cmd := exec.Command("git", "-C", repoPath, "pull")
-				if err := cmd.Run(); err != nil {
-					return "", fmt.Errorf("failed to update repo %s: %w", repo, err)
+			}
+
+			if ref == "" {
+				var err error
+				ref, err = git.GetDefaultBranch(repoPath)
+				if err != nil {
+					return "", err
 				}
+			}
+
+			if err := git.Checkout(repoPath, ref); err != nil {
+				return "", err
 			}
 		}
 		return repoPath, nil

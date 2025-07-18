@@ -48,7 +48,7 @@ Commit messages should not reference the issue number, instead they should descr
 -   All new features must include unit tests.
 -   Run all tests with `go test -v ./...`.
 -   Run integration tests with `go test -v -tags=integration ./...`.
--   Run E2E tests with `go test -v -tags=e2e --local ./...` or `go test -v -tags=e2e --remote ./...`.
+-   Run E2E tests with `go test -v -tags=e2e --local --without-repo-entrypoint ./...`, `go test -v -tags=e2e --remote --with-repo-entrypoint ./...`, or `go test -v -tags=e2e --remote --without-repo-entrypoint ./...`.
 -   All new testing tags and flags must be documented on the `README.md` and on `AIRULES.md`.
 
 ## 6. Configuration (`tako.yml`)

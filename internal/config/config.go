@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"sigs.k8s.io/yaml"
 )
 
 type TakoConfig struct {
@@ -66,6 +66,7 @@ func Load(path string) (*TakoConfig, error) {
 
 	return &config, nil
 }
+
 
 func validate(config *TakoConfig) error {
 	if config.Version == "" {
