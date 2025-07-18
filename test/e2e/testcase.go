@@ -15,6 +15,7 @@ import (
 
 type TestCase struct {
 	Name         string
+	Dirty        bool
 	Repositories []Repository
 }
 
@@ -28,7 +29,8 @@ type Repository struct {
 func GetTestCases(owner string) map[string]TestCase {
 	return map[string]TestCase{
 		"simple-graph": {
-			Name: "simple-graph",
+			Name:  "simple-graph",
+			Dirty: false,
 			Repositories: []Repository{
 				{
 					Owner: owner,
@@ -57,7 +59,8 @@ func GetTestCases(owner string) map[string]TestCase {
 			},
 		},
 		"complex-graph": {
-			Name: "complex-graph",
+			Name:  "complex-graph",
+			Dirty: false,
 			Repositories: []Repository{
 				{
 					Owner: owner,
@@ -126,7 +129,8 @@ func GetTestCases(owner string) map[string]TestCase {
 			},
 		},
 		"deep-graph": {
-			Name: "deep-graph",
+			Name:  "deep-graph",
+			Dirty: false,
 			Repositories: []Repository{
 				{
 					Owner: owner,
@@ -168,7 +172,8 @@ func GetTestCases(owner string) map[string]TestCase {
 			},
 		},
 		"diamond-dependency-graph": {
-			Name: "diamond-dependency-graph",
+			Name:  "diamond-dependency-graph",
+			Dirty: false,
 			Repositories: []Repository{
 				{
 					Owner: owner,
@@ -251,6 +256,23 @@ func GetClient() (*github.Client, error) {
 }
 
 func (tc *TestCase) Setup(client *github.Client) error {
+	if !tc.Dirty {
+		// Check if all repositories exist
+		allExist := true
+		for i := range tc.Repositories {
+			repo := &tc.Repositories[i]
+			ghRepo, _, err := client.Repositories.Get(context.Background(), repo.Owner, repo.Name)
+			if err != nil {
+				allExist = false
+				break
+			}
+			repo.CloneURL = *ghRepo.CloneURL
+		}
+		if allExist {
+			return nil
+		}
+	}
+
 	for i := range tc.Repositories {
 		repo := &tc.Repositories[i]
 
@@ -290,8 +312,19 @@ func (tc *TestCase) Setup(client *github.Client) error {
 }
 
 func (tc *TestCase) SetupLocal() (string, error) {
-	tmpDir, err := os.MkdirTemp("", tc.Name)
-	if err != nil {
+	tmpDir := filepath.Join(os.TempDir(), tc.Name)
+	if !tc.Dirty {
+		// Check if the directory exists
+		if _, err := os.Stat(tmpDir); err == nil {
+			return tmpDir, nil
+		}
+	}
+
+	if err := os.RemoveAll(tmpDir); err != nil {
+		return "", err
+	}
+
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
 		return "", err
 	}
 
@@ -319,6 +352,9 @@ func (tc *TestCase) SetupLocal() (string, error) {
 }
 
 func (tc *TestCase) Cleanup(client *github.Client) error {
+	if !tc.Dirty {
+		return nil
+	}
 	for _, repo := range tc.Repositories {
 		_, err := client.Repositories.Delete(context.Background(), repo.Owner, repo.Name)
 		if err != nil {
