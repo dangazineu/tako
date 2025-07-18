@@ -11,6 +11,14 @@ import (
 	"strings"
 )
 
+type CircularDependencyError struct {
+	Path []string
+}
+
+func (e *CircularDependencyError) Error() string {
+	return fmt.Sprintf("circular dependency detected: %s", strings.Join(e.Path, " -> "))
+}
+
 type Node struct {
 	Name     string
 	Path     string
@@ -22,13 +30,26 @@ func (n *Node) AddChild(child *Node) {
 }
 
 func BuildGraph(path, cacheDir string, localOnly bool) (*Node, error) {
-	return buildGraphRecursive(path, cacheDir, make(map[string]*Node), localOnly)
+	return buildGraphRecursive(path, cacheDir, make(map[string]*Node), []string{}, []string{}, localOnly)
 }
 
-func buildGraphRecursive(path, cacheDir string, visited map[string]*Node, localOnly bool) (*Node, error) {
+func buildGraphRecursive(path, cacheDir string, visited map[string]*Node, currentPath []string, currentPathNames []string, localOnly bool) (*Node, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	for i, p := range currentPath {
+		if p == absPath {
+			cfg, err := config.Load(filepath.Join(absPath, "tako.yml"))
+			if err != nil {
+				// If we can't load the config, we can't get the name.
+				// Just return the path with absPath.
+				return nil, &CircularDependencyError{Path: append(currentPath, absPath)}
+			}
+			cyclePath := append(currentPathNames[i:], cfg.Metadata.Name)
+			return nil, &CircularDependencyError{Path: cyclePath}
+		}
 	}
 
 	if node, ok := visited[absPath]; ok {
@@ -44,7 +65,9 @@ func buildGraphRecursive(path, cacheDir string, visited map[string]*Node, localO
 		Name: cfg.Metadata.Name,
 		Path: absPath,
 	}
-	visited[absPath] = root
+
+	newPath := append(currentPath, absPath)
+	newPathNames := append(currentPathNames, root.Name)
 
 	for _, dependent := range cfg.Dependents {
 		repoPath, err := getRepoPath(dependent.Repo, absPath, cacheDir, localOnly)
@@ -52,12 +75,14 @@ func buildGraphRecursive(path, cacheDir string, visited map[string]*Node, localO
 			return nil, err
 		}
 
-		child, err := buildGraphRecursive(repoPath, cacheDir, visited, localOnly)
+		child, err := buildGraphRecursive(repoPath, cacheDir, visited, newPath, newPathNames, localOnly)
 		if err != nil {
 			return nil, err
 		}
 		root.AddChild(child)
 	}
+
+	visited[absPath] = root
 
 	return root, nil
 }

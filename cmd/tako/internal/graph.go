@@ -23,6 +23,9 @@ func NewGraphCmd() *cobra.Command {
 			cacheDir, _ := cmd.Flags().GetString("cache-dir")
 			root, err := graph.BuildGraph(rootPath, cacheDir, localOnly)
 			if err != nil {
+				if _, ok := err.(*graph.CircularDependencyError); ok {
+					return err
+				}
 				return err
 			}
 			graph.PrintGraph(cmd.OutOrStdout(), root)

@@ -2,7 +2,6 @@ package internal
 
 import (
 	"bytes"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,15 +10,11 @@ import (
 
 func TestCacheCleanCmd(t *testing.T) {
 	// Create a temporary cache directory for testing
-	tmpDir, err := ioutil.TempDir("", "tako-cache-test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	// Create a dummy file in the cache
 	dummyFile := filepath.Join(tmpDir, "dummy.txt")
-	err = ioutil.WriteFile(dummyFile, []byte("test"), 0644)
+	err := os.WriteFile(dummyFile, []byte("test"), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write dummy file: %v", err)
 	}
@@ -51,4 +46,3 @@ func TestCacheCleanCmd(t *testing.T) {
 		t.Errorf("Cache directory should be deleted, but it still exists.")
 	}
 }
-
