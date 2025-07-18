@@ -97,13 +97,18 @@ func TestBuildGraph(t *testing.T) {
 		if err := cmd.Run(); err != nil {
 			t.Fatalf("failed to git clone: %v", err)
 		}
-		createRepo(t, filepath.Join(cacheDir, "repos", "test"), "repo-b", &config.TakoConfig{
+		createRepo(t, cloneDir, "", &config.TakoConfig{
 			Version: "0.1.0",
 			Metadata: config.Metadata{
 				Name: "repo-b",
 			},
 			Dependents: []config.Dependent{},
 		})
+		cmd = exec.Command("git", "push", "origin", "main")
+		cmd.Dir = cloneDir
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("failed to git push: %v", err)
+		}
 
 		root, err := BuildGraph(repoA, cacheDir, false)
 		if err != nil {
@@ -148,13 +153,18 @@ func TestBuildGraph(t *testing.T) {
 			if err := cmd.Run(); err != nil {
 				t.Fatalf("failed to git clone: %v", err)
 			}
-			createRepo(t, filepath.Dir(path), "repo-b", &config.TakoConfig{
+			createRepo(t, path, "", &config.TakoConfig{
 				Version: "0.1.0",
 				Metadata: config.Metadata{
 					Name: "repo-b",
 				},
 				Dependents: []config.Dependent{},
 			})
+			cmd = exec.Command("git", "push", "origin", "main")
+			cmd.Dir = path
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("failed to git push: %v", err)
+			}
 			return nil
 		}
 
