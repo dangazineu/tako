@@ -129,6 +129,16 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode, entrypoint string) {
 				t.Errorf("failed to cleanup remote test case: %v", err)
 			}
 		})
+		for _, repo := range tc.Repositories {
+			repoDir := filepath.Join(cacheDir, "repos", repo.Owner, repo.Name)
+			if err := os.MkdirAll(repoDir, 0755); err != nil {
+				t.Fatalf("failed to create repo dir: %v", err)
+			}
+			cmd := exec.Command("git", "clone", repo.CloneURL, repoDir)
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("failed to git clone: %v", err)
+			}
+		}
 	}
 
 	// Build the tako binary
