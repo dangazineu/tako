@@ -13,11 +13,11 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-
 type TestCase struct {
-	Name         string
-	Dirty        bool
-	Repositories []Repository
+	Name          string
+	Dirty         bool
+	Repositories  []Repository
+	ExpectedError string
 }
 
 type Repository struct {
@@ -256,6 +256,7 @@ func GetTestCases(owner string) map[string]TestCase {
 					},
 				},
 			},
+			ExpectedError: "circular dependency detected: circular-dependency-graph-repo-circ-a -> circular-dependency-graph-repo-circ-b -> circular-dependency-graph-repo-circ-a",
 		},
 	}
 
@@ -273,7 +274,15 @@ func GetTestCases(owner string) map[string]TestCase {
 				if len(repoAndRef) > 1 {
 					ref = ":" + repoAndRef[1]
 				}
-				dependent.Repo = fmt.Sprintf("%s/%s-%s%s", repo.Owner, name, depRepoName, ref)
+
+				if strings.HasPrefix(depRepoName, "..") {
+					parts := strings.Split(depRepoName, "/")
+					repoName := parts[len(parts)-1]
+					parts[len(parts)-1] = fmt.Sprintf("%s-%s", name, repoName)
+					dependent.Repo = strings.Join(parts, "/") + ref
+				} else {
+					dependent.Repo = fmt.Sprintf("%s/%s-%s%s", repo.Owner, name, depRepoName, ref)
+				}
 			}
 		}
 	}
@@ -281,7 +290,6 @@ func GetTestCases(owner string) map[string]TestCase {
 }
 
 var TestCases = GetTestCases(Org)
-
 
 func GetClient() (*github.Client, error) {
 	token := os.Getenv("GITHUB_PERSONAL_ACCESS_TOKEN")

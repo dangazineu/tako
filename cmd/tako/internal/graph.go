@@ -56,6 +56,9 @@ func NewGraphCmd() *cobra.Command {
 			localOnly, _ := cmd.Flags().GetBool("local")
 			root, err := graph.BuildGraph(rootPath, cacheDir, localOnly)
 			if err != nil {
+				if _, ok := err.(*graph.CircularDependencyError); ok {
+					return err
+				}
 				return err
 			}
 			graph.PrintGraph(cmd.OutOrStdout(), root)

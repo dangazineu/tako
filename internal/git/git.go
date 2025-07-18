@@ -37,8 +37,7 @@ func Checkout(path, ref string) error {
 			// It might be that the local branch is not tracking the remote one.
 			// Let's try to set it up.
 			cmd = exec.Command("git", "-C", path, "checkout", "-b", ref, "origin/"+ref)
-			output, err = cmd.CombinedOutput()
-			if err != nil {
+			if _, err = cmd.CombinedOutput(); err != nil {
 				return fmt.Errorf("failed to checkout branch %s in repo %s: %s", ref, path, string(output))
 			}
 		}

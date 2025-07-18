@@ -17,10 +17,10 @@ import (
 )
 
 var (
-	local                  = flag.Bool("local", false, "run local tests")
-	remote                 = flag.Bool("remote", false, "run remote tests")
-	withRepoEntryPoint     = flag.Bool("with-repo-entrypoint", false, "run tests with --repo flag")
-	withoutRepoEntryPoint  = flag.Bool("without-repo-entrypoint", false, "run tests with --root flag")
+	local                 = flag.Bool("local", false, "run local tests")
+	remote                = flag.Bool("remote", false, "run remote tests")
+	withRepoEntryPoint    = flag.Bool("with-repo-entrypoint", false, "run tests with --repo flag")
+	withoutRepoEntryPoint = flag.Bool("without-repo-entrypoint", false, "run tests with --root flag")
 )
 
 func findProjectRoot(start string) string {
@@ -172,6 +172,17 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode, entrypoint string) {
 	takoCmd.Stdout = &out
 	takoCmd.Stderr = &out
 	err = takoCmd.Run()
+
+	if tc.ExpectedError != "" {
+		if err == nil {
+			t.Fatalf("expected to fail with error %q, but it succeeded", tc.ExpectedError)
+		}
+		if !strings.Contains(out.String(), tc.ExpectedError) {
+			t.Errorf("expected output to contain %q, got %q", tc.ExpectedError, out.String())
+		}
+		return
+	}
+
 	if err != nil {
 		if !strings.Contains(out.String(), getExpectedOutput(tc.Name)) {
 			t.Fatalf("failed to run tako graph: %v\nOutput:\n%s", err, out.String())

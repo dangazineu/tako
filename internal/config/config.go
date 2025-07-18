@@ -67,7 +67,6 @@ func Load(path string) (*TakoConfig, error) {
 	return &config, nil
 }
 
-
 func validate(config *TakoConfig) error {
 	if config.Version == "" {
 		return fmt.Errorf("missing required field: version")
@@ -90,10 +89,6 @@ func validate(config *TakoConfig) error {
 }
 
 func validateRepoFormat(repo string) error {
-	// Local paths are not validated
-	if strings.HasPrefix(repo, ".") || strings.HasPrefix(repo, "file://") {
-		return nil
-	}
 	parts := strings.Split(repo, "/")
 	if len(parts) != 2 {
 		return fmt.Errorf("invalid repo format: %s", repo)
