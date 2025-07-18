@@ -45,9 +45,15 @@ func TestBuildGraph(t *testing.T) {
 		repoB := filepath.Join(tmpDir, "repo-b")
 		repoC := filepath.Join(tmpDir, "repo-c")
 
-		os.Mkdir(repoA, 0755)
-		os.Mkdir(repoB, 0755)
-		os.Mkdir(repoC, 0755)
+		if err := os.Mkdir(repoA, 0755); err != nil {
+			t.Fatalf("failed to create repoA: %v", err)
+		}
+		if err := os.Mkdir(repoB, 0755); err != nil {
+			t.Fatalf("failed to create repoB: %v", err)
+		}
+		if err := os.Mkdir(repoC, 0755); err != nil {
+			t.Fatalf("failed to create repoC: %v", err)
+		}
 
 		// Create mock tako.yml files
 		takoA := `
@@ -117,8 +123,12 @@ dependents: []
 		repoA := filepath.Join(tmpDir, "repo-a")
 		repoB := filepath.Join(tmpDir, "repo-b")
 
-		os.Mkdir(repoA, 0755)
-		os.Mkdir(repoB, 0755)
+		if err := os.Mkdir(repoA, 0755); err != nil {
+			t.Fatalf("failed to create repoA: %v", err)
+		}
+		if err := os.Mkdir(repoB, 0755); err != nil {
+			t.Fatalf("failed to create repoB: %v", err)
+		}
 
 		// Init git repo in repoB
 		cmd := exec.Command("git", "init")
@@ -176,8 +186,12 @@ dependents: []
 		repoA := filepath.Join(tmpDir, "repo-a")
 		repoB := filepath.Join(tmpDir, "repo-b")
 
-		os.Mkdir(repoA, 0755)
-		os.Mkdir(repoB, 0755)
+		if err := os.Mkdir(repoA, 0755); err != nil {
+			t.Fatalf("failed to create repoA: %v", err)
+		}
+		if err := os.Mkdir(repoB, 0755); err != nil {
+			t.Fatalf("failed to create repoB: %v", err)
+		}
 
 		// Init git repo in repoB
 		cmd := exec.Command("git", "init")

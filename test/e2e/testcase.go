@@ -6,7 +6,6 @@ import (
 	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/dangazineu/tako/internal/config"
@@ -40,7 +39,7 @@ var TestCases = map[string]TestCase{
 						Name: "repo-a",
 					},
 					Dependents: []config.Dependent{
-						{Repo: "../repo-b:main"},
+						{Repo: "tako-test/repo-b:main"},
 					},
 				},
 			},
@@ -67,8 +66,8 @@ var TestCases = map[string]TestCase{
 						Name: "repo-a",
 					},
 					Dependents: []config.Dependent{
-						{Repo: "../repo-b:main"},
-						{Repo: "../repo-d:main"},
+						{Repo: "tako-test/repo-b:main"},
+						{Repo: "tako-test/repo-d:main"},
 					},
 				},
 			},
@@ -80,7 +79,7 @@ var TestCases = map[string]TestCase{
 						Name: "repo-b",
 					},
 					Dependents: []config.Dependent{
-						{Repo: "../repo-c:main"},
+						{Repo: "tako-test/repo-c:main"},
 					},
 				},
 			},
@@ -92,7 +91,7 @@ var TestCases = map[string]TestCase{
 						Name: "repo-c",
 					},
 					Dependents: []config.Dependent{
-						{Repo: "../repo-e:main"},
+						{Repo: "tako-test/repo-e:main"},
 					},
 				},
 			},
@@ -104,7 +103,7 @@ var TestCases = map[string]TestCase{
 						Name: "repo-d",
 					},
 					Dependents: []config.Dependent{
-						{Repo: "../repo-e:main"},
+						{Repo: "tako-test/repo-e:main"},
 					},
 				},
 			},
@@ -254,14 +253,6 @@ func (tc *TestCase) Setup(client *github.Client) error {
 		}
 		repo.CloneURL = *createdRepo.CloneURL
 
-		// Modify the content for remote testing
-		for i := range repo.TakoConfig.Dependents {
-			dep := &repo.TakoConfig.Dependents[i]
-			if strings.Contains(dep.Repo, "../") {
-				dep.Repo = strings.ReplaceAll(dep.Repo, "../", "tako-test/")
-			}
-		}
-
 		content, err := yaml.Marshal(repo.TakoConfig)
 		if err != nil {
 			return err
@@ -287,17 +278,13 @@ func (tc *TestCase) SetupLocal() (string, error) {
 	}
 
 	for _, repo := range tc.Repositories {
-		repoPath := filepath.Join(tmpDir, repo.Name)
-		os.MkdirAll(repoPath, 0755)
+		repoPath := filepath.Join(tmpDir, Org, repo.Name)
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			return "", err
+		}
 		filePath := filepath.Join(repoPath, "tako.yml")
-		os.MkdirAll(filepath.Dir(filePath), 0755)
-
-		// Modify the content for local testing
-		for i := range repo.TakoConfig.Dependents {
-			dep := &repo.TakoConfig.Dependents[i]
-			if strings.Contains(dep.Repo, "tako-test/") {
-				dep.Repo = strings.ReplaceAll(dep.Repo, "tako-test/", "../")
-			}
+		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+			return "", err
 		}
 
 		content, err := yaml.Marshal(repo.TakoConfig)

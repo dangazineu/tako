@@ -114,8 +114,8 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 	var out bytes.Buffer
 	var rootPath string
 	if mode == "local" {
-		// For local mode, testCaseDir contains subdirectories for each repo
-		rootPath = filepath.Join(testCaseDir, tc.Repositories[0].Name)
+		// For local mode, testCaseDir is the root, and we point to the first repo inside it
+		rootPath = filepath.Join(testCaseDir, e2e.Org, tc.Repositories[0].Name)
 	} else {
 		// For remote mode, testCaseDir is the cloned repository root
 		rootPath = testCaseDir
@@ -124,7 +124,11 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 	t.Cleanup(func() {
 		os.RemoveAll(cacheDir)
 	})
-	takoCmd := exec.Command(takoPath, "graph", "--root", rootPath, "--cache-dir", cacheDir)
+	args := []string{"graph", "--root", rootPath, "--cache-dir", cacheDir}
+	if mode == "local" {
+		args = append(args, "--local")
+	}
+	takoCmd := exec.Command(takoPath, args...)
 	takoCmd.Stdout = &out
 	takoCmd.Stderr = &out
 	err = takoCmd.Run()
@@ -145,6 +149,18 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 
 func getExpectedOutput(testCaseName string) string {
 	switch testCaseName {
+	case "simple-graph":
+		return `repo-a
+└── repo-b
+`
+	case "complex-graph":
+		return `repo-a
+├── repo-b
+│   └── repo-c
+│       └── repo-e
+└── repo-d
+    └── repo-e
+`
 	case "deep-graph":
 		return `repo-x
 └── repo-y
