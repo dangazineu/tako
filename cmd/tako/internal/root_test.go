@@ -1,13 +1,16 @@
 package internal
 
 import (
+	"bytes"
 	"testing"
 )
 
 func TestExecute(t *testing.T) {
 	cmd := NewRootCmd()
-	cmd.SetArgs([]string{"--help"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("failed to execute root command: %v", err)
+	b := bytes.NewBufferString("")
+	cmd.SetOut(b)
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

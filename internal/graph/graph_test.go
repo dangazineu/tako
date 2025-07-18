@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sigs.k8s.io/yaml"
+	"strings"
 	"testing"
 )
 
@@ -104,7 +105,16 @@ func TestBuildGraph(t *testing.T) {
 			},
 			Dependents: []config.Dependent{},
 		})
-		cmd = exec.Command("git", "push", "origin", "main")
+		// Get current branch name
+		cmd = exec.Command("git", "branch", "--show-current")
+		cmd.Dir = cloneDir
+		currentBranch, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("failed to get current branch: %v", err)
+		}
+		branchName := strings.TrimSpace(string(currentBranch))
+
+		cmd = exec.Command("git", "push", "origin", branchName)
 		cmd.Dir = cloneDir
 		if err := cmd.Run(); err != nil {
 			t.Fatalf("failed to git push: %v", err)
@@ -160,7 +170,16 @@ func TestBuildGraph(t *testing.T) {
 				},
 				Dependents: []config.Dependent{},
 			})
-			cmd = exec.Command("git", "push", "origin", "main")
+			// Get current branch name
+			cmd = exec.Command("git", "branch", "--show-current")
+			cmd.Dir = path
+			currentBranch, err := cmd.Output()
+			if err != nil {
+				t.Fatalf("failed to get current branch: %v", err)
+			}
+			branchName := strings.TrimSpace(string(currentBranch))
+
+			cmd = exec.Command("git", "push", "origin", branchName)
 			cmd.Dir = path
 			if err := cmd.Run(); err != nil {
 				t.Fatalf("failed to git push: %v", err)

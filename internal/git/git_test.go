@@ -50,8 +50,17 @@ func TestCheckout(t *testing.T) {
 		t.Fatalf("failed to git commit: %v", err)
 	}
 
+	// Get current branch name
+	cmd = exec.Command("git", "branch", "--show-current")
+	cmd.Dir = cloneDir
+	currentBranch, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("failed to get current branch: %v", err)
+	}
+	branchName := strings.TrimSpace(string(currentBranch))
+
 	// Push the commit
-	cmd = exec.Command("git", "push", "origin", "main")
+	cmd = exec.Command("git", "push", "origin", branchName)
 	cmd.Dir = cloneDir
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("failed to git push: %v", err)
