@@ -249,7 +249,7 @@ func createRepo(t *testing.T, dir, name string, cfg *config.TakoConfig) string {
 	if err := os.MkdirAll(repoDir, 0755); err != nil {
 		t.Fatalf("failed to create repo dir: %v", err)
 	}
-	cmd := exec.Command("git", "init")
+	cmd := exec.Command("git", "init", "-b", "main")
 	cmd.Dir = repoDir
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("failed to git init: %v", err)
