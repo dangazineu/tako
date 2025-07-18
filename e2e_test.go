@@ -201,11 +201,11 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode, entrypoint string) {
 
 	// Assert the output
 	expected := getExpectedOutput(tc.Name)
-	if testing.Verbose() {
-		t.Logf("Expected output:\n%s", expected)
-		t.Logf("Actual output:\n%s", out.String())
-	}
 	if !strings.Contains(out.String(), expected) {
+		if testing.Verbose() {
+			t.Logf("Expected output:\n%s", expected)
+			t.Logf("Actual output:\n%s", out.String())
+		}
 		t.Errorf("expected output to contain %q, got %q", expected, out.String())
 	}
 }

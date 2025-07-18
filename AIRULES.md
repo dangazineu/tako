@@ -50,6 +50,7 @@ Commit messages should not reference the issue number, instead they should descr
 -   Run integration tests with `go test -v -tags=integration ./...`.
 -   Run E2E tests with `go test -v -tags=e2e --local --without-repo-entrypoint ./...`, `go test -v -tags=e2e --remote --with-repo-entrypoint ./...`, or `go test -v -tags=e2e --remote --without-repo-entrypoint ./...`.
 -   All new testing tags and flags must be documented on the `README.md` and on `AIRULES.md`.
+-   Verbose logging (e.g., `t.Logf`) should only be used within a failing test case to provide context for debugging. Do not print verbose output for passing tests.
 
 ## 6. Configuration (`tako.yml`)
 
