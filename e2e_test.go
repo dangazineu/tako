@@ -140,6 +140,17 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 	takoCmd.Stdout = &out
 	takoCmd.Stderr = &out
 	err = takoCmd.Run()
+
+	if tc.ExpectedError != "" {
+		if err == nil {
+			t.Fatalf("expected to fail with error %q, but it succeeded", tc.ExpectedError)
+		}
+		if !strings.Contains(out.String(), tc.ExpectedError) {
+			t.Errorf("expected output to contain %q, got %q", tc.ExpectedError, out.String())
+		}
+		return
+	}
+
 	if err != nil {
 		t.Fatalf("failed to run tako graph: %v\nOutput:\n%s", err, out.String())
 	}

@@ -257,4 +257,60 @@ dependents: []
 			t.Errorf("expected child name to be 'repo-b', got %q", childB.Name)
 		}
 	})
+
+	t.Run("circular-dependency", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create mock repositories
+		repoA := filepath.Join(tmpDir, "repo-a")
+		repoB := filepath.Join(tmpDir, "repo-b")
+
+		if err := os.Mkdir(repoA, 0755); err != nil {
+			t.Fatalf("failed to create repoA: %v", err)
+		}
+		if err := os.Mkdir(repoB, 0755); err != nil {
+			t.Fatalf("failed to create repoB: %v", err)
+		}
+
+		// Create mock tako.yml files with circular dependency
+		takoA := `
+version: 0.1.0
+metadata:
+  name: repo-a
+dependents:
+  - repo: ../repo-b:main
+`
+		takoB := `
+version: 0.1.0
+metadata:
+  name: repo-b
+dependents:
+  - repo: ../repo-a:main
+`
+		err := os.WriteFile(filepath.Join(repoA, "tako.yml"), []byte(takoA), 0644)
+		if err != nil {
+			t.Fatalf("failed to write tako.yml: %v", err)
+		}
+		err = os.WriteFile(filepath.Join(repoB, "tako.yml"), []byte(takoB), 0644)
+		if err != nil {
+			t.Fatalf("failed to write tako.yml: %v", err)
+		}
+
+		// Build the graph and expect a circular dependency error
+		cacheDir := t.TempDir()
+		_, err = graph.BuildGraph(repoA, cacheDir, true)
+		if err == nil {
+			t.Fatal("expected a circular dependency error, but got nil")
+		}
+
+		cdErr, ok := err.(*graph.CircularDependencyError)
+		if !ok {
+			t.Fatalf("expected error to be of type *graph.CircularDependencyError, but got %T", err)
+		}
+
+		expectedError := "circular dependency detected: repo-a -> repo-b -> repo-a"
+		if cdErr.Error() != expectedError {
+			t.Errorf("expected error message %q, but got %q", expectedError, cdErr.Error())
+		}
+	})
 }

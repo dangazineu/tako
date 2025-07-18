@@ -12,11 +12,11 @@ import (
 	"github.com/google/go-github/v63/github"
 )
 
-
 type TestCase struct {
-	Name         string
-	Dirty        bool
-	Repositories []Repository
+	Name          string
+	Dirty         bool
+	Repositories  []Repository
+	ExpectedError string
 }
 
 type Repository struct {
@@ -241,11 +241,43 @@ func GetTestCases(owner string) map[string]TestCase {
 				},
 			},
 		},
+		"circular-dependency-graph": {
+			Name:  "circular-dependency-graph",
+			Dirty: false,
+			Repositories: []Repository{
+				{
+					Owner: owner,
+					Name:  "repo-circ-a",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-circ-a",
+						},
+						Dependents: []config.Dependent{
+							{Repo: "../repo-circ-b:main"},
+						},
+					},
+				},
+				{
+					Owner: owner,
+					Name:  "repo-circ-b",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-circ-b",
+						},
+						Dependents: []config.Dependent{
+							{Repo: "../repo-circ-a:main"},
+						},
+					},
+				},
+			},
+			ExpectedError: "circular dependency detected: repo-circ-a -> repo-circ-b -> repo-circ-a",
+		},
 	}
 }
 
 var TestCases = GetTestCases(Org)
-
 
 func GetClient() (*github.Client, error) {
 	token := os.Getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
