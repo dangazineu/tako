@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/dangazineu/tako/test/e2e"
+	"sigs.k8s.io/yaml"
 )
 
 var (
@@ -78,19 +79,43 @@ func TestE2E(t *testing.T) {
 
 func runTest(t *testing.T, tc *e2e.TestCase, mode, entrypoint string) {
 	t.Logf("Running test case: %s", tc.Name)
-	var testCaseDir string
 	var err error
 
+	cacheDir := t.TempDir()
+	t.Cleanup(func() {
+		os.RemoveAll(cacheDir)
+	})
+
 	if mode == "local" {
-		testCaseDir, err = tc.SetupLocal()
-		if err != nil {
-			t.Fatalf("failed to setup local test case: %v", err)
-		}
-		t.Cleanup(func() {
-			if tc.Dirty {
-				os.RemoveAll(testCaseDir)
+		for _, repo := range tc.Repositories {
+			repoDir := filepath.Join(cacheDir, "repos", repo.Owner, repo.Name)
+			if err := os.MkdirAll(repoDir, 0755); err != nil {
+				t.Fatalf("failed to create repo dir: %v", err)
 			}
-		})
+			cmd := exec.Command("git", "init")
+			cmd.Dir = repoDir
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("failed to git init: %v", err)
+			}
+			takoFile := filepath.Join(repoDir, "tako.yml")
+			content, err := yaml.Marshal(repo.TakoConfig)
+			if err != nil {
+				t.Fatalf("failed to marshal tako config: %v", err)
+			}
+			if err := os.WriteFile(takoFile, content, 0644); err != nil {
+				t.Fatalf("failed to write tako.yml: %v", err)
+			}
+			cmd = exec.Command("git", "add", "tako.yml")
+			cmd.Dir = repoDir
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("failed to git add: %v", err)
+			}
+			cmd = exec.Command("git", "commit", "-m", "initial commit")
+			cmd.Dir = repoDir
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("failed to git commit: %v", err)
+			}
+		}
 	} else {
 		client, err := e2e.GetClient()
 		if err != nil {
@@ -99,13 +124,6 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode, entrypoint string) {
 		if err := tc.Setup(client); err != nil {
 			t.Fatalf("failed to setup remote test case: %v", err)
 		}
-		tmpDir := t.TempDir()
-		cmd := exec.Command("git", "clone", tc.Repositories[0].CloneURL, tmpDir)
-		err = cmd.Run()
-		if err != nil {
-			t.Fatalf("failed to clone repo: %v", err)
-		}
-		testCaseDir = tmpDir
 		t.Cleanup(func() {
 			if err := tc.Cleanup(client); err != nil {
 				t.Errorf("failed to cleanup remote test case: %v", err)
@@ -139,23 +157,11 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode, entrypoint string) {
 
 	// Run tako graph
 	var out bytes.Buffer
-	cacheDir := t.TempDir()
-		t.Cleanup(func() {
-			os.RemoveAll(cacheDir)
-	})
-
 	var args []string
 	if entrypoint == "repo" {
 		args = []string{"graph", "--repo", tc.GetRepoEntryPoint(), "--cache-dir", cacheDir}
 	} else {
-		var rootPath string
-		if mode == "local" {
-			// For local mode, testCaseDir is the root, and we point to the first repo inside it
-			rootPath = filepath.Join(testCaseDir, tc.Repositories[0].Owner, tc.Repositories[0].Name)
-		} else {
-			// For remote mode, testCaseDir is the cloned repository root
-			rootPath = testCaseDir
-		}
+		rootPath := filepath.Join(cacheDir, "repos", tc.Repositories[0].Owner, tc.Repositories[0].Name)
 		args = []string{"graph", "--root", rootPath, "--cache-dir", cacheDir}
 		if mode == "local" {
 			args = append(args, "--local")
@@ -167,7 +173,9 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode, entrypoint string) {
 	takoCmd.Stderr = &out
 	err = takoCmd.Run()
 	if err != nil {
-		t.Fatalf("failed to run tako graph: %v\nOutput:\n%s", err, out.String())
+		if !strings.Contains(out.String(), getExpectedOutput(tc.Name)) {
+			t.Fatalf("failed to run tako graph: %v\nOutput:\n%s", err, out.String())
+		}
 	}
 
 	// Assert the output
@@ -191,6 +199,8 @@ func getExpectedOutput(testCaseName string) string {
 		return "deep-graph-repo-x\n└── deep-graph-repo-y\n    └── deep-graph-repo-z\n"
 	case "diamond-dependency-graph":
 		return "diamond-dependency-graph-repo-a\n├── diamond-dependency-graph-repo-b\n│   └── diamond-dependency-graph-repo-c\n│       └── diamond-dependency-graph-repo-e\n└── diamond-dependency-graph-repo-d\n    └── diamond-dependency-graph-repo-e\n"
+	case "circular-dependency-graph":
+		return "circular dependency detected: circular-dependency-graph-repo-circ-a -> circular-dependency-graph-repo-circ-b -> circular-dependency-graph-repo-circ-a"
 	default:
 		return ""
 	}

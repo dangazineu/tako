@@ -21,13 +21,28 @@ func (n *Node) AddChild(child *Node) {
 }
 
 func BuildGraph(path, cacheDir string, localOnly bool) (*Node, error) {
-	return buildGraphRecursive(path, cacheDir, make(map[string]*Node), localOnly)
+	return buildGraphRecursive(path, cacheDir, make(map[string]*Node), []string{}, localOnly)
 }
 
-func buildGraphRecursive(path, cacheDir string, visited map[string]*Node, localOnly bool) (*Node, error) {
+func buildGraphRecursive(path, cacheDir string, visited map[string]*Node, visiting []string, localOnly bool) (*Node, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	for _, p := range visiting {
+		if p == absPath {
+			cycle := append(visiting[sliceIndex(visiting, p):], absPath)
+			var cycleNames []string
+			for _, cp := range cycle {
+				cfg, err := config.Load(filepath.Join(cp, "tako.yml"))
+				if err != nil {
+					return nil, fmt.Errorf("failed to load config: %w", err)
+				}
+				cycleNames = append(cycleNames, cfg.Metadata.Name)
+			}
+			return nil, fmt.Errorf("circular dependency detected: %s", strings.Join(cycleNames, " -> "))
+		}
 	}
 
 	if node, ok := visited[absPath]; ok {
@@ -43,7 +58,8 @@ func buildGraphRecursive(path, cacheDir string, visited map[string]*Node, localO
 		Name: cfg.Metadata.Name,
 		Path: absPath,
 	}
-	visited[absPath] = root
+
+	visiting = append(visiting, absPath)
 
 	for _, dependent := range cfg.Dependents {
 		repoPath, err := getRepoPath(dependent.Repo, absPath, cacheDir, localOnly)
@@ -51,13 +67,14 @@ func buildGraphRecursive(path, cacheDir string, visited map[string]*Node, localO
 			return nil, err
 		}
 
-		child, err := buildGraphRecursive(repoPath, cacheDir, visited, localOnly)
+		child, err := buildGraphRecursive(repoPath, cacheDir, visited, visiting, localOnly)
 		if err != nil {
 			return nil, err
 		}
 		root.AddChild(child)
 	}
 
+	visited[absPath] = root
 	return root, nil
 }
 
@@ -179,4 +196,13 @@ func printChildren(w io.Writer, children []*Node, prefix string) {
 			fmt.Fprintln(w)
 		}
 	}
+}
+
+func sliceIndex(slice []string, item string) int {
+	for i, v := range slice {
+		if v == item {
+			return i
+		}
+	}
+	return -1
 }

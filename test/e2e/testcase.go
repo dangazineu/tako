@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/dangazineu/tako/internal/config"
@@ -226,6 +227,36 @@ func GetTestCases(owner string) map[string]TestCase {
 				},
 			},
 		},
+		"circular-dependency-graph": {
+			Name:  "circular-dependency-graph",
+			Dirty: false,
+			Repositories: []Repository{
+				{
+					Name: "repo-circ-a",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-circ-a",
+						},
+						Dependents: []config.Dependent{
+							{Repo: "repo-circ-b:main"},
+						},
+					},
+				},
+				{
+					Name: "repo-circ-b",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-circ-b",
+						},
+						Dependents: []config.Dependent{
+							{Repo: "repo-circ-a:main"},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -236,7 +267,13 @@ func GetTestCases(owner string) map[string]TestCase {
 			repo.TakoConfig.Metadata.Name = repo.Name
 			for j := range repo.TakoConfig.Dependents {
 				dependent := &repo.TakoConfig.Dependents[j]
-				dependent.Repo = fmt.Sprintf("%s/%s-%s", repo.Owner, name, dependent.Repo)
+				repoAndRef := strings.Split(dependent.Repo, ":")
+				depRepoName := repoAndRef[0]
+				ref := ""
+				if len(repoAndRef) > 1 {
+					ref = ":" + repoAndRef[1]
+				}
+				dependent.Repo = fmt.Sprintf("%s/%s-%s%s", repo.Owner, name, depRepoName, ref)
 			}
 		}
 	}
