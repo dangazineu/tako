@@ -18,6 +18,16 @@ func Clone(url, path string) error {
 	return nil
 }
 
+// Checkout checks out a specific ref in the given repository path.
+func Checkout(path, ref string) error {
+	cmd := exec.Command("git", "-C", path, "checkout", ref)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to checkout ref %s in %s: %s", ref, path, string(output))
+	}
+	return nil
+}
+
 func GetEntrypointPath(root, repo, cacheDir string, localOnly bool) (string, error) {
 	if repo != "" {
 		// When --repo is used, there's no "current" path, so we pass ""
@@ -69,7 +79,14 @@ func GetRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, er
 			return "", fmt.Errorf("invalid remote repository format: %s", repo)
 		}
 		repoOwner := repoParts[0]
-		repoName := strings.Split(repoParts[1], ":")[0]
+
+		repoAndRef := strings.Split(repoParts[1], ":")
+		repoName := repoAndRef[0]
+		var ref string
+		if len(repoAndRef) > 1 {
+			ref = repoAndRef[1]
+		}
+
 		var repoPath string
 
 		if localOnly {
@@ -100,6 +117,11 @@ func GetRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, er
 				cmd := exec.Command("git", "-C", repoPath, "pull")
 				if err := cmd.Run(); err != nil {
 					return "", fmt.Errorf("failed to update repo %s: %w", repo, err)
+				}
+			}
+			if ref != "" {
+				if err := Checkout(repoPath, ref); err != nil {
+					return "", err
 				}
 			}
 		}
