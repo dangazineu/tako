@@ -17,8 +17,9 @@ import (
 )
 
 var (
-	local  = flag.Bool("local", false, "run local tests")
-	remote = flag.Bool("remote", false, "run remote tests")
+	local      = flag.Bool("local", false, "run local tests")
+	remote     = flag.Bool("remote", false, "run remote tests")
+	entrypoint = flag.String("entrypoint", "all", "entrypoint mode to run tests in (all, path, repo)")
 )
 
 func findProjectRoot(start string) string {
@@ -39,32 +40,62 @@ func TestE2E(t *testing.T) {
 	if !*local && !*remote {
 		t.Fatal("either -local or -remote must be set")
 	}
+
+	scenarios := []struct {
+		mode               string
+		withRepoEntryPoint bool
+	}{}
+
+	if *local {
+		if *entrypoint == "all" || *entrypoint == "path" {
+			scenarios = append(scenarios, struct {
+				mode               string
+				withRepoEntryPoint bool
+			}{"local", false})
+		}
+		if *entrypoint == "all" || *entrypoint == "repo" {
+			scenarios = append(scenarios, struct {
+				mode               string
+				withRepoEntryPoint bool
+			}{"local", true})
+		}
+	}
+	if *remote {
+		if *entrypoint == "all" || *entrypoint == "path" {
+			scenarios = append(scenarios, struct {
+				mode               string
+				withRepoEntryPoint bool
+			}{"remote", false})
+		}
+		if *entrypoint == "all" || *entrypoint == "repo" {
+			scenarios = append(scenarios, struct {
+				mode               string
+				withRepoEntryPoint bool
+			}{"remote", true})
+		}
+	}
+
 	for name, tc := range e2e.GetTestCases(e2e.Org) {
 		name, tc := name, tc // capture range variable
 		t.Run(name, func(t *testing.T) {
-			if *local {
-				localTC := tc
-				t.Run("local", func(t *testing.T) {
-					runTest(t, &localTC, "local")
-				})
-			}
-			if *remote {
-				remoteTC := tc
-				t.Run("remote", func(t *testing.T) {
-					runTest(t, &remoteTC, "remote")
+			for _, scenario := range scenarios {
+				scenario := scenario // capture range variable
+				scenarioName := fmt.Sprintf("%s/entrypoint-%s", scenario.mode, map[bool]string{true: "repo", false: "path"}[scenario.withRepoEntryPoint])
+				t.Run(scenarioName, func(t *testing.T) {
+					runTest(t, &tc, scenario.mode, scenario.withRepoEntryPoint)
 				})
 			}
 		})
 	}
 }
 
-func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
+func runTest(t *testing.T, tc *e2e.TestCase, mode string, withRepoEntryPoint bool) {
 	t.Logf("Running test case: %s", tc.Name)
 	var cacheDir, workDir string
 	var err error
 
 	if mode == "local" {
-		testCaseBaseDir, err := tc.SetupLocal()
+		testCaseBaseDir, err := tc.SetupLocal(withRepoEntryPoint)
 		if err != nil {
 			t.Fatalf("failed to setup local test case: %v", err)
 		}
@@ -87,7 +118,7 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 		cacheDir = t.TempDir()
 		workDir = t.TempDir()
 
-		if !tc.WithRepoEntryPoint {
+		if !withRepoEntryPoint {
 			cmd := exec.Command("git", "clone", tc.Repositories[0].CloneURL, workDir)
 			err = cmd.Run()
 			if err != nil {
@@ -129,7 +160,7 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 	var out bytes.Buffer
 	var args []string
 
-	if tc.WithRepoEntryPoint {
+	if withRepoEntryPoint {
 		args = []string{"graph", "--repo", fmt.Sprintf("%s/%s:main", tc.Repositories[0].Owner, tc.Repositories[0].Name), "--cache-dir", cacheDir}
 	} else {
 		var rootPath string
@@ -145,7 +176,7 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 		args = append(args, "--local")
 	}
 	takoCmd := exec.Command(takoPath, args...)
-	if !tc.WithRepoEntryPoint {
+	if !withRepoEntryPoint {
 		if mode == "local" {
 			takoCmd.Dir = filepath.Join(workDir, tc.Repositories[0].Name)
 		} else {
@@ -202,7 +233,7 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 func getExpectedOutput(tc *e2e.TestCase) string {
 	var expected string
 	switch tc.Name {
-	case "simple-graph", "simple-graph-with-repo-flag":
+	case "simple-graph":
 		expected = `{{repo-a}}
 └── {{repo-b}}
 `

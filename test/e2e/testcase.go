@@ -14,11 +14,10 @@ import (
 )
 
 type TestCase struct {
-	Name               string
-	Dirty              bool
-	WithRepoEntryPoint bool
-	Repositories       []Repository
-	ExpectedError      string
+	Name          string
+	Dirty         bool
+	Repositories  []Repository
+	ExpectedError string
 }
 
 type Repository struct {
@@ -356,7 +355,7 @@ func (tc *TestCase) Setup(client *github.Client) error {
 	return nil
 }
 
-func (tc *TestCase) SetupLocal() (string, error) {
+func (tc *TestCase) SetupLocal(withRepoEntryPoint bool) (string, error) {
 	tmpDir := filepath.Join(os.TempDir(), tc.Name)
 	if err := os.RemoveAll(tmpDir); err != nil {
 		return "", err
@@ -376,7 +375,7 @@ func (tc *TestCase) SetupLocal() (string, error) {
 	}
 
 	reposToCreateInCache := tc.Repositories
-	if !tc.WithRepoEntryPoint {
+	if !withRepoEntryPoint {
 		if tc.Name == "circular-dependency-graph" {
 			reposToCreateInCache = []Repository{}
 		} else if len(tc.Repositories) > 1 {
@@ -407,7 +406,7 @@ func (tc *TestCase) SetupLocal() (string, error) {
 		}
 	}
 
-	if !tc.WithRepoEntryPoint {
+	if !withRepoEntryPoint {
 		reposToCreateInWorkdir := []Repository{tc.Repositories[0]}
 		if tc.Name == "circular-dependency-graph" {
 			reposToCreateInWorkdir = tc.Repositories

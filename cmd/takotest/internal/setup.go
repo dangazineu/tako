@@ -20,11 +20,10 @@ func NewSetupCmd() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("test case not found: %s", testCaseName)
 			}
-			testCase.WithRepoEntryPoint = withRepoEntrypoint
 
 			if local {
 				fmt.Printf("Setting up local test case\n")
-				testCaseDir, err := testCase.SetupLocal()
+				testCaseDir, err := testCase.SetupLocal(withRepoEntrypoint)
 				if err != nil {
 					return err
 				}
