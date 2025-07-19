@@ -68,7 +68,9 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 ## 3. Command-Line Interface (CLI)
 
 *   **Syntax:** `tako <command> [options] [args]`
-*   **Core Commands:** `version`, `graph`, `run`, `exec`, `init`, `doctor`, `artifacts`, `deps`, `cache`, `completion`
+*   **Core Commands:** 
+    *   **Implemented:** `version`, `graph`, `cache`, `completion`, `validate`
+    *   **Planned:** `run`, `exec`, `init`, `artifacts`, `deps`
 *   **`tako graph`:** Displays the dependency graph.
     *   `--root`: The root directory of the project. Defaults to the current directory.
     *   `--repo`: The remote repository to use as the entrypoint (e.g. `owner/repo:ref`). This flag takes precedence over `--root`.
@@ -76,7 +78,7 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 *   **`tako completion`:** A command to generate shell completion scripts for different shells.
 *   **`tako cache`:** A command to manage Tako's cache.
     *   `tako cache clean`: Removes all cached repositories and artifacts from Tako's cache directory.
-*   **`tako doctor`:** A command to validate the workspace health, checking `tako.yml` syntax, dependency availability, and Docker connectivity.
+*   **`tako validate`:** A command to validate the workspace health, checking `tako.yml` syntax, dependency availability, and Docker connectivity.
 *   **Flags:** `--dry-run`, `--verbose`, `--debug`, `--only`, `--ignore`, `--serial`, `--continue-on-error`, `--summarize-errors`, `--preserve-tmp`.
 
 ## 4. Configuration (`tako.yml`)
@@ -137,55 +139,7 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 *   **Command Execution:**  Tako executes shell commands defined in `tako.yml` files. This implies a level of trust in the repositories being used. A flag (e.g., `--allow-unsafe-workflows`) may be required to run potentially destructive workflows (TBD).
 *   **Path Validation:** All file paths will be validated to prevent directory traversal attacks.
 
----
 
-## 6. Implementation Plan
-
-### Milestone 0: Research & Validation
-*Goal: Prove the core concepts with a minimal prototype.*
-1.  **Initialize Go Project:** Set up the basic Go module, Cobra CLI, and project structure.
-2.  **Prototype Core Logic:** Build a proof-of-concept script to validate the inverse dependency model and the path-based override mechanism.
-3.  **Refine Spec:** Adjust the specification based on prototype findings.
-
-### Milestone 1: Project Foundation & Graphing
-*Goal: Establish the project and visualize the dependency graph.*
-1.  **Repository Authentication & Caching:** Implement basic Git authentication (SSH) and repository caching.
-2.  **Configuration Validation (Basic & Semantic):** Implement multi-layered validation for `tako.yml` files, checking syntax, schema, and logical consistency.
-3.  **Graph Construction:** Implement the `graph` package to build the dependency graph, including cycle detection.
-4.  **`tako graph` Command:** Implement the `tako graph` command with both text and DOT output.
-    *   Add `--repo` flag to specify a remote repository as the entrypoint.
-
-### Milestone 2: Basic Command Execution
-*Goal: Run a single command across all repositories with robust error handling.*
-1.  **`tako run` Command:** Implement the core `tako run` command.
-2.  **Error Handling Framework:** Implement structured error codes and a retry mechanism for transient network failures.
-3.  **Filtering & Dry Runs:** Add support for `--only`, `--ignore`, and `--dry-run` flags.
-
-### Milestone 3: Workflows & Local Testing
-*Goal: Enable multi-step, artifact-aware workflows for downstream testing.*
-1.  **`tako exec` Command & Workflow Engine:** Implement the ability to run multi-step workflows from `tako.yml`.
-2.  **Artifact Caching:** Implement a cache for build artifacts to avoid redundant work.
-3.  **Artifact Building:** Implement the logic to build artifacts as defined in `tako.yml`.
-4.  **Configuration Modification:** Implement the crash-safe logic for modifying and restoring dependent configuration files.
-5.  **Downstream Execution:** Run workflows in the modified dependent repositories.
-
-### Milestone 4: Containerized Workflows & Builds
-*Goal: Enable reproducible builds by running workflows and artifact builds in Docker containers.*
-1.  **Docker Integration:** Implement the logic to detect an `image` property and execute commands using `docker run`.
-2.  **Volume Mounting & Artifact Handoff:** Ensure correct volume mounting and that artifacts can be passed between containers.
-3.  **Resource & Network Controls:** Add support for configuring container CPU, memory, and network access.
-
-### Milestone 5: Polish & Developer Experience
-*Goal: Make Tako robust and user-friendly.*
-1.  **`tako init` & `tako doctor`:** Implement the bootstrapping and health-check commands.
-2.  **Shell Completion:** Add shell completion support.
-3.  **Observability:** Implement OpenTelemetry for logging and metrics.
-
-### Milestone 6: Distribution & Documentation
-*Goal: Prepare Tako for its first release.*
-1.  **Core Documentation:** Create the essential "Getting Started" guide and command references.
-2.  **Advanced Examples & Repos:** Create detailed examples for advanced features and set up public example repositories.
-3.  **CI/CD & Release Automation:** Set up GitHub Actions to build, test, and release cross-platform binaries with checksums.
 
 ## 8. Testing
 
