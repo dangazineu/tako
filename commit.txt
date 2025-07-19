@@ -1,0 +1,7 @@
+refactor(e2e): Use takotest for setup and cleanup and fix CI
+
+This change refactors the E2E test suite to use the `takotest` CLI for setting up and cleaning up test environments. This aligns the E2E tests with the manual testing workflow described in the issue, making them more robust and easier to debug.
+
+The `takotest` CLI has been updated to support all four execution modes (local/remote with path/repo entrypoints) and to output structured JSON for programmatic use.
+
+The CI workflow has been updated to run all tests in a single step and only run local tests, ensuring that it does not require a GitHub token.
