@@ -1,13 +1,19 @@
 package internal
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/dangazineu/tako/internal/config"
 	"github.com/dangazineu/tako/internal/git"
 	"github.com/dangazineu/tako/test/e2e"
+	"github.com/google/go-github/v63/github"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 type SetupOutput struct {
@@ -17,53 +23,22 @@ type SetupOutput struct {
 
 func NewSetupCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "setup [testcase]",
-		Short: "Setup a test case",
+		Use:   "setup [environment]",
+		Short: "Setup a test environment",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			local, _ := cmd.Flags().GetBool("local")
-			withRepoEntrypoint, _ := cmd.Flags().GetBool("with-repo-entrypoint")
 			owner, _ := cmd.Flags().GetString("owner")
-			testCaseName := args[0]
-			testCase, ok := e2e.GetTestCases(owner)[testCaseName]
+			envName := args[0]
+			env, ok := e2e.GetEnvironments(owner)[envName]
 			if !ok {
-				return fmt.Errorf("test case not found: %s", testCaseName)
+				return fmt.Errorf("environment not found: %s", envName)
 			}
 
-			var workDir, cacheDir string
 			if local {
-				testCaseDir, err := testCase.SetupLocal(withRepoEntrypoint)
-				if err != nil {
-					return err
-				}
-				workDir = filepath.Join(testCaseDir, "workdir")
-				cacheDir = filepath.Join(testCaseDir, "cache")
-			} else {
-				client, err := e2e.GetClient()
-				if err != nil {
-					return err
-				}
-				if err := testCase.Setup(client); err != nil {
-					return err
-				}
-				tmpDir, err := os.MkdirTemp("", "tako-e2e-")
-				if err != nil {
-					return err
-				}
-				workDir = tmpDir
-				cacheDir = filepath.Join(tmpDir, "cache")
-				if !withRepoEntrypoint {
-					if err := git.Clone(testCase.Repositories[0].CloneURL, workDir); err != nil {
-						return err
-					}
-				}
+				return setupLocal(cmd, &env, owner)
 			}
-
-			output := SetupOutput{
-				WorkDir:  workDir,
-				CacheDir: cacheDir,
-			}
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(output)
+			return setupRemote(cmd, &env, owner)
 		},
 	}
 	cmd.Flags().Bool("local", false, "Setup the test case locally")
@@ -71,4 +46,207 @@ func NewSetupCmd() *cobra.Command {
 	cmd.Flags().String("owner", "", "The owner of the repositories")
 	cmd.MarkFlagRequired("owner")
 	return cmd
+}
+
+func setupLocal(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) error {
+	withRepoEntrypoint, _ := cmd.Flags().GetBool("with-repo-entrypoint")
+	tmpDir := filepath.Join(os.TempDir(), env.Name)
+	if err := os.RemoveAll(tmpDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		return err
+	}
+
+	cacheDir := filepath.Join(tmpDir, "cache")
+	workDir := filepath.Join(tmpDir, "workdir")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		return err
+	}
+
+	reposToCreate := env.Repositories
+	if withRepoEntrypoint {
+		// Create all repos in the cache
+		for _, repo := range reposToCreate {
+			repoName := fmt.Sprintf("%s-%s", env.Name, repo.Name)
+			repoPath := filepath.Join(cacheDir, "repos", owner, repoName)
+			if err := os.MkdirAll(repoPath, 0755); err != nil {
+				return err
+			}
+			if err := createRepoFiles(repoPath, &repo, env.Name, owner); err != nil {
+				return err
+			}
+		}
+	} else {
+		// In local mode, the first repo is the "workdir" repo, the rest are cached.
+		workdirRepo := env.Repositories[0]
+		cachedRepos := env.Repositories[1:]
+
+		// Create the workdir repo
+		repoName := fmt.Sprintf("%s-%s", env.Name, workdirRepo.Name)
+		repoPath := filepath.Join(workDir, repoName)
+		if err := os.MkdirAll(repoPath, 0755); err != nil {
+			return err
+		}
+		if err := createRepoFiles(repoPath, &workdirRepo, env.Name, owner); err != nil {
+			return err
+		}
+
+		// Create the cached repos
+		for _, repo := range cachedRepos {
+			repoName := fmt.Sprintf("%s-%s", env.Name, repo.Name)
+			repoPath := filepath.Join(cacheDir, "repos", owner, repoName)
+			if err := os.MkdirAll(repoPath, 0755); err != nil {
+				return err
+			}
+			if err := createRepoFiles(repoPath, &repo, env.Name, owner); err != nil {
+				return err
+			}
+		}
+	}
+
+	output := SetupOutput{
+		WorkDir:  workDir,
+		CacheDir: cacheDir,
+	}
+	return json.NewEncoder(cmd.OutOrStdout()).Encode(output)
+}
+
+func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) error {
+	withRepoEntrypoint, _ := cmd.Flags().GetBool("with-repo-entrypoint")
+	client, err := e2e.GetClient()
+	if err != nil {
+		return err
+	}
+
+	for _, repoDef := range env.Repositories {
+		repoName := fmt.Sprintf("%s-%s", env.Name, repoDef.Name)
+		// Delete if it exists
+		_, err := client.Repositories.Delete(context.Background(), owner, repoName)
+		if err != nil {
+			if _, ok := err.(*github.ErrorResponse); !ok || err.(*github.ErrorResponse).Response.StatusCode != 404 {
+				return err
+			}
+		}
+
+		// Create repo
+		_, _, err = client.Repositories.Create(context.Background(), owner, &github.Repository{
+			Name: &repoName,
+		})
+		if err != nil {
+			return err
+		}
+		time.Sleep(2 * time.Second) // Give GitHub some time to create the repo
+
+		// Create a dummy file to ensure the main branch is created
+		_, _, err = client.Repositories.CreateFile(context.Background(), owner, repoName, "README.md", &github.RepositoryContentFileOptions{
+			Message: github.String("initial commit"),
+			Content: []byte("# " + repoName),
+			Branch:  github.String("main"),
+		})
+		if err != nil {
+			return err
+		}
+
+		// Create tako.yml
+		takoConfig := &config.TakoConfig{
+			Version: "0.1.0",
+			Metadata: config.Metadata{
+				Name: repoName,
+			},
+		}
+		for _, dep := range repoDef.Dependencies {
+			takoConfig.Dependents = append(takoConfig.Dependents, config.Dependent{Repo: fmt.Sprintf("%s/%s-%s:main", owner, env.Name, dep)})
+		}
+		content, err := yaml.Marshal(takoConfig)
+		if err != nil {
+			return err
+		}
+		_, _, err = client.Repositories.CreateFile(context.Background(), owner, repoName, "tako.yml", &github.RepositoryContentFileOptions{
+			Message: github.String("add tako.yml"),
+			Content: content,
+			Branch:  github.String("main"),
+		})
+		if err != nil {
+			return err
+		}
+
+		// Create other files from templates
+		for _, fileDef := range repoDef.Files {
+			content, err := e2e.GetTemplate(fileDef.Template)
+			if err != nil {
+				return err
+			}
+			// Replace placeholders
+			content = strings.ReplaceAll(content, "{{.Owner}}", owner)
+			content = strings.ReplaceAll(content, "{{.EnvName}}", env.Name)
+
+			_, _, err = client.Repositories.CreateFile(context.Background(), owner, repoName, fileDef.Path, &github.RepositoryContentFileOptions{
+				Message: github.String("add " + fileDef.Path),
+				Content: []byte(content),
+				Branch:  github.String("main"),
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	tmpDir, err := os.MkdirTemp("", "tako-e2e-")
+	if err != nil {
+		return err
+	}
+
+	// Clone the entrypoint repo for path mode
+	if !withRepoEntrypoint {
+		repoName := fmt.Sprintf("%s-%s", env.Name, env.Repositories[0].Name)
+		cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", owner, repoName)
+		if err := git.Clone(cloneURL, filepath.Join(tmpDir, repoName)); err != nil {
+			return err
+		}
+	}
+
+	output := SetupOutput{
+		WorkDir:  tmpDir,
+		CacheDir: filepath.Join(tmpDir, "cache"),
+	}
+	return json.NewEncoder(cmd.OutOrStdout()).Encode(output)
+}
+
+func createRepoFiles(repoPath string, repoDef *e2e.RepositoryDef, envName, owner string) error {
+	// Create tako.yml
+	takoConfig := &config.TakoConfig{
+		Version: "0.1.0",
+		Metadata: config.Metadata{
+			Name: fmt.Sprintf("%s-%s", envName, repoDef.Name),
+		},
+	}
+	for _, dep := range repoDef.Dependencies {
+		takoConfig.Dependents = append(takoConfig.Dependents, config.Dependent{Repo: fmt.Sprintf("%s/%s-%s:main", owner, envName, dep)})
+	}
+	content, err := yaml.Marshal(takoConfig)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(repoPath, "tako.yml"), content, 0644); err != nil {
+		return err
+	}
+
+	// Create other files from templates
+	for _, fileDef := range repoDef.Files {
+		content, err := e2e.GetTemplate(fileDef.Template)
+		if err != nil {
+			return err
+		}
+		// Replace placeholders
+		content = strings.ReplaceAll(content, "{{.Owner}}", owner)
+		content = strings.ReplaceAll(content, "{{.EnvName}}", repoDef.Name)
+		if err := os.WriteFile(filepath.Join(repoPath, fileDef.Path), []byte(content), 0644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
