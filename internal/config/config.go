@@ -9,11 +9,11 @@ import (
 )
 
 type TakoConfig struct {
-	Version    string      `yaml:"version"`
-	Metadata   Metadata    `yaml:"metadata"`
-	Artifacts  []Artifact  `yaml:"artifacts"`
-	Dependents []Dependent `yaml:"dependents"`
-	Workflows  []Workflow  `yaml:"workflows"`
+	Version    string               `yaml:"version"`
+	Metadata   Metadata             `yaml:"metadata"`
+	Artifacts  map[string]Artifact  `yaml:"artifacts"`
+	Dependents []Dependent          `yaml:"dependents"`
+	Workflows  map[string]Workflow  `yaml:"workflows"`
 }
 
 type Metadata struct {
@@ -21,7 +21,6 @@ type Metadata struct {
 }
 
 type Artifact struct {
-	Name           string `yaml:"name"`
 	Description    string `yaml:"description"`
 	Image          string `yaml:"image"`
 	Command        string `yaml:"command"`
@@ -37,7 +36,6 @@ type Dependent struct {
 }
 
 type Workflow struct {
-	Name      string    `yaml:"name"`
 	Image     string    `yaml:"image"`
 	Env       []string  `yaml:"env"`
 	Resources Resources `yaml:"resources"`
@@ -103,16 +101,9 @@ func validateRepoFormat(repo string) error {
 	return nil
 }
 
-func validateArtifacts(dependentArtifacts []string, definedArtifacts []Artifact) error {
+func validateArtifacts(dependentArtifacts []string, definedArtifacts map[string]Artifact) error {
 	for _, dependentArtifact := range dependentArtifacts {
-		found := false
-		for _, definedArtifact := range definedArtifacts {
-			if dependentArtifact == definedArtifact.Name {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if _, ok := definedArtifacts[dependentArtifact]; !ok {
 			return fmt.Errorf("dependent artifact not found: %s", dependentArtifact)
 		}
 	}

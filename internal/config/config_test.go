@@ -7,15 +7,15 @@ import (
 	"testing"
 )
 
-func buildYAML(version *string, dependents []string, artifacts []string, dependentArtifacts []string) string {
+func buildYAML(version *string, dependents []string, artifacts map[string]struct{}, dependentArtifacts []string) string {
 	var sb strings.Builder
 	if version != nil {
 		sb.WriteString(fmt.Sprintf("version: %q\n", *version))
 	}
 	if artifacts != nil {
 		sb.WriteString("artifacts:\n")
-		for _, a := range artifacts {
-			sb.WriteString(fmt.Sprintf("  - name: %q\n", a))
+		for a := range artifacts {
+			sb.WriteString(fmt.Sprintf("  %s:\n    description: %s\n", a, a))
 		}
 	}
 	if dependents != nil {
@@ -39,7 +39,7 @@ func TestLoad(t *testing.T) {
 		name               string
 		version            *string
 		dependents         []string
-		artifacts          []string
+		artifacts          map[string]struct{}
 		dependentArtifacts []string
 		extra              string
 		expectError        bool
@@ -85,7 +85,7 @@ func TestLoad(t *testing.T) {
 			name:               "dependent artifact not found",
 			version:            stringPtr("1.2"),
 			dependents:         []string{"my-org/client-a:main"},
-			artifacts:          []string{"art-a"},
+			artifacts:          map[string]struct{}{"art-a": {}},
 			dependentArtifacts: []string{"art-b"},
 			expectError:        true,
 		},
