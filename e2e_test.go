@@ -222,13 +222,13 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string, withRepoEntryPoint boo
 
 	// Assert the output
 	expected := getExpectedOutput(tc)
-	if testing.Verbose() {
-		t.Logf("Expected output:\n%s", expected)
-		t.Logf("Actual output:\n%s", out.String())
-		t.Logf("trimmed expected: %q", strings.TrimSpace(expected))
-		t.Logf("trimmed actual: %q", strings.TrimSpace(out.String()))
-	}
 	if strings.TrimSpace(out.String()) != strings.TrimSpace(expected) {
+		if testing.Verbose() {
+			t.Logf("Expected output:\n%s", expected)
+			t.Logf("Actual output:\n%s", out.String())
+			t.Logf("trimmed expected: %q", strings.TrimSpace(expected))
+			t.Logf("trimmed actual: %q", strings.TrimSpace(out.String()))
+		}
 		t.Errorf("expected output to not match %q, got %q", expected, out.String())
 	}
 }
