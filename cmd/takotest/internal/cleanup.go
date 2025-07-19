@@ -14,6 +14,7 @@ func NewCleanupCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			local, _ := cmd.Flags().GetBool("local")
+			force, _ := cmd.Flags().GetBool("force")
 			owner, _ := cmd.Flags().GetString("owner")
 			workDir, _ := cmd.Flags().GetString("work-dir")
 			cacheDir, _ := cmd.Flags().GetString("cache-dir")
@@ -39,7 +40,7 @@ func NewCleanupCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return testCase.Cleanup(client)
+				return testCase.Cleanup(client, force)
 			}
 			return nil
 		},
@@ -48,6 +49,7 @@ func NewCleanupCmd() *cobra.Command {
 	cmd.Flags().String("work-dir", "", "The working directory to cleanup")
 	cmd.Flags().String("cache-dir", "", "The cache directory to cleanup")
 	cmd.Flags().Bool("local", false, "Cleanup the test case locally")
+	cmd.Flags().Bool("force", false, "Force cleanup of remote repositories")
 	cmd.MarkFlagRequired("owner")
 	return cmd
 }

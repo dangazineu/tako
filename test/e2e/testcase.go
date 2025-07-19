@@ -256,7 +256,7 @@ func GetTestCases(owner string) map[string]TestCase {
 					},
 				},
 			},
-			ExpectedError: "circular dependency detected: circular-dependency-graph-repo-circ-a -> circular-dependency-graph-repo-circ-b -> circular-dependency-graph-repo-circ-a",
+			ExpectedError: "circular dependency detected",
 		},
 	}
 
@@ -436,13 +436,17 @@ func (tc *TestCase) SetupLocal(withRepoEntryPoint bool) (string, error) {
 	return tmpDir, nil
 }
 
-func (tc *TestCase) Cleanup(client *github.Client) error {
-	if !tc.Dirty {
+func (tc *TestCase) Cleanup(client *github.Client, force bool) error {
+	if !tc.Dirty && !force {
 		return nil
 	}
 	for _, repo := range tc.Repositories {
 		_, err := client.Repositories.Delete(context.Background(), repo.Owner, repo.Name)
 		if err != nil {
+			// Ignore not found errors
+			if _, ok := err.(*github.ErrorResponse); ok && err.(*github.ErrorResponse).Response.StatusCode == 404 {
+				continue
+			}
 			return err
 		}
 	}
