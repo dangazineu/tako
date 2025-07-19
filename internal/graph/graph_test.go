@@ -36,6 +36,38 @@ func TestPrintGraph(t *testing.T) {
 	}
 }
 
+func TestPrintDot(t *testing.T) {
+	root := &graph.Node{
+		Name: "root",
+		Children: []*graph.Node{
+			{
+				Name: "child1",
+				Children: []*graph.Node{
+					{Name: "grandchild"},
+				},
+			},
+			{Name: "child2"},
+		},
+	}
+
+	var buf bytes.Buffer
+	graph.PrintDot(&buf, root)
+
+	expected := `digraph {
+  "root" [label="root"];
+  "root" -> "child1";
+  "child1" [label="child1"];
+  "child1" -> "grandchild";
+  "grandchild" [label="grandchild"];
+  "root" -> "child2";
+  "child2" [label="child2"];
+}
+`
+	if expected != buf.String() {
+		t.Errorf("expected %q, got %q", expected, buf.String())
+	}
+}
+
 func TestBuildGraph(t *testing.T) {
 	t.Run("local", func(t *testing.T) {
 		tmpDir := t.TempDir()
