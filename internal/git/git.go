@@ -54,7 +54,7 @@ func GetEntrypointPath(root, repo, cacheDir string, localOnly bool) (string, err
 // (`~/.tako/cache/repos/owner/repo`).
 //
 // If the repository does not exist in the cache, it is cloned from GitHub. If it
-// already exists, it is updated with a `git pull`.
+// already exists, it is updated with a `git fetch`.
 func GetRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, error) {
 	if strings.HasPrefix(repo, "file://") {
 		return strings.Split(strings.TrimPrefix(repo, "file://"), ":")[0], nil
@@ -114,7 +114,7 @@ func GetRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, er
 					return "", err
 				}
 			} else {
-				cmd := exec.Command("git", "-C", repoPath, "pull")
+				cmd := exec.Command("git", "-C", repoPath, "fetch")
 				if err := cmd.Run(); err != nil {
 					return "", fmt.Errorf("failed to update repo %s: %w", repo, err)
 				}
