@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"flag"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,17 +60,19 @@ func TestE2E(t *testing.T) {
 
 func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 	t.Logf("Running test case: %s", tc.Name)
-	var testCaseDir string
+	var cacheDir, workDir string
 	var err error
 
 	if mode == "local" {
-		testCaseDir, err = tc.SetupLocal()
+		testCaseBaseDir, err := tc.SetupLocal()
 		if err != nil {
 			t.Fatalf("failed to setup local test case: %v", err)
 		}
+		cacheDir = filepath.Join(testCaseBaseDir, "cache")
+		workDir = filepath.Join(testCaseBaseDir, "workdir")
 		t.Cleanup(func() {
 			if tc.Dirty {
-				os.RemoveAll(testCaseDir)
+				os.RemoveAll(testCaseBaseDir)
 			}
 		})
 	} else {
@@ -80,13 +83,17 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 		if err := tc.Setup(client); err != nil {
 			t.Fatalf("failed to setup remote test case: %v", err)
 		}
-		tmpDir := t.TempDir()
-		cmd := exec.Command("git", "clone", tc.Repositories[0].CloneURL, tmpDir)
-		err = cmd.Run()
-		if err != nil {
-			t.Fatalf("failed to clone repo: %v", err)
+
+		cacheDir = t.TempDir()
+		workDir = t.TempDir()
+
+		if !tc.WithRepoEntryPoint {
+			cmd := exec.Command("git", "clone", tc.Repositories[0].CloneURL, workDir)
+			err = cmd.Run()
+			if err != nil {
+				t.Fatalf("failed to clone repo: %v", err)
+			}
 		}
-		testCaseDir = tmpDir
 		t.Cleanup(func() {
 			if err := tc.Cleanup(client); err != nil {
 				t.Errorf("failed to cleanup remote test case: %v", err)
@@ -120,23 +127,47 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 
 	// Run tako graph
 	var out bytes.Buffer
-	var rootPath string
-	if mode == "local" {
-		// For local mode, testCaseDir is the root, and we point to the first repo inside it
-		rootPath = filepath.Join(testCaseDir, tc.Repositories[0].Owner, tc.Repositories[0].Name)
+	var args []string
+
+	if tc.WithRepoEntryPoint {
+		args = []string{"graph", "--repo", fmt.Sprintf("%s/%s:main", tc.Repositories[0].Owner, tc.Repositories[0].Name), "--cache-dir", cacheDir}
 	} else {
-		// For remote mode, testCaseDir is the cloned repository root
-		rootPath = testCaseDir
+		var rootPath string
+		if mode == "local" {
+			rootPath = filepath.Join(workDir, tc.Repositories[0].Name)
+		} else {
+			rootPath = workDir
+		}
+		args = []string{"graph", "--root", rootPath, "--cache-dir", cacheDir}
 	}
-	cacheDir := t.TempDir()
-	t.Cleanup(func() {
-		os.RemoveAll(cacheDir)
-	})
-	args := []string{"graph", "--root", rootPath, "--cache-dir", cacheDir}
+
 	if mode == "local" {
 		args = append(args, "--local")
 	}
 	takoCmd := exec.Command(takoPath, args...)
+	if !tc.WithRepoEntryPoint {
+		if mode == "local" {
+			takoCmd.Dir = filepath.Join(workDir, tc.Repositories[0].Name)
+		} else {
+			takoCmd.Dir = workDir
+		}
+	} else {
+		takoCmd.Dir = workDir
+	}
+
+	files, err := os.ReadDir(workDir)
+	if err != nil {
+		t.Logf("could not read workdir: %v", err)
+	}
+	for _, file := range files {
+		t.Logf("workdir content: %s", file.Name())
+	}
+
+	t.Logf("takoCmd.Dir: %s", takoCmd.Dir)
+	if _, err := os.Stat(takoCmd.Dir); os.IsNotExist(err) {
+		t.Fatalf("takoCmd.Dir does not exist: %s", takoCmd.Dir)
+	}
+
 	takoCmd.Stdout = &out
 	takoCmd.Stderr = &out
 	err = takoCmd.Run()
@@ -160,39 +191,37 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 	if testing.Verbose() {
 		t.Logf("Expected output:\n%s", expected)
 		t.Logf("Actual output:\n%s", out.String())
+		t.Logf("trimmed expected: %q", strings.TrimSpace(expected))
+		t.Logf("trimmed actual: %q", strings.TrimSpace(out.String()))
 	}
-	if !strings.Contains(out.String(), expected) {
-		t.Errorf("expected output to contain %q, got %q", expected, out.String())
+	if strings.TrimSpace(out.String()) != strings.TrimSpace(expected) {
+		t.Errorf("expected output to not match %q, got %q", expected, out.String())
 	}
 }
 
 func getExpectedOutput(testCaseName string) string {
 	switch testCaseName {
-	case "simple-graph":
+	case "simple-graph", "simple-graph-with-repo-flag":
 		return `repo-a
-└── repo-b
-`
+└── repo-b`
 	case "complex-graph":
 		return `repo-a
 ├── repo-b
 │   └── repo-c
 │       └── repo-e
 └── repo-d
-    └── repo-e
-`
+    └── repo-e`
 	case "deep-graph":
 		return `repo-x
 └── repo-y
-    └── repo-z
-`
+    └── repo-z`
 	case "diamond-dependency-graph":
 		return `repo-a
 ├── repo-b
 │   └── repo-c
 │       └── repo-e
 └── repo-d
-    └── repo-e
-`
+    └── repo-e`
 	default:
 		return ""
 	}

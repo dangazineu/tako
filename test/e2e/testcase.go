@@ -13,10 +13,11 @@ import (
 )
 
 type TestCase struct {
-	Name          string
-	Dirty         bool
-	Repositories  []Repository
-	ExpectedError string
+	Name               string
+	Dirty              bool
+	WithRepoEntryPoint bool
+	Repositories       []Repository
+	ExpectedError      string
 }
 
 type Repository struct {
@@ -31,6 +32,37 @@ func GetTestCases(owner string) map[string]TestCase {
 		"simple-graph": {
 			Name:  "simple-graph",
 			Dirty: false,
+			Repositories: []Repository{
+				{
+					Owner: owner,
+					Name:  "repo-a",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-a",
+						},
+						Dependents: []config.Dependent{
+							{Repo: fmt.Sprintf("%s/repo-b:main", owner)},
+						},
+					},
+				},
+				{
+					Owner: owner,
+					Name:  "repo-b",
+					TakoConfig: &config.TakoConfig{
+						Version: "0.1.0",
+						Metadata: config.Metadata{
+							Name: "repo-b",
+						},
+						Dependents: []config.Dependent{},
+					},
+				},
+			},
+		},
+		"simple-graph-with-repo-flag": {
+			Name:               "simple-graph-with-repo-flag",
+			WithRepoEntryPoint: true,
+			Dirty:              false,
 			Repositories: []Repository{
 				{
 					Owner: owner,
@@ -345,13 +377,6 @@ func (tc *TestCase) Setup(client *github.Client) error {
 
 func (tc *TestCase) SetupLocal() (string, error) {
 	tmpDir := filepath.Join(os.TempDir(), tc.Name)
-	if !tc.Dirty {
-		// Check if the directory exists
-		if _, err := os.Stat(tmpDir); err == nil {
-			return tmpDir, nil
-		}
-	}
-
 	if err := os.RemoveAll(tmpDir); err != nil {
 		return "", err
 	}
@@ -360,8 +385,28 @@ func (tc *TestCase) SetupLocal() (string, error) {
 		return "", err
 	}
 
-	for _, repo := range tc.Repositories {
-		repoPath := filepath.Join(tmpDir, repo.Owner, repo.Name)
+	cacheDir := filepath.Join(tmpDir, "cache")
+	workDir := filepath.Join(tmpDir, "workdir")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		return "", err
+	}
+
+	reposToCreateInCache := tc.Repositories
+	if !tc.WithRepoEntryPoint {
+		if tc.Name == "circular-dependency-graph" {
+			reposToCreateInCache = []Repository{}
+		} else if len(tc.Repositories) > 1 {
+			reposToCreateInCache = tc.Repositories[1:]
+		} else {
+			reposToCreateInCache = []Repository{}
+		}
+	}
+
+	for _, repo := range reposToCreateInCache {
+		repoPath := filepath.Join(cacheDir, "repos", repo.Owner, repo.Name)
 		if err := os.MkdirAll(repoPath, 0755); err != nil {
 			return "", err
 		}
@@ -380,6 +425,34 @@ func (tc *TestCase) SetupLocal() (string, error) {
 			return "", err
 		}
 	}
+
+	if !tc.WithRepoEntryPoint {
+		reposToCreateInWorkdir := []Repository{tc.Repositories[0]}
+		if tc.Name == "circular-dependency-graph" {
+			reposToCreateInWorkdir = tc.Repositories
+		}
+		for _, repo := range reposToCreateInWorkdir {
+			repoPath := filepath.Join(workDir, repo.Name)
+			if err := os.MkdirAll(repoPath, 0755); err != nil {
+				return "", err
+			}
+			filePath := filepath.Join(repoPath, "tako.yml")
+			if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+				return "", err
+			}
+
+			content, err := yaml.Marshal(repo.TakoConfig)
+			if err != nil {
+				return "", err
+			}
+
+			err = os.WriteFile(filePath, content, 0644)
+			if err != nil {
+				return "", err
+			}
+		}
+	}
+
 	return tmpDir, nil
 }
 

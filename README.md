@@ -63,12 +63,16 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 *   **Resource Constraints:**
     *   The `tako.yml` should support optional `memory` and `cpu` limits for containers to prevent resource exhaustion.
 *   **Artifact Path Handling:** When an artifact is built in a container, Tako will manage copying it out of the build container and mounting it into any subsequent dependent containers, ensuring seamless handoff.
-*   **Docker Unavailability:** If a workflow requires an image but Docker is not running, the command will fail with a clear error message. A fallback to local execution is not planned, as it would violate the principle of a consistent environment.
+*   **Docker Unavailability:** If a workflow requires an `image` but Docker is not running, the command will fail with a clear error message. A fallback to local execution is not planned, as it would violate the principle of a consistent environment.
 
 ## 3. Command-Line Interface (CLI)
 
 *   **Syntax:** `tako <command> [options] [args]`
 *   **Core Commands:** `version`, `graph`, `run`, `exec`, `init`, `doctor`, `artifacts`, `deps`, `cache`, `completion`
+*   **`tako graph`:** Displays the dependency graph.
+    *   `--root`: The root directory of the project. Defaults to the current directory.
+    *   `--repo`: The remote repository to use as the entrypoint (e.g. `owner/repo:ref`). This flag takes precedence over `--root`.
+    *   `--local`: Only use local repositories, do not clone or update remote repositories.
 *   **`tako completion`:** A command to generate shell completion scripts for different shells.
 *   **`tako cache`:** A command to manage Tako's cache.
     *   `tako cache clean`: Removes all cached repositories and artifacts from Tako's cache directory.
@@ -149,6 +153,7 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 2.  **Configuration Validation (Basic & Semantic):** Implement multi-layered validation for `tako.yml` files, checking syntax, schema, and logical consistency.
 3.  **Graph Construction:** Implement the `graph` package to build the dependency graph, including cycle detection.
 4.  **`tako graph` Command:** Implement the `tako graph` command with both text and DOT output.
+    *   Add `--repo` flag to specify a remote repository as the entrypoint.
 
 ### Milestone 2: Basic Command Execution
 *Goal: Run a single command across all repositories with robust error handling.*
