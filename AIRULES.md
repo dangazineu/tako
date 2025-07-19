@@ -51,6 +51,27 @@ Commit messages should not reference the issue number, instead they should descr
 -   Run E2E tests with `go test -v -tags=e2e --local ./...` or `go test -v -tags=e2e --remote ./...`.
 -   All new testing tags and flags must be documented on the `README.md` and on `AIRULES.md`.
 
+### Pre-Commit Workflow
+Before committing any changes, the following sequence of tests **must** be executed and pass to ensure the stability and quality of the codebase:
+
+1.  **Unit and Integration Tests:**
+    ```bash
+    go test -v ./... && go test -v -tags=integration ./...
+    ```
+2.  **Local End-to-End Tests:**
+    ```bash
+    go test -v -tags=e2e --local ./...
+    ```
+3.  **Remote End-to-End Tests:**
+    ```bash
+    go test -v -tags=e2e --remote ./...
+    ```
+4.  **CI Simulation:**
+    ```bash
+    act --container-architecture linux/amd64 -P ubuntu-latest=catthehacker/ubuntu:act-latest
+    ```
+Only when all of these steps complete successfully should the changes be committed.
+
 ## 6. Configuration (`tako.yml`)
 
 -   Any changes to the `tako.yml` schema must be backward compatible.
@@ -68,3 +89,13 @@ Commit messages should not reference the issue number, instead they should descr
 -   The `README.md` file is the single source of truth for the project's documentation.
 -   All new features, commands, and configuration options must be documented in the `README.md`.
 -   The implementation plan in the `README.md` should be kept up-to-date.
+
+## 9. CI/CD
+
+To run the GitHub Actions locally, use `act`:
+```bash
+act --container-architecture linux/amd64 -P ubuntu-latest=catthehacker/ubuntu:act-latest
+```
+
+- `--container-architecture linux/amd64`: This flag is necessary when running on Apple M-series chips to ensure compatibility.
+- `-P ubuntu-latest=catthehacker/ubuntu:act-latest`: This specifies a modern, well-maintained Docker image for the `ubuntu-latest` runner.

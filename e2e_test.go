@@ -5,7 +5,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,8 +18,9 @@ import (
 )
 
 var (
-	local  = flag.Bool("local", false, "run local tests")
-	remote = flag.Bool("remote", false, "run remote tests")
+	local      = flag.Bool("local", false, "run local tests")
+	remote     = flag.Bool("remote", false, "run remote tests")
+	entrypoint = flag.String("entrypoint", "all", "entrypoint mode to run tests in (all, path, repo)")
 )
 
 func findProjectRoot(start string) string {
@@ -38,68 +41,70 @@ func TestE2E(t *testing.T) {
 	if !*local && !*remote {
 		t.Fatal("either -local or -remote must be set")
 	}
+
+	scenarios := []struct {
+		mode               string
+		withRepoEntryPoint bool
+	}{}
+
+	if *local {
+		if *entrypoint == "all" || *entrypoint == "path" {
+			scenarios = append(scenarios, struct {
+				mode               string
+				withRepoEntryPoint bool
+			}{"local", false})
+		}
+		if *entrypoint == "all" || *entrypoint == "repo" {
+			scenarios = append(scenarios, struct {
+				mode               string
+				withRepoEntryPoint bool
+			}{"local", true})
+		}
+	}
+	if *remote {
+		if *entrypoint == "all" || *entrypoint == "path" {
+			scenarios = append(scenarios, struct {
+				mode               string
+				withRepoEntryPoint bool
+			}{"remote", false})
+		}
+		if *entrypoint == "all" || *entrypoint == "repo" {
+			scenarios = append(scenarios, struct {
+				mode               string
+				withRepoEntryPoint bool
+			}{"remote", true})
+		}
+	}
+
 	for name, tc := range e2e.GetTestCases(e2e.Org) {
 		name, tc := name, tc // capture range variable
 		t.Run(name, func(t *testing.T) {
-			if *local {
-				localTC := tc
-				t.Run("local", func(t *testing.T) {
-					runTest(t, &localTC, "local")
-				})
-			}
-			if *remote {
-				remoteTC := tc
-				t.Run("remote", func(t *testing.T) {
-					runTest(t, &remoteTC, "remote")
+			for _, scenario := range scenarios {
+				scenario := scenario // capture range variable
+				scenarioName := fmt.Sprintf("%s/entrypoint-%s", scenario.mode, map[bool]string{true: "repo", false: "path"}[scenario.withRepoEntryPoint])
+				t.Run(scenarioName, func(t *testing.T) {
+					runTest(t, &tc, scenario.mode, scenario.withRepoEntryPoint)
 				})
 			}
 		})
 	}
 }
 
-func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
+type setupOutput struct {
+	WorkDir  string `json:"workDir"`
+	CacheDir string `json:"cacheDir"`
+}
+
+func runTest(t *testing.T, tc *e2e.TestCase, mode string, withRepoEntryPoint bool) {
 	t.Logf("Running test case: %s", tc.Name)
-	var testCaseDir string
-	var err error
 
-	if mode == "local" {
-		testCaseDir, err = tc.SetupLocal()
-		if err != nil {
-			t.Fatalf("failed to setup local test case: %v", err)
-		}
-		t.Cleanup(func() {
-			if tc.Dirty {
-				os.RemoveAll(testCaseDir)
-			}
-		})
-	} else {
-		client, err := e2e.GetClient()
-		if err != nil {
-			t.Fatalf("failed to get github client: %v", err)
-		}
-		if err := tc.Setup(client); err != nil {
-			t.Fatalf("failed to setup remote test case: %v", err)
-		}
-		tmpDir := t.TempDir()
-		cmd := exec.Command("git", "clone", tc.Repositories[0].CloneURL, tmpDir)
-		err = cmd.Run()
-		if err != nil {
-			t.Fatalf("failed to clone repo: %v", err)
-		}
-		testCaseDir = tmpDir
-		t.Cleanup(func() {
-			if err := tc.Cleanup(client); err != nil {
-				t.Errorf("failed to cleanup remote test case: %v", err)
-			}
-		})
-	}
-
-	// Build the tako binary
+	// Build the tako and takotest binaries
 	takoBinaryDir := t.TempDir()
 	t.Cleanup(func() {
 		os.RemoveAll(takoBinaryDir)
 	})
 	takoPath := filepath.Join(takoBinaryDir, "tako")
+	takotestPath := filepath.Join(takoBinaryDir, "takotest")
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("failed to get working directory: %v", err)
@@ -117,26 +122,86 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 	if err != nil {
 		t.Fatalf("failed to build tako binary: %v\nOutput:\n%s", err, buildOut.String())
 	}
+	buildCmd = exec.Command("go", "build", "-o", takotestPath, "./cmd/takotest")
+	buildCmd.Dir = projectRoot
+	buildCmd.Stdout = &buildOut
+	buildCmd.Stderr = &buildOut
+	err = buildCmd.Run()
+	if err != nil {
+		t.Fatalf("failed to build takotest binary: %v\nOutput:\n%s", err, buildOut.String())
+	}
+
+	// Setup the test case
+	var setupArgs []string
+	if mode == "local" {
+		setupArgs = append(setupArgs, "--local")
+	}
+	if withRepoEntryPoint {
+		setupArgs = append(setupArgs, "--with-repo-entrypoint")
+	}
+	setupArgs = append(setupArgs, "--owner", e2e.Org, tc.Name)
+	setupCmd := exec.Command(takotestPath, append([]string{"setup"}, setupArgs...)...)
+	var setupOut bytes.Buffer
+	setupCmd.Stdout = &setupOut
+	setupCmd.Stderr = &setupOut
+	err = setupCmd.Run()
+	if err != nil {
+		t.Fatalf("failed to setup test case: %v\nOutput:\n%s", err, setupOut.String())
+	}
+	var setupData setupOutput
+	err = json.Unmarshal(setupOut.Bytes(), &setupData)
+	if err != nil {
+		t.Fatalf("failed to unmarshal setup output: %v", err)
+	}
+	workDir := setupData.WorkDir
+	cacheDir := setupData.CacheDir
+
+	t.Cleanup(func() {
+		var cleanupArgs []string
+		if mode == "local" {
+			cleanupArgs = append(cleanupArgs, "--local")
+		}
+		cleanupArgs = append(cleanupArgs, "--owner", e2e.Org, "--work-dir", workDir, "--cache-dir", cacheDir, tc.Name)
+		cleanupCmd := exec.Command(takotestPath, append([]string{"cleanup"}, cleanupArgs...)...)
+		var cleanupOut bytes.Buffer
+		cleanupCmd.Stdout = &cleanupOut
+		cleanupCmd.Stderr = &cleanupOut
+		err = cleanupCmd.Run()
+		if err != nil {
+			t.Errorf("failed to cleanup test case: %v\nOutput:\n%s", err, cleanupOut.String())
+		}
+	})
 
 	// Run tako graph
 	var out bytes.Buffer
-	var rootPath string
-	if mode == "local" {
-		// For local mode, testCaseDir is the root, and we point to the first repo inside it
-		rootPath = filepath.Join(testCaseDir, tc.Repositories[0].Owner, tc.Repositories[0].Name)
+	var args []string
+
+	if withRepoEntryPoint {
+		args = []string{"graph", "--repo", fmt.Sprintf("%s/%s:main", tc.Repositories[0].Owner, tc.Repositories[0].Name), "--cache-dir", cacheDir}
 	} else {
-		// For remote mode, testCaseDir is the cloned repository root
-		rootPath = testCaseDir
+		var rootPath string
+		if mode == "local" {
+			rootPath = filepath.Join(workDir, tc.Repositories[0].Name)
+		} else {
+			rootPath = workDir
+		}
+		args = []string{"graph", "--root", rootPath, "--cache-dir", cacheDir}
 	}
-	cacheDir := t.TempDir()
-	t.Cleanup(func() {
-		os.RemoveAll(cacheDir)
-	})
-	args := []string{"graph", "--root", rootPath, "--cache-dir", cacheDir}
+
 	if mode == "local" {
 		args = append(args, "--local")
 	}
 	takoCmd := exec.Command(takoPath, args...)
+	if !withRepoEntryPoint {
+		if mode == "local" {
+			takoCmd.Dir = filepath.Join(workDir, tc.Repositories[0].Name)
+		} else {
+			takoCmd.Dir = workDir
+		}
+	} else {
+		takoCmd.Dir = workDir
+	}
+
 	takoCmd.Stdout = &out
 	takoCmd.Stderr = &out
 	err = takoCmd.Run()
@@ -156,44 +221,53 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 	}
 
 	// Assert the output
-	expected := getExpectedOutput(tc.Name)
-	if testing.Verbose() {
-		t.Logf("Expected output:\n%s", expected)
-		t.Logf("Actual output:\n%s", out.String())
-	}
-	if !strings.Contains(out.String(), expected) {
-		t.Errorf("expected output to contain %q, got %q", expected, out.String())
+	expected := getExpectedOutput(tc)
+	if strings.TrimSpace(out.String()) != strings.TrimSpace(expected) {
+		if testing.Verbose() {
+			t.Logf("Expected output:\n%s", expected)
+			t.Logf("Actual output:\n%s", out.String())
+			t.Logf("trimmed expected: %q", strings.TrimSpace(expected))
+			t.Logf("trimmed actual: %q", strings.TrimSpace(out.String()))
+		}
+		t.Errorf("expected output to not match %q, got %q", expected, out.String())
 	}
 }
 
-func getExpectedOutput(testCaseName string) string {
-	switch testCaseName {
+func getExpectedOutput(tc *e2e.TestCase) string {
+	var expected string
+	switch tc.Name {
 	case "simple-graph":
-		return `repo-a
-└── repo-b
+		expected = `{{repo-a}}
+└── {{repo-b}}
 `
 	case "complex-graph":
-		return `repo-a
-├── repo-b
-│   └── repo-c
-│       └── repo-e
-└── repo-d
-    └── repo-e
+		expected = `{{repo-a}}
+├── {{repo-b}}
+│   └── {{repo-c}}
+│       └── {{repo-e}}
+└── {{repo-d}}
+    └── {{repo-e}}
 `
 	case "deep-graph":
-		return `repo-x
-└── repo-y
-    └── repo-z
+		expected = `{{repo-x}}
+└── {{repo-y}}
+    └── {{repo-z}}
 `
 	case "diamond-dependency-graph":
-		return `repo-a
-├── repo-b
-│   └── repo-c
-│       └── repo-e
-└── repo-d
-    └── repo-e
+		expected = `{{repo-a}}
+├── {{repo-b}}
+│   └── {{repo-c}}
+│       └── {{repo-e}}
+└── {{repo-d}}
+    └── {{repo-e}}
 `
 	default:
 		return ""
 	}
+
+	for _, repo := range tc.Repositories {
+		originalName := strings.ReplaceAll(repo.Name, tc.Name+"-", "")
+		expected = strings.ReplaceAll(expected, fmt.Sprintf("{{%s}}", originalName), repo.Name)
+	}
+	return expected
 }

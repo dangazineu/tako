@@ -63,12 +63,16 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 *   **Resource Constraints:**
     *   The `tako.yml` should support optional `memory` and `cpu` limits for containers to prevent resource exhaustion.
 *   **Artifact Path Handling:** When an artifact is built in a container, Tako will manage copying it out of the build container and mounting it into any subsequent dependent containers, ensuring seamless handoff.
-*   **Docker Unavailability:** If a workflow requires an image but Docker is not running, the command will fail with a clear error message. A fallback to local execution is not planned, as it would violate the principle of a consistent environment.
+*   **Docker Unavailability:** If a workflow requires an `image` but Docker is not running, the command will fail with a clear error message. A fallback to local execution is not planned, as it would violate the principle of a consistent environment.
 
 ## 3. Command-Line Interface (CLI)
 
 *   **Syntax:** `tako <command> [options] [args]`
 *   **Core Commands:** `version`, `graph`, `run`, `exec`, `init`, `doctor`, `artifacts`, `deps`, `cache`, `completion`
+*   **`tako graph`:** Displays the dependency graph.
+    *   `--root`: The root directory of the project. Defaults to the current directory.
+    *   `--repo`: The remote repository to use as the entrypoint (e.g. `owner/repo:ref`). This flag takes precedence over `--root`.
+    *   `--local`: Only use local repositories, do not clone or update remote repositories.
 *   **`tako completion`:** A command to generate shell completion scripts for different shells.
 *   **`tako cache`:** A command to manage Tako's cache.
     *   `tako cache clean`: Removes all cached repositories and artifacts from Tako's cache directory.
@@ -149,6 +153,7 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 2.  **Configuration Validation (Basic & Semantic):** Implement multi-layered validation for `tako.yml` files, checking syntax, schema, and logical consistency.
 3.  **Graph Construction:** Implement the `graph` package to build the dependency graph, including cycle detection.
 4.  **`tako graph` Command:** Implement the `tako graph` command with both text and DOT output.
+    *   Add `--repo` flag to specify a remote repository as the entrypoint.
 
 ### Milestone 2: Basic Command Execution
 *Goal: Run a single command across all repositories with robust error handling.*
@@ -213,7 +218,7 @@ The E2E tests create and interact with real GitHub repositories. They are design
 
 **Running E2E Tests:**
 
-To run the E2E tests, you must specify either the `--local` or `--remote` flag.
+To run the E2E tests, you must specify either the `--local` or `--remote` flag. You can also specify the `--entrypoint` flag to run tests in a specific entrypoint mode (`path` or `repo`).
 
 To run the local E2E tests (which do not require a GitHub token), use the `--local` flag:
 
@@ -240,32 +245,24 @@ go install ./cmd/takotest
 
 **2. Set up the test environment:**
 
-To set up the test environment on your local filesystem, use the `--local` flag:
+To set up the test environment on your local filesystem, use the `--local` flag. The `takotest setup` command will output a JSON object with the `workDir` and `cacheDir` paths.
 
 ```bash
-takotest setup deep-graph --local
+takotest setup <testcase-name> --local --owner <owner>
 ```
 
 To set up the test environment on GitHub, make sure your `GITHUB_PERSONAL_ACCESS_TOKEN` is set and run:
 
 ```bash
-takotest setup deep-graph
+takotest setup <testcase-name> --owner <owner>
 ```
 
 **3. Run the `tako graph` command:**
 
-If you are testing locally, the path to the test case will be printed to the console. You can then run:
+You can then use the `workDir` and `cacheDir` paths from the `takotest setup` output to run `tako`:
 
 ```bash
-tako graph --root <path-to-test-case>/repo-x
-```
-
-If you are testing remotely, you can clone the repository and run the command:
-
-```bash
-git clone https://github.com/tako-test/repo-x.git /tmp/tako-e2e-test
-cd /tmp/tako-e2e-test
-tako graph
+tako graph --root <workDir>/<repo-name> --cache-dir <cacheDir>
 ```
 
 **4. Clean up the test environment:**
@@ -273,7 +270,7 @@ tako graph
 To clean up the remote test environment, run:
 
 ```bash
-takotest cleanup deep-graph
+takotest cleanup <testcase-name> --owner <owner> --force
 ```
 
 ## 7. Future Features
