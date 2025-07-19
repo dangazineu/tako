@@ -313,4 +313,32 @@ dependents:
 			t.Errorf("expected error message %q, but got %q", expectedError, cdErr.Error())
 		}
 	})
+
+	t.Run("get-repo-path-error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		repoA := filepath.Join(tmpDir, "repo-a")
+		if err := os.Mkdir(repoA, 0755); err != nil {
+			t.Fatalf("failed to create repoA: %v", err)
+		}
+
+		// Create a mock tako.yml with an invalid repo path
+		takoA := `
+version: 0.1.0
+metadata:
+  name: repo-a
+dependents:
+  - repo: invalid-repo-path
+`
+		err := os.WriteFile(filepath.Join(repoA, "tako.yml"), []byte(takoA), 0644)
+		if err != nil {
+			t.Fatalf("failed to write tako.yml: %v", err)
+		}
+
+		// Build the graph and expect an error
+		cacheDir := t.TempDir()
+		_, err = graph.BuildGraph(repoA, cacheDir, true)
+		if err == nil {
+			t.Fatal("expected an error, but got nil")
+		}
+	})
 }

@@ -68,3 +68,11 @@ Commit messages should not reference the issue number, instead they should descr
 -   The `README.md` file is the single source of truth for the project's documentation.
 -   All new features, commands, and configuration options must be documented in the `README.md`.
 -   The implementation plan in the `README.md` should be kept up-to-date.
+
+## 9. CI/CD
+
+To run the GitHub Actions locally, use `act`:
+
+```bash
+act
+```

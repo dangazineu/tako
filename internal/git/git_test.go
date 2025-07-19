@@ -31,3 +31,37 @@ func TestClone(t *testing.T) {
 		t.Errorf(".git directory not found in cloned repo")
 	}
 }
+
+func TestGetEntrypointPath(t *testing.T) {
+	t.Run("with repo flag", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		cacheDir := filepath.Join(tmpDir, "cache")
+		repoPath := filepath.Join(cacheDir, "repos", "owner", "repo")
+		err := os.MkdirAll(repoPath, 0755)
+		if err != nil {
+			t.Fatalf("failed to create repo path: %v", err)
+		}
+
+		path, err := git.GetEntrypointPath("", "owner/repo:main", cacheDir, true)
+		if err != nil {
+			t.Fatalf("failed to get entrypoint path: %v", err)
+		}
+		if path != repoPath {
+			t.Errorf("expected path %s, got %s", repoPath, path)
+		}
+	})
+
+	t.Run("without repo flag", func(t *testing.T) {
+		wd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("failed to get working directory: %v", err)
+		}
+		path, err := git.GetEntrypointPath("", "", "", false)
+		if err != nil {
+			t.Fatalf("failed to get entrypoint path: %v", err)
+		}
+		if path != wd {
+			t.Errorf("expected path %s, got %s", wd, path)
+		}
+	})
+}
