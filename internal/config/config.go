@@ -9,11 +9,11 @@ import (
 )
 
 type TakoConfig struct {
-	Version    string               `yaml:"version"`
-	Metadata   Metadata             `yaml:"metadata"`
-	Artifacts  map[string]Artifact  `yaml:"artifacts"`
-	Dependents []Dependent          `yaml:"dependents"`
-	Workflows  map[string]Workflow  `yaml:"workflows"`
+	Version    string              `yaml:"version"`
+	Metadata   Metadata            `yaml:"metadata"`
+	Artifacts  map[string]Artifact `yaml:"artifacts"`
+	Dependents []Dependent         `yaml:"dependents"`
+	Workflows  map[string]Workflow `yaml:"workflows"`
 }
 
 type Metadata struct {
@@ -21,6 +21,7 @@ type Metadata struct {
 }
 
 type Artifact struct {
+	Name           string `yaml:"-"`
 	Description    string `yaml:"description"`
 	Image          string `yaml:"image"`
 	Command        string `yaml:"command"`
@@ -36,6 +37,7 @@ type Dependent struct {
 }
 
 type Workflow struct {
+	Name      string    `yaml:"-"`
 	Image     string    `yaml:"image"`
 	Env       []string  `yaml:"env"`
 	Resources Resources `yaml:"resources"`
@@ -56,6 +58,16 @@ func Load(path string) (*TakoConfig, error) {
 	var config TakoConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("could not unmarshal config: %w", err)
+	}
+
+	for name, artifact := range config.Artifacts {
+		artifact.Name = name
+		config.Artifacts[name] = artifact
+	}
+
+	for name, workflow := range config.Workflows {
+		workflow.Name = name
+		config.Workflows[name] = workflow
 	}
 
 	if err := validate(&config); err != nil {

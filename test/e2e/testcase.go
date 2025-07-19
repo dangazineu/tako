@@ -43,6 +43,8 @@ func GetTestCases(owner string) map[string]TestCase {
 						Dependents: []config.Dependent{
 							{Repo: "repo-b:main"},
 						},
+						Artifacts: map[string]config.Artifact{},
+						Workflows: map[string]config.Workflow{},
 					},
 				},
 				{
@@ -53,6 +55,8 @@ func GetTestCases(owner string) map[string]TestCase {
 							Name: "repo-b",
 						},
 						Dependents: []config.Dependent{},
+						Artifacts:  map[string]config.Artifact{},
+						Workflows:  map[string]config.Workflow{},
 					},
 				},
 			},
@@ -72,6 +76,8 @@ func GetTestCases(owner string) map[string]TestCase {
 							{Repo: "repo-b:main"},
 							{Repo: "repo-d:main"},
 						},
+						Artifacts: map[string]config.Artifact{},
+						Workflows: map[string]config.Workflow{},
 					},
 				},
 				{
@@ -84,6 +90,8 @@ func GetTestCases(owner string) map[string]TestCase {
 						Dependents: []config.Dependent{
 							{Repo: "repo-c:main"},
 						},
+						Artifacts: map[string]config.Artifact{},
+						Workflows: map[string]config.Workflow{},
 					},
 				},
 				{
@@ -96,6 +104,8 @@ func GetTestCases(owner string) map[string]TestCase {
 						Dependents: []config.Dependent{
 							{Repo: "repo-e:main"},
 						},
+						Artifacts: map[string]config.Artifact{},
+						Workflows: map[string]config.Workflow{},
 					},
 				},
 				{
@@ -108,6 +118,8 @@ func GetTestCases(owner string) map[string]TestCase {
 						Dependents: []config.Dependent{
 							{Repo: "repo-e:main"},
 						},
+						Artifacts: map[string]config.Artifact{},
+						Workflows: map[string]config.Workflow{},
 					},
 				},
 				{
@@ -118,6 +130,8 @@ func GetTestCases(owner string) map[string]TestCase {
 							Name: "repo-e",
 						},
 						Dependents: []config.Dependent{},
+						Artifacts:  map[string]config.Artifact{},
+						Workflows:  map[string]config.Workflow{},
 					},
 				},
 			},
@@ -136,6 +150,8 @@ func GetTestCases(owner string) map[string]TestCase {
 						Dependents: []config.Dependent{
 							{Repo: "repo-y:main"},
 						},
+						Artifacts: map[string]config.Artifact{},
+						Workflows: map[string]config.Workflow{},
 					},
 				},
 				{
@@ -148,6 +164,8 @@ func GetTestCases(owner string) map[string]TestCase {
 						Dependents: []config.Dependent{
 							{Repo: "repo-z:main"},
 						},
+						Artifacts: map[string]config.Artifact{},
+						Workflows: map[string]config.Workflow{},
 					},
 				},
 				{
@@ -158,6 +176,8 @@ func GetTestCases(owner string) map[string]TestCase {
 							Name: "repo-z",
 						},
 						Dependents: []config.Dependent{},
+						Artifacts:  map[string]config.Artifact{},
+						Workflows:  map[string]config.Workflow{},
 					},
 				},
 			},
@@ -177,6 +197,8 @@ func GetTestCases(owner string) map[string]TestCase {
 							{Repo: "repo-b:main"},
 							{Repo: "repo-d:main"},
 						},
+						Artifacts: map[string]config.Artifact{},
+						Workflows: map[string]config.Workflow{},
 					},
 				},
 				{
@@ -189,6 +211,8 @@ func GetTestCases(owner string) map[string]TestCase {
 						Dependents: []config.Dependent{
 							{Repo: "repo-c:main"},
 						},
+						Artifacts: map[string]config.Artifact{},
+						Workflows: map[string]config.Workflow{},
 					},
 				},
 				{
@@ -201,6 +225,8 @@ func GetTestCases(owner string) map[string]TestCase {
 						Dependents: []config.Dependent{
 							{Repo: "repo-e:main"},
 						},
+						Artifacts: map[string]config.Artifact{},
+						Workflows: map[string]config.Workflow{},
 					},
 				},
 				{
@@ -213,6 +239,8 @@ func GetTestCases(owner string) map[string]TestCase {
 						Dependents: []config.Dependent{
 							{Repo: "repo-e:main"},
 						},
+						Artifacts: map[string]config.Artifact{},
+						Workflows: map[string]config.Workflow{},
 					},
 				},
 				{
@@ -223,6 +251,8 @@ func GetTestCases(owner string) map[string]TestCase {
 							Name: "repo-e",
 						},
 						Dependents: []config.Dependent{},
+						Artifacts:  map[string]config.Artifact{},
+						Workflows:  map[string]config.Workflow{},
 					},
 				},
 			},
@@ -241,6 +271,8 @@ func GetTestCases(owner string) map[string]TestCase {
 						Dependents: []config.Dependent{
 							{Repo: "repo-circ-b:main"},
 						},
+						Artifacts: map[string]config.Artifact{},
+						Workflows: map[string]config.Workflow{},
 					},
 				},
 				{
@@ -253,6 +285,8 @@ func GetTestCases(owner string) map[string]TestCase {
 						Dependents: []config.Dependent{
 							{Repo: "repo-circ-a:main"},
 						},
+						Artifacts: map[string]config.Artifact{},
+						Workflows: map[string]config.Workflow{},
 					},
 				},
 			},
