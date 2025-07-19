@@ -187,7 +187,7 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 	}
 
 	// Assert the output
-	expected := getExpectedOutput(tc, mode)
+	expected := getExpectedOutput(tc)
 	if testing.Verbose() {
 		t.Logf("Expected output:\n%s", expected)
 		t.Logf("Actual output:\n%s", out.String())
@@ -199,58 +199,41 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 	}
 }
 
-func getExpectedOutput(tc *e2e.TestCase, mode string) string {
-	if mode == "remote" {
-		switch tc.Name {
-		case "simple-graph", "simple-graph-with-repo-flag":
-			return `repo-a
-└── repo-b`
-		case "complex-graph":
-			return `repo-a
-├── repo-b
-│   └── repo-c
-│       └── repo-e
-└── repo-d
-    └── repo-e`
-		case "deep-graph":
-			return `repo-x
-└── repo-y
-    └── repo-z`
-		case "diamond-dependency-graph":
-			return `repo-a
-├── repo-b
-│   └── repo-c
-│       └── repo-e
-└── repo-d
-    └── repo-e`
-		default:
-			return ""
-		}
-	}
-
+func getExpectedOutput(tc *e2e.TestCase) string {
+	var expected string
 	switch tc.Name {
 	case "simple-graph", "simple-graph-with-repo-flag":
-		return `repo-a
-└── repo-b`
+		expected = `{{repo-a}}
+└── {{repo-b}}
+`
 	case "complex-graph":
-		return `repo-a
-├── repo-b
-│   └── repo-c
-│       └── repo-e
-└── repo-d
-    └── repo-e`
+		expected = `{{repo-a}}
+├── {{repo-b}}
+│   └── {{repo-c}}
+│       └── {{repo-e}}
+└── {{repo-d}}
+    └── {{repo-e}}
+`
 	case "deep-graph":
-		return `repo-x
-└── repo-y
-    └── repo-z`
+		expected = `{{repo-x}}
+└── {{repo-y}}
+    └── {{repo-z}}
+`
 	case "diamond-dependency-graph":
-		return `repo-a
-├── repo-b
-│   └── repo-c
-│       └── repo-e
-└── repo-d
-    └── repo-e`
+		expected = `{{repo-a}}
+├── {{repo-b}}
+│   └── {{repo-c}}
+│       └── {{repo-e}}
+└── {{repo-d}}
+    └── {{repo-e}}
+`
 	default:
 		return ""
 	}
+
+	for _, repo := range tc.Repositories {
+		originalName := strings.ReplaceAll(repo.Name, tc.Name+"-", "")
+		expected = strings.ReplaceAll(expected, fmt.Sprintf("{{%s}}", originalName), repo.Name)
+	}
+	return expected
 }
