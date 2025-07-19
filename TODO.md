@@ -59,9 +59,9 @@ The E2E tests are designed to be run *within* an environment that has the necess
 
 ### Phase 2: Scenario Implementation (Next Steps)
 
--   [ ] **Implement the Java Binary Incompatibility Scenario:** This is the immediate next task.
-    *   [ ] Create the new `TestEnvironmentDef` in `test/e2e/environments.go`.
-    *   [ ] Add the required Java and Maven template files to `test/e2e/templates/`.
-    *   [ ] Create the new multi-step `TestCase` in `test/e2e/modifying_test.go`.
+-   [x] **Implement the Java Binary Incompatibility Scenario:** This is the immediate next task.
+    *   [x] Create the new `TestEnvironmentDef` in `test/e2e/environments.go`.
+    *   [x] Add the required Java and Maven template files to `test/e2e/templates/`.
+    *   [x] Create the new multi-step `TestCase` in `test/e2e/modifying_test.go`.
 -   [ ] **Implement Other Scenarios:**
     *   [ ] Add test cases for the "Status Check", "Dependency Update", and "Cache Cleaning" scenarios to provide broader coverage of `tako run`.

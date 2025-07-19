@@ -1,0 +1,6 @@
+<project>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.tako</groupId>
+    <artifactId>repo-a</artifactId>
+    <version>1.0.0</version>
+</project>

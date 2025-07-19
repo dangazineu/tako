@@ -64,5 +64,38 @@ func GetEnvironments(owner string) map[string]TestEnvironmentDef {
 				{Name: "repo-circ-b", Branch: "main", Dependencies: []string{"repo-circ-a"}},
 			},
 		},
+		"java-binary-incompatibility": {
+			Name: "java-binary-incompatibility",
+			Repositories: []RepositoryDef{
+				{
+					Name:   "repo-a",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "pom.xml", Template: "java-binary-incompatibility/repo-a/pom.xml"},
+						{Path: "src/main/java/com/tako/lib_a/SuperClass.java", Template: "java-binary-incompatibility/repo-a/src/main/java/com/tako/lib_a/SuperClass.java"},
+						{Path: "src/main/java/com/tako/lib_a/SubClass.java", Template: "java-binary-incompatibility/repo-a/src/main/java/com/tako/lib_a/SubClass.java"},
+						{Path: "src/main/java/com/tako/lib_a/SubClass_modified.java", Template: "java-binary-incompatibility/repo-a/src/main/java/com/tako/lib_a/SubClass_modified.java"},
+					},
+				},
+				{
+					Name:         "repo-b",
+					Branch:       "main",
+					Dependencies: []string{"repo-a"},
+					Files: []FileDef{
+						{Path: "pom.xml", Template: "java-binary-incompatibility/repo-b/pom.xml"},
+						{Path: "src/main/java/com/tako/lib_b/Consumer.java", Template: "java-binary-incompatibility/repo-b/src/main/java/com/tako/lib_b/Consumer.java"},
+					},
+				},
+				{
+					Name:         "repo-c",
+					Branch:       "main",
+					Dependencies: []string{"repo-b"},
+					Files: []FileDef{
+						{Path: "pom.xml", Template: "java-binary-incompatibility/repo-c/pom.xml"},
+						{Path: "src/test/java/com/tako/app_c/AppTest.java", Template: "java-binary-incompatibility/repo-c/src/test/java/com/tako/app_c/AppTest.java"},
+					},
+				},
+			},
+		},
 	}
 }
