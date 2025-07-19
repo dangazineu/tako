@@ -115,3 +115,17 @@ func printChildren(w io.Writer, children []*Node, prefix string) {
 		}
 	}
 }
+
+func PrintDot(w io.Writer, root *Node) {
+	fmt.Fprintln(w, "digraph {")
+	printDotNode(w, root)
+	fmt.Fprintln(w, "}")
+}
+
+func printDotNode(w io.Writer, node *Node) {
+	fmt.Fprintf(w, "  %q [label=%q];\n", node.Name, node.Name)
+	for _, child := range node.Children {
+		fmt.Fprintf(w, "  %q -> %q;\n", node.Name, child.Name)
+		printDotNode(w, child)
+	}
+}
