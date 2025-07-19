@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -89,55 +90,21 @@ func TestE2E(t *testing.T) {
 	}
 }
 
+type setupOutput struct {
+	WorkDir  string `json:"workDir"`
+	CacheDir string `json:"cacheDir"`
+}
+
 func runTest(t *testing.T, tc *e2e.TestCase, mode string, withRepoEntryPoint bool) {
 	t.Logf("Running test case: %s", tc.Name)
-	var cacheDir, workDir string
-	var err error
 
-	if mode == "local" {
-		testCaseBaseDir, err := tc.SetupLocal(withRepoEntryPoint)
-		if err != nil {
-			t.Fatalf("failed to setup local test case: %v", err)
-		}
-		cacheDir = filepath.Join(testCaseBaseDir, "cache")
-		workDir = filepath.Join(testCaseBaseDir, "workdir")
-		t.Cleanup(func() {
-			if tc.Dirty {
-				os.RemoveAll(testCaseBaseDir)
-			}
-		})
-	} else {
-		client, err := e2e.GetClient()
-		if err != nil {
-			t.Fatalf("failed to get github client: %v", err)
-		}
-		if err := tc.Setup(client); err != nil {
-			t.Fatalf("failed to setup remote test case: %v", err)
-		}
-
-		cacheDir = t.TempDir()
-		workDir = t.TempDir()
-
-		if !withRepoEntryPoint {
-			cmd := exec.Command("git", "clone", tc.Repositories[0].CloneURL, workDir)
-			err = cmd.Run()
-			if err != nil {
-				t.Fatalf("failed to clone repo: %v", err)
-			}
-		}
-		t.Cleanup(func() {
-			if err := tc.Cleanup(client); err != nil {
-				t.Errorf("failed to cleanup remote test case: %v", err)
-			}
-		})
-	}
-
-	// Build the tako binary
+	// Build the tako and takotest binaries
 	takoBinaryDir := t.TempDir()
 	t.Cleanup(func() {
 		os.RemoveAll(takoBinaryDir)
 	})
 	takoPath := filepath.Join(takoBinaryDir, "tako")
+	takotestPath := filepath.Join(takoBinaryDir, "takotest")
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("failed to get working directory: %v", err)
@@ -155,6 +122,55 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string, withRepoEntryPoint boo
 	if err != nil {
 		t.Fatalf("failed to build tako binary: %v\nOutput:\n%s", err, buildOut.String())
 	}
+	buildCmd = exec.Command("go", "build", "-o", takotestPath, "./cmd/takotest")
+	buildCmd.Dir = projectRoot
+	buildCmd.Stdout = &buildOut
+	buildCmd.Stderr = &buildOut
+	err = buildCmd.Run()
+	if err != nil {
+		t.Fatalf("failed to build takotest binary: %v\nOutput:\n%s", err, buildOut.String())
+	}
+
+	// Setup the test case
+	var setupArgs []string
+	if mode == "local" {
+		setupArgs = append(setupArgs, "--local")
+	}
+	if withRepoEntryPoint {
+		setupArgs = append(setupArgs, "--with-repo-entrypoint")
+	}
+	setupArgs = append(setupArgs, "--owner", e2e.Org, tc.Name)
+	setupCmd := exec.Command(takotestPath, append([]string{"setup"}, setupArgs...)...)
+	var setupOut bytes.Buffer
+	setupCmd.Stdout = &setupOut
+	setupCmd.Stderr = &setupOut
+	err = setupCmd.Run()
+	if err != nil {
+		t.Fatalf("failed to setup test case: %v\nOutput:\n%s", err, setupOut.String())
+	}
+	var setupData setupOutput
+	err = json.Unmarshal(setupOut.Bytes(), &setupData)
+	if err != nil {
+		t.Fatalf("failed to unmarshal setup output: %v", err)
+	}
+	workDir := setupData.WorkDir
+	cacheDir := setupData.CacheDir
+
+	t.Cleanup(func() {
+		var cleanupArgs []string
+		if mode == "local" {
+			cleanupArgs = append(cleanupArgs, "--local")
+		}
+		cleanupArgs = append(cleanupArgs, "--owner", e2e.Org, "--work-dir", workDir, "--cache-dir", cacheDir, tc.Name)
+		cleanupCmd := exec.Command(takotestPath, append([]string{"cleanup"}, cleanupArgs...)...)
+		var cleanupOut bytes.Buffer
+		cleanupCmd.Stdout = &cleanupOut
+		cleanupCmd.Stderr = &cleanupOut
+		err = cleanupCmd.Run()
+		if err != nil {
+			t.Errorf("failed to cleanup test case: %v\nOutput:\n%s", err, cleanupOut.String())
+		}
+	})
 
 	// Run tako graph
 	var out bytes.Buffer
@@ -184,19 +200,6 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string, withRepoEntryPoint boo
 		}
 	} else {
 		takoCmd.Dir = workDir
-	}
-
-	files, err := os.ReadDir(workDir)
-	if err != nil {
-		t.Logf("could not read workdir: %v", err)
-	}
-	for _, file := range files {
-		t.Logf("workdir content: %s", file.Name())
-	}
-
-	t.Logf("takoCmd.Dir: %s", takoCmd.Dir)
-	if _, err := os.Stat(takoCmd.Dir); os.IsNotExist(err) {
-		t.Fatalf("takoCmd.Dir does not exist: %s", takoCmd.Dir)
 	}
 
 	takoCmd.Stdout = &out
