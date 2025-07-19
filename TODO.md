@@ -57,11 +57,54 @@ The E2E tests are designed to be run *within* an environment that has the necess
 -   [x] **Update `test/e2e/environments.go`:** The `TestEnvironmentDef` and `RepositoryDef` structs have been updated.
 -   [x] **Refactor `e2e_test.go`:** The test runner has been refactored into a generic engine.
 
-### Phase 2: Scenario Implementation (Next Steps)
+### Phase 2: Scenario Implementation (Completed)
 
--   [x] **Implement the Java Binary Incompatibility Scenario:** This is the immediate next task.
-    *   [x] Create the new `TestEnvironmentDef` in `test/e2e/environments.go`.
-    *   [x] Add the required Java and Maven template files to `test/e2e/templates/`.
-    *   [x] Create the new multi-step `TestCase` in `test/e2e/modifying_test.go`.
+-   [x] **Implement E2E Test Scenarios:**
+    *   [x] Implement the "Graph" scenarios (`simple`, `complex`, `deep`, `diamond`).
+    *   [x] Implement the "Java Binary Incompatibility" scenario.
+    *   [x] Implement the "Circular Dependency" scenario.
 -   [ ] **Implement Other Scenarios:**
     *   [ ] Add test cases for the "Status Check", "Dependency Update", and "Cache Cleaning" scenarios to provide broader coverage of `tako run`.
+
+### Phase 3: `takotest` Refinement (In Progress)
+
+-   [ ] **Fix Environment Initialization:**
+    *   [ ] Modify `cmd/takotest/internal/setup.go` to ensure it *only* creates the files explicitly defined in the `TestEnvironmentDef` for a given scenario. Currently, it incorrectly copies all files from the template subdirectories.
+-   [ ] **Add Custom Directory Flags:**
+    *   [ ] Implement `--work-dir` and `--cache-dir` flags for the `takotest setup` command to allow for predictable test setups.
+-   [ ] **Update E2E Test Runner:**
+    *   [ ] Modify `e2e_test.go` to use the new flags and a local `.tmp` directory for test execution.
+
+## 4. Manual E2E Test Execution Log (To Be Performed After `takotest` Fixes)
+
+This section documents the manual execution of the E2E test scenarios to validate the behavior of `tako run` before re-implementing the automated tests.
+
+### 4.1. Java Binary Incompatibility Scenario
+
+**Objective:** Verify that `tako run` correctly rebuilds all necessary downstream dependencies after an ABI-breaking change is introduced in an upstream repository.
+
+**Manual Test Plan:**
+
+1.  **Initial Setup (Using Fixed `takotest`):**
+    *   Run `go build -o /tmp/takotest ./cmd/takotest`.
+    *   Run `/tmp/takotest setup --local --owner local --work-dir .tmp/work --cache-dir .tmp/cache java-binary-incompatibility`.
+    *   **Expected Outcome:** A clean environment is created in `.tmp/` with `repo-a` containing *only* the valid `SubClass.java`.
+
+2.  **Initial Build Verification (Should Succeed):**
+    *   Run `mvn clean install` on `repo-a`.
+    *   Run `mvn clean install` on `repo-b`.
+    *   Run `mvn test` on `repo-c`.
+    *   **Expected Outcome:** All builds and tests should pass.
+
+3.  **Introduce Breaking Change:**
+    *   In `repo-a`, replace the contents of `SubClass.java` with the ABI-incompatible code from `SubClass_modified.java` (from `test/e2e/templates` folder).
+
+4.  **Naive Rebuild Verification (Should Fail):**
+    *   Run `mvn clean install` *only* on `repo-a`.
+    *   Run `mvn test` on `repo-c`.
+    *   **Expected Outcome:** The test in `repo-c` should fail with a `java.lang.NoSuchMethodError`, because `repo-b` has not been recompiled against the new `repo-a` artifact.
+
+5.  **`tako` Run Verification (Should Succeed):**
+    *   Run `/tmp/tako run --root .tmp/work/java-binary-incompatibility-repo-a ... "mvn clean install ..."`
+    *   Run `mvn test` on `repo-c` again.
+    *   **Expected Outcome:** The `tako run` command should correctly identify and rebuild `repo-a` and `repo-b`. The final test run on `repo-c` should pass.
