@@ -72,7 +72,9 @@ Commit messages should not reference the issue number, instead they should descr
 ## 9. CI/CD
 
 To run the GitHub Actions locally, use `act`:
-
 ```bash
-act
+act --container-architecture linux/amd64 -P ubuntu-latest=catthehacker/ubuntu:act-latest
 ```
+
+- `--container-architecture linux/amd64`: This flag is necessary when running on Apple M-series chips to ensure compatibility.
+- `-P ubuntu-latest=catthehacker/ubuntu:act-latest`: This specifies a modern, well-maintained Docker image for the `ubuntu-latest` runner.
