@@ -98,6 +98,19 @@ type setupOutput struct {
 func runTest(t *testing.T, tc *e2e.TestCase, mode string, withRepoEntryPoint bool) {
 	t.Logf("Running test case: %s", tc.Name)
 
+	runCmd := func(t *testing.T, cmd *exec.Cmd) {
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &out
+		err := cmd.Run()
+		if err != nil {
+			if testing.Verbose() {
+				t.Logf("command failed: %v\nOutput:\n%s", err, out.String())
+			}
+			t.Fatalf("command failed: %v", err)
+		}
+	}
+
 	// Build the tako and takotest binaries
 	takoBinaryDir := t.TempDir()
 	t.Cleanup(func() {
@@ -115,21 +128,10 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string, withRepoEntryPoint boo
 	}
 	buildCmd := exec.Command("go", "build", "-o", takoPath, "./cmd/tako")
 	buildCmd.Dir = projectRoot
-	var buildOut bytes.Buffer
-	buildCmd.Stdout = &buildOut
-	buildCmd.Stderr = &buildOut
-	err = buildCmd.Run()
-	if err != nil {
-		t.Fatalf("failed to build tako binary: %v\nOutput:\n%s", err, buildOut.String())
-	}
+	runCmd(t, buildCmd)
 	buildCmd = exec.Command("go", "build", "-o", takotestPath, "./cmd/takotest")
 	buildCmd.Dir = projectRoot
-	buildCmd.Stdout = &buildOut
-	buildCmd.Stderr = &buildOut
-	err = buildCmd.Run()
-	if err != nil {
-		t.Fatalf("failed to build takotest binary: %v\nOutput:\n%s", err, buildOut.String())
-	}
+	runCmd(t, buildCmd)
 
 	// Setup the test case
 	var setupArgs []string
@@ -146,7 +148,10 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string, withRepoEntryPoint boo
 	setupCmd.Stderr = &setupOut
 	err = setupCmd.Run()
 	if err != nil {
-		t.Fatalf("failed to setup test case: %v\nOutput:\n%s", err, setupOut.String())
+		if testing.Verbose() {
+			t.Logf("failed to setup test case: %v\nOutput:\n%s", err, setupOut.String())
+		}
+		t.Fatalf("failed to setup test case: %v", err)
 	}
 	var setupData setupOutput
 	err = json.Unmarshal(setupOut.Bytes(), &setupData)
@@ -163,17 +168,10 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string, withRepoEntryPoint boo
 		}
 		cleanupArgs = append(cleanupArgs, "--owner", e2e.Org, "--work-dir", workDir, "--cache-dir", cacheDir, tc.Name)
 		cleanupCmd := exec.Command(takotestPath, append([]string{"cleanup"}, cleanupArgs...)...)
-		var cleanupOut bytes.Buffer
-		cleanupCmd.Stdout = &cleanupOut
-		cleanupCmd.Stderr = &cleanupOut
-		err = cleanupCmd.Run()
-		if err != nil {
-			t.Errorf("failed to cleanup test case: %v\nOutput:\n%s", err, cleanupOut.String())
-		}
+		runCmd(t, cleanupCmd)
 	})
 
 	// Run tako graph
-	var out bytes.Buffer
 	var args []string
 
 	if withRepoEntryPoint {
@@ -202,6 +200,7 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string, withRepoEntryPoint boo
 		takoCmd.Dir = workDir
 	}
 
+	var out bytes.Buffer
 	takoCmd.Stdout = &out
 	takoCmd.Stderr = &out
 	err = takoCmd.Run()
@@ -217,7 +216,10 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string, withRepoEntryPoint boo
 	}
 
 	if err != nil {
-		t.Fatalf("failed to run tako graph: %v\nOutput:\n%s", err, out.String())
+		if testing.Verbose() {
+			t.Logf("failed to run tako graph: %v\nOutput:\n%s", err, out.String())
+		}
+		t.Fatalf("failed to run tako graph: %v", err)
 	}
 
 	// Assert the output
@@ -226,8 +228,6 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string, withRepoEntryPoint boo
 		if testing.Verbose() {
 			t.Logf("Expected output:\n%s", expected)
 			t.Logf("Actual output:\n%s", out.String())
-			t.Logf("trimmed expected: %q", strings.TrimSpace(expected))
-			t.Logf("trimmed actual: %q", strings.TrimSpace(out.String()))
 		}
 		t.Errorf("expected output to not match %q, got %q", expected, out.String())
 	}
