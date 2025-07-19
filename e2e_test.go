@@ -187,7 +187,7 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 	}
 
 	// Assert the output
-	expected := getExpectedOutput(tc.Name)
+	expected := getExpectedOutput(tc, mode)
 	if testing.Verbose() {
 		t.Logf("Expected output:\n%s", expected)
 		t.Logf("Actual output:\n%s", out.String())
@@ -199,8 +199,36 @@ func runTest(t *testing.T, tc *e2e.TestCase, mode string) {
 	}
 }
 
-func getExpectedOutput(testCaseName string) string {
-	switch testCaseName {
+func getExpectedOutput(tc *e2e.TestCase, mode string) string {
+	if mode == "remote" {
+		switch tc.Name {
+		case "simple-graph", "simple-graph-with-repo-flag":
+			return `repo-a
+└── repo-b`
+		case "complex-graph":
+			return `repo-a
+├── repo-b
+│   └── repo-c
+│       └── repo-e
+└── repo-d
+    └── repo-e`
+		case "deep-graph":
+			return `repo-x
+└── repo-y
+    └── repo-z`
+		case "diamond-dependency-graph":
+			return `repo-a
+├── repo-b
+│   └── repo-c
+│       └── repo-e
+└── repo-d
+    └── repo-e`
+		default:
+			return ""
+		}
+	}
+
+	switch tc.Name {
 	case "simple-graph", "simple-graph-with-repo-flag":
 		return `repo-a
 └── repo-b`
