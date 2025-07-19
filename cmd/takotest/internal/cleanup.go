@@ -1,55 +1,52 @@
 package internal
 
 import (
+	"context"
 	"fmt"
 	"github.com/dangazineu/tako/test/e2e"
+	"github.com/google/go-github/v63/github"
 	"github.com/spf13/cobra"
 	"os"
+	"path/filepath"
 )
 
 func NewCleanupCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "cleanup [testcase]",
-		Short: "Cleanup a test case",
+		Use:   "cleanup [environment]",
+		Short: "Cleanup a test environment",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			local, _ := cmd.Flags().GetBool("local")
-			force, _ := cmd.Flags().GetBool("force")
 			owner, _ := cmd.Flags().GetString("owner")
-			workDir, _ := cmd.Flags().GetString("work-dir")
-			cacheDir, _ := cmd.Flags().GetString("cache-dir")
-			testCaseName := args[0]
-			testCase, ok := e2e.GetTestCases(owner)[testCaseName]
+			envName := args[0]
+			env, ok := e2e.GetEnvironments(owner)[envName]
 			if !ok {
-				return fmt.Errorf("test case not found: %s", testCaseName)
+				return fmt.Errorf("environment not found: %s", envName)
 			}
 
-			if workDir != "" {
-				if err := os.RemoveAll(workDir); err != nil {
-					return err
-				}
-			}
-			if cacheDir != "" {
-				if err := os.RemoveAll(cacheDir); err != nil {
-					return err
-				}
+			if local {
+				tmpDir := filepath.Join(os.TempDir(), env.Name)
+				return os.RemoveAll(tmpDir)
 			}
 
-			if !local {
-				client, err := e2e.GetClient()
+			client, err := e2e.GetClient()
+			if err != nil {
+				return err
+			}
+			for _, repoDef := range env.Repositories {
+				repoName := fmt.Sprintf("%s-%s", env.Name, repoDef.Name)
+				_, err := client.Repositories.Delete(context.Background(), owner, repoName)
 				if err != nil {
-					return err
+					if _, ok := err.(*github.ErrorResponse); !ok || err.(*github.ErrorResponse).Response.StatusCode != 404 {
+						return err
+					}
 				}
-				return testCase.Cleanup(client, force)
 			}
 			return nil
 		},
 	}
 	cmd.Flags().String("owner", "", "The owner of the repositories")
-	cmd.Flags().String("work-dir", "", "The working directory to cleanup")
-	cmd.Flags().String("cache-dir", "", "The cache directory to cleanup")
 	cmd.Flags().Bool("local", false, "Cleanup the test case locally")
-	cmd.Flags().Bool("force", false, "Force cleanup of remote repositories")
 	cmd.MarkFlagRequired("owner")
 	return cmd
 }

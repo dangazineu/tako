@@ -99,3 +99,8 @@ act --container-architecture linux/amd64 -P ubuntu-latest=catthehacker/ubuntu:ac
 
 - `--container-architecture linux/amd64`: This flag is necessary when running on Apple M-series chips to ensure compatibility.
 - `-P ubuntu-latest=catthehacker/ubuntu:act-latest`: This specifies a modern, well-maintained Docker image for the `ubuntu-latest` runner.
+
+## 10. Repository Cache and Lookup
+
+-   **Consistent Cache Structure:** The repository cache path must be consistent for both local and remote operations. The structure should always be `~/.tako/cache/repos/<owner>/<repo>`.
+-   **The `--local` Flag:** The `--local` flag's only purpose is to prevent network access (e.g., `git fetch` or `git clone`). It should not change the directory path where `tako` looks for a cached repository. When running with `--local`, if a repository is not found in the cache at the expected path, the operation should fail.
