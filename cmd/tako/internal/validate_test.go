@@ -29,7 +29,7 @@ dependents: []
 	b := bytes.NewBufferString("")
 	cmd := NewRootCmd()
 	cmd.SetOut(b)
-	cmd.SetArgs([]string{"validate", takoPath})
+	cmd.SetArgs([]string{"validate", "--root", tmpDir})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("failed to execute validate command: %v", err)
 	}
