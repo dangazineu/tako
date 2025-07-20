@@ -13,9 +13,10 @@ import (
 // Clone clones a repository from the given url into the given path.
 func Clone(url, path string) error {
 	var err error
+	var output []byte
 	for i := 0; i < 3; i++ {
 		cmd := exec.Command("git", "clone", url, path)
-		output, err := cmd.CombinedOutput()
+		output, err = cmd.CombinedOutput()
 		if err == nil {
 			return nil
 		}
