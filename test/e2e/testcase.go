@@ -2,9 +2,9 @@ package e2e
 
 // Step represents a single command and its expected outcome in a TestCase.
 type Step struct {
-	Name             string
-	Command          string // The command to execute (e.g., "tako", "mvn", "git")
-	Args             []string
+	Name                 string
+	Command              string // The command to execute (e.g., "tako", "mvn", "git")
+	Args                 []string
 	ExpectedOutput       string   // Expected stdout
 	AssertOutput         bool     // Whether to perform a strict assertion on the output
 	AssertOutputContains []string // Substrings to assert are present in the output
