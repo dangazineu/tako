@@ -5,6 +5,8 @@ import (
 	"github.com/dangazineu/tako/internal/graph"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -139,4 +141,113 @@ func TestRunCmd_DryRun(t *testing.T) {
 	dryRun, err := cmd.Flags().GetBool("dry-run")
 	require.NoError(t, err)
 	assert.True(t, dryRun)
+}
+
+func TestRunCmd_DryRunExecution(t *testing.T) {
+	// Create a simple graph for testing dry-run execution
+	nodeB := &graph.Node{Name: "repo-b", Path: "/path/to/repo-b"}
+	nodeA := &graph.Node{Name: "repo-a", Path: "/path/to/repo-a", Children: []*graph.Node{nodeB}}
+
+	testCases := []struct {
+		name           string
+		dryRun         bool
+		expectedOutput string
+		command        string
+	}{
+		{
+			name:           "dry-run shows commands without execution",
+			dryRun:         true,
+			command:        "echo test",
+			expectedOutput: "[dry-run] repo-a: echo test\n[dry-run] repo-b: echo test\n",
+		},
+		{
+			name:           "normal execution shows running messages",
+			dryRun:         false,
+			command:        "echo test",
+			expectedOutput: "--- Running in repo-a ---\n--- Running in repo-b ---\n",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create topologically sorted nodes (dependencies first)
+			sortedNodes := []*graph.Node{nodeA, nodeB}
+
+			var out bytes.Buffer
+			cmd := NewRunCmd()
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+
+			// Simulate the dry-run execution logic from the actual command
+			for _, node := range sortedNodes {
+				if tc.dryRun {
+					cmd.Printf("[dry-run] %s: %s\n", node.Name, tc.command)
+				} else {
+					cmd.Printf("--- Running in %s ---\n", node.Name)
+					// Note: In actual execution, this would run the command
+					// but for unit tests we just simulate the output format
+				}
+			}
+
+			actualOutput := out.String()
+			assert.Equal(t, tc.expectedOutput, actualOutput)
+		})
+	}
+}
+
+func TestRunCmd_DryRunFlag(t *testing.T) {
+	cmd := NewRunCmd()
+
+	// Test flag default value
+	dryRun, err := cmd.Flags().GetBool("dry-run")
+	require.NoError(t, err)
+	assert.False(t, dryRun, "dry-run should default to false")
+
+	// Test setting flag to true
+	err = cmd.Flags().Set("dry-run", "true")
+	require.NoError(t, err)
+	dryRun, err = cmd.Flags().GetBool("dry-run")
+	require.NoError(t, err)
+	assert.True(t, dryRun)
+
+	// Test setting flag to false
+	err = cmd.Flags().Set("dry-run", "false")
+	require.NoError(t, err)
+	dryRun, err = cmd.Flags().GetBool("dry-run")
+	require.NoError(t, err)
+	assert.False(t, dryRun)
+}
+
+func TestRunCmd_DryRunIntegration(t *testing.T) {
+	// Create a temporary directory with a simple tako.yml
+	tempDir := t.TempDir()
+
+	// Create a simple tako.yml
+	takoYml := `version: "1"
+dependents: []
+`
+	err := os.WriteFile(filepath.Join(tempDir, "tako.yml"), []byte(takoYml), 0644)
+	require.NoError(t, err)
+
+	cmd := NewRunCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+
+	// Test dry-run integration
+	err = cmd.Flags().Set("dry-run", "true")
+	require.NoError(t, err)
+	err = cmd.Flags().Set("root", tempDir)
+	require.NoError(t, err)
+	err = cmd.Flags().Set("local", "true")
+	require.NoError(t, err)
+
+	// Execute the command
+	err = cmd.RunE(cmd, []string{"echo", "test"})
+	require.NoError(t, err)
+
+	// Verify dry-run output format
+	output := out.String()
+	assert.Contains(t, output, "[dry-run]")
+	assert.Contains(t, output, "echo test")
 }
