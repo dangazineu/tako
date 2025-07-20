@@ -70,7 +70,7 @@ func GetTestCases() []TestCase {
 					Args:             []string{"-f", "{{.Repo.repo-c}}/pom.xml", "clean", "test", "-Dmaven.repo.local=${MAVEN_REPO_DIR}"},
 					ExpectedExitCode: 1,
 					AssertOutputContains: []string{
-						"IncompatibleClassChange Expecting non-static method",
+						"IncompatibleClassChangeError",
 					},
 				},
 				{
