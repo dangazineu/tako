@@ -1,5 +1,7 @@
 # Tako: Specification
 
+[![codecov](https://codecov.io/gh/dangazineu/tako/graph/badge.svg?token=7847S2ZSQ3)](https://codecov.io/gh/dangazineu/tako)
+
 This document outlines the specification for Tako, a command-line interface for multi-repository operations.
 
 ## 1. Vision
