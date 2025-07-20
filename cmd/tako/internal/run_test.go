@@ -125,3 +125,18 @@ func TestRunCmd_Filtering(t *testing.T) {
 		})
 	}
 }
+
+func TestRunCmd_DryRun(t *testing.T) {
+	cmd := NewRunCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+
+	// Test that the --dry-run flag is available
+	err := cmd.Flags().Set("dry-run", "true")
+	require.NoError(t, err)
+
+	dryRun, err := cmd.Flags().GetBool("dry-run")
+	require.NoError(t, err)
+	assert.True(t, dryRun)
+}

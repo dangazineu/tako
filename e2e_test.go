@@ -127,25 +127,40 @@ func runTest(t *testing.T, tc *e2e.TestCase, env e2e.TestEnvironmentDef, mode st
 }
 
 func verify(t *testing.T, tc *e2e.TestCase, workDir, cacheDir string, withRepoEntryPoint bool, env e2e.TestEnvironmentDef) {
-	if tc.Name == "run-touch-command" {
+	// Use the data-driven verification from the test case
+	for _, fileCheck := range tc.Verify.Files {
 		for _, repo := range env.Repositories {
 			repoName := fmt.Sprintf("%s-%s", env.Name, repo.Name)
 			var filePath string
 			if withRepoEntryPoint {
-				filePath = filepath.Join(cacheDir, "repos", testOrg, repoName, "test.txt")
+				filePath = filepath.Join(cacheDir, "repos", testOrg, repoName, fileCheck.FileName)
 			} else {
 				if repo.Name == env.Repositories[0].Name {
-					filePath = filepath.Join(workDir, repoName, "test.txt")
+					filePath = filepath.Join(workDir, repoName, fileCheck.FileName)
 				} else {
-					filePath = filepath.Join(cacheDir, "repos", testOrg, repoName, "test.txt")
+					filePath = filepath.Join(cacheDir, "repos", testOrg, repoName, fileCheck.FileName)
 				}
 			}
-			content, err := os.ReadFile(filePath)
-			if err != nil {
-				t.Fatalf("failed to read file %s: %v", filePath, err)
-			}
-			if strings.TrimSpace(string(content)) != "hello" {
-				t.Errorf("expected file content to be 'hello', got %q", string(content))
+
+			if fileCheck.ShouldExist {
+				content, err := os.ReadFile(filePath)
+				if err != nil {
+					t.Errorf("expected file %s to exist but got error: %v", filePath, err)
+					continue
+				}
+				if fileCheck.ExpectedContent != "" {
+					actualContent := strings.TrimSpace(string(content))
+					if actualContent != fileCheck.ExpectedContent {
+						t.Errorf("file %s: expected content %q, got %q", filePath, fileCheck.ExpectedContent, actualContent)
+					}
+				}
+			} else {
+				// Verify the file does NOT exist
+				if _, err := os.Stat(filePath); err == nil {
+					t.Errorf("file %s should not exist", filePath)
+				} else if !os.IsNotExist(err) {
+					t.Errorf("unexpected error checking file %s: %v", filePath, err)
+				}
 			}
 		}
 	}

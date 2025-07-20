@@ -20,6 +20,7 @@ func NewRunCmd() *cobra.Command {
 			local, _ := cmd.Flags().GetBool("local")
 			only, _ := cmd.Flags().GetStringSlice("only")
 			ignore, _ := cmd.Flags().GetStringSlice("ignore")
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			cacheDir, _ := cmd.InheritedFlags().GetString("cache-dir")
 			commandStr := strings.Join(args, " ")
 
@@ -60,13 +61,17 @@ func NewRunCmd() *cobra.Command {
 			//   4. Conclusion: The run command must iterate through the topologically sorted list in its natural, forward order (A, then B) to ensure dependencies are built
 			//      before the projects that need them.
 			for _, node := range sortedNodes {
-				fmt.Fprintf(cmd.OutOrStdout(), "--- Running in %s ---\n", node.Name)
-				c := exec.Command("bash", "-c", commandStr)
-				c.Dir = node.Path
-				c.Stdout = cmd.OutOrStdout()
-				c.Stderr = cmd.ErrOrStderr()
-				if err := c.Run(); err != nil {
-					return fmt.Errorf("command failed in %s: %w", node.Name, err)
+				if dryRun {
+					fmt.Fprintf(cmd.OutOrStdout(), "[dry-run] %s: %s\n", node.Name, commandStr)
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "--- Running in %s ---\n", node.Name)
+					c := exec.Command("bash", "-c", commandStr)
+					c.Dir = node.Path
+					c.Stdout = cmd.OutOrStdout()
+					c.Stderr = cmd.ErrOrStderr()
+					if err := c.Run(); err != nil {
+						return fmt.Errorf("command failed in %s: %w", node.Name, err)
+					}
 				}
 			}
 
@@ -78,5 +83,6 @@ func NewRunCmd() *cobra.Command {
 	cmd.Flags().Bool("local", false, "Only use local repositories, do not clone or update remote repositories")
 	cmd.Flags().StringSlice("only", []string{}, "Only run on the specified repository and its dependents")
 	cmd.Flags().StringSlice("ignore", []string{}, "Ignore the specified repository and its dependents")
+	cmd.Flags().Bool("dry-run", false, "Show what commands would be run without executing them")
 	return cmd
 }
