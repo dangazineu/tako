@@ -2,6 +2,7 @@ package graph
 
 import (
 	"bytes"
+	"github.com/stretchr/testify/assert"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -226,5 +227,139 @@ func TestPrintDot(t *testing.T) {
 `
 	if buf.String() != expected {
 		t.Errorf("Expected dot output '%s', but got '%s'", expected, buf.String())
+	}
+}
+
+func TestFilter(t *testing.T) {
+	// A -> B -> C
+	// D -> E
+
+	testCases := []struct {
+		name          string
+		only          []string
+		ignore        []string
+		expectedNodes []string
+		expectedError string
+	}{
+		{
+			name:          "no filtering",
+			expectedNodes: []string{"A", "B", "C", "D", "E", "root"},
+		},
+		{
+			name:          "only A",
+			only:          []string{"A"},
+			expectedNodes: []string{"A", "B", "C"},
+		},
+		{
+			name:          "only B",
+			only:          []string{"B"},
+			expectedNodes: []string{"B", "C"},
+		},
+		{
+			name:          "only D",
+			only:          []string{"D"},
+			expectedNodes: []string{"D", "E"},
+		},
+		{
+			name:          "ignore A",
+			ignore:        []string{"A"},
+			expectedNodes: []string{"D", "E", "root"},
+		},
+		{
+			name:          "ignore B",
+			ignore:        []string{"B"},
+			expectedNodes: []string{"A", "D", "E", "root"},
+		},
+		{
+			name:          "only A, ignore B",
+			only:          []string{"A"},
+			ignore:        []string{"B"},
+			expectedNodes: []string{"A"},
+		},
+		{
+			name:          "only A, ignore C",
+			only:          []string{"A"},
+			ignore:        []string{"C"},
+			expectedNodes: []string{"A", "B"},
+		},
+		{
+			name:          "no nodes left",
+			only:          []string{"A"},
+			ignore:        []string{"A"},
+			expectedNodes: []string{"empty-root"},
+		},
+		{
+			name:          "non-existent only",
+			only:          []string{"X"},
+			expectedError: "repository \"X\" not found in the graph",
+		},
+		{
+			name:          "non-existent ignore",
+			ignore:        []string{"X"},
+			expectedError: "repository \"X\" not found in the graph",
+		},
+		{
+			name:          "only with multiple roots",
+			only:          []string{"B", "D"},
+			expectedNodes: []string{"B", "C", "D", "E", "virtual-root"},
+		},
+		{
+			name:          "ignore with multiple roots",
+			ignore:        []string{"B", "D"},
+			expectedNodes: []string{"A", "root"},
+		},
+		{
+			name:          "only and ignore with multiple roots",
+			only:          []string{"A", "D"},
+			ignore:        []string{"B", "E"},
+			expectedNodes: []string{"A", "D", "virtual-root"},
+		},
+		{
+			name:          "filter results in cycle",
+			only:          []string{"A", "B"},
+			ignore:        []string{"C"},
+			expectedNodes: []string{"A", "B"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create a fresh graph for each test case
+			nodeC := &Node{Name: "C", Path: "/C"}
+			nodeB := &Node{Name: "B", Path: "/B", Children: []*Node{nodeC}}
+			nodeA := &Node{Name: "A", Path: "/A", Children: []*Node{nodeB}}
+
+			nodeE := &Node{Name: "E", Path: "/E"}
+			nodeD := &Node{Name: "D", Path: "/D", Children: []*Node{nodeE}}
+
+			rootNode := &Node{Name: "root", Path: "/", Children: []*Node{nodeA, nodeD}}
+
+			// Create a cycle for the cycle test case
+			if tc.name == "filter results in cycle" {
+				nodeB.AddChild(nodeA)
+			}
+
+			filtered, err := rootNode.Filter(tc.only, tc.ignore)
+			if tc.expectedError != "" {
+				if err == nil {
+					t.Fatal("Expected an error, but got nil")
+				}
+				if err.Error() != tc.expectedError {
+					t.Errorf("Expected error '%s', but got '%s'", tc.expectedError, err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Expected no error, but got %v", err)
+			}
+
+			allNodes := filtered.AllNodes()
+			var actualNames []string
+			for _, node := range allNodes {
+				actualNames = append(actualNames, node.Name)
+			}
+
+			assert.ElementsMatch(t, tc.expectedNodes, actualNames)
+		})
 	}
 }

@@ -18,6 +18,8 @@ func NewRunCmd() *cobra.Command {
 			root, _ := cmd.Flags().GetString("root")
 			repo, _ := cmd.Flags().GetString("repo")
 			local, _ := cmd.Flags().GetBool("local")
+			only, _ := cmd.Flags().GetStringSlice("only")
+			ignore, _ := cmd.Flags().GetStringSlice("ignore")
 			cacheDir, _ := cmd.InheritedFlags().GetString("cache-dir")
 			commandStr := strings.Join(args, " ")
 
@@ -37,9 +39,19 @@ func NewRunCmd() *cobra.Command {
 				return err
 			}
 
-			sortedNodes, err := rootNode.TopologicalSort()
+			filteredNodes, err := rootNode.Filter(only, ignore)
 			if err != nil {
 				return err
+			}
+
+			sortedNodes, err := filteredNodes.TopologicalSort()
+			if err != nil {
+				return err
+			}
+
+			if len(sortedNodes) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "Warning: No repositories matched the filter criteria.")
+				return nil
 			}
 
 			//   1. Dependency: If repo-a's tako.yml lists repo-b as a dependent, it means B depends on A. The graph edge is A -> B.
@@ -64,5 +76,7 @@ func NewRunCmd() *cobra.Command {
 	cmd.Flags().String("root", "", "The root directory of the project")
 	cmd.Flags().String("repo", "", "The remote repository to use as the entrypoint (e.g. owner/repo:ref)")
 	cmd.Flags().Bool("local", false, "Only use local repositories, do not clone or update remote repositories")
+	cmd.Flags().StringSlice("only", []string{}, "Only run on the specified repository and its dependents")
+	cmd.Flags().StringSlice("ignore", []string{}, "Ignore the specified repository and its dependents")
 	return cmd
 }
