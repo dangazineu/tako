@@ -3,6 +3,11 @@ package git
 import (
 	"fmt"
 	"github.com/dangazineu/tako/internal/errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
 )
 
 // Clone clones a repository from the given url into the given path.
