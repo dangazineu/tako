@@ -31,6 +31,39 @@ func GetTestCases() []TestCase {
 					Args:    []string{"run", "echo 'hello' > test.txt"},
 				},
 			},
+			Verify: Verification{
+				Files: []VerifyFileExists{
+					{
+						FileName:        "test.txt",
+						ShouldExist:     true,
+						ExpectedContent: "hello",
+					},
+				},
+			},
+		},
+		{
+			Name:        "run-dry-run-prevents-execution",
+			Environment: "simple-graph",
+			ReadOnly:    true,
+			Test: []Step{
+				{
+					Name:         "tako run with dry-run flag",
+					Command:      "tako",
+					Args:         []string{"run", "--dry-run", "echo 'hello' > dry-run-test.txt"},
+					AssertOutput: true,
+					ExpectedOutput: `[dry-run] {{.Repo.repo-a}}: echo 'hello' > dry-run-test.txt
+[dry-run] {{.Repo.repo-b}}: echo 'hello' > dry-run-test.txt
+`,
+				},
+			},
+			Verify: Verification{
+				Files: []VerifyFileExists{
+					{
+						FileName:    "dry-run-test.txt",
+						ShouldExist: false,
+					},
+				},
+			},
 		},
 		{
 			Name:        "java-binary-incompatibility",
