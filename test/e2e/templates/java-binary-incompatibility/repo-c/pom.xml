@@ -1,17 +1,12 @@
 <project>
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.tako</groupId>
-    <artifactId>repo-c</artifactId>
+    <artifactId>app-c</artifactId>
     <version>1.0.0</version>
     <dependencies>
         <dependency>
             <groupId>com.tako</groupId>
-            <artifactId>repo-a</artifactId>
-            <version>1.0.0</version>
-        </dependency>
-        <dependency>
-            <groupId>com.tako</groupId>
-            <artifactId>repo-b</artifactId>
+            <artifactId>lib-b</artifactId>
             <version>1.0.0</version>
         </dependency>
         <dependency>

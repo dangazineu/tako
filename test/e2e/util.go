@@ -1,10 +1,15 @@
 package e2e
 
 import (
+	"embed"
 	"fmt"
 	"github.com/google/go-github/v63/github"
 	"os"
+	"path/filepath"
 )
+
+//go:embed all:templates
+var templates embed.FS
 
 func GetClient() (*github.Client, error) {
 	token := os.Getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
@@ -15,7 +20,7 @@ func GetClient() (*github.Client, error) {
 }
 
 func GetTemplate(path string) (string, error) {
-	data, err := templates.ReadFile(path)
+	data, err := templates.ReadFile(filepath.Join("templates", path))
 	if err != nil {
 		return "", err
 	}

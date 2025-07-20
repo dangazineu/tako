@@ -168,6 +168,15 @@ func buildBinaries(t *testing.T) (string, string) {
 }
 
 func setupEnvironment(t *testing.T, takotestPath, envName, mode string, withRepoEntryPoint bool) *setupOutput {
+	// Create a test-specific temporary directory within the project
+	testTmpDir := filepath.Join(t.TempDir(), "tako-e2e-test")
+	if err := os.MkdirAll(testTmpDir, 0755); err != nil {
+		t.Fatalf("failed to create test temp dir: %v", err)
+	}
+	
+	workDir := filepath.Join(testTmpDir, "work")
+	cacheDir := filepath.Join(testTmpDir, "cache")
+	
 	var setupArgs []string
 	if mode == "local" {
 		setupArgs = append(setupArgs, "--local")
@@ -175,7 +184,12 @@ func setupEnvironment(t *testing.T, takotestPath, envName, mode string, withRepo
 	if withRepoEntryPoint {
 		setupArgs = append(setupArgs, "--with-repo-entrypoint")
 	}
+	
+	// Add the new flags for predictable directory setup
+	setupArgs = append(setupArgs, "--work-dir", workDir)
+	setupArgs = append(setupArgs, "--cache-dir", cacheDir)
 	setupArgs = append(setupArgs, "--owner", testOrg, envName)
+	
 	setupCmd := exec.Command(takotestPath, append([]string{"setup"}, setupArgs...)...)
 	var setupOut bytes.Buffer
 	setupCmd.Stdout = &setupOut
@@ -201,11 +215,33 @@ func cleanupEnvironment(t *testing.T, takotestPath, envName, mode, workDir, cach
 }
 
 func runSteps(t *testing.T, steps []e2e.Step, workDir, cacheDir, mode string, withRepoEntryPoint bool, takoPath string, tc *e2e.TestCase, env e2e.TestEnvironmentDef) {
+	mavenHome := os.Getenv("MAVEN_HOME")
+	if mavenHome == "" {
+		mavenHome = os.Getenv("M2_HOME")
+	}
+	if mavenHome == "" {
+		t.Log("MAVEN_HOME or M2_HOME not set, assuming mvn is in the path")
+	}
+	originalPath := os.Getenv("PATH")
+	newPath := fmt.Sprintf("%s/bin:%s", mavenHome, originalPath)
+	os.Setenv("PATH", newPath)
+	defer os.Setenv("PATH", originalPath)
+
 	for _, step := range steps {
 		t.Run(step.Name, func(t *testing.T) {
 			var cmd *exec.Cmd
 			if step.Command == "tako" {
-				args := step.Args
+				// Set up Maven repository directory
+				mavenRepoDir := filepath.Join(filepath.Dir(workDir), "maven-repo")
+				
+				args := make([]string, len(step.Args))
+				copy(args, step.Args)
+				
+				// Replace Maven repository variable in tako command arguments
+				for i, arg := range args {
+					args[i] = strings.ReplaceAll(arg, "${MAVEN_REPO_DIR}", mavenRepoDir)
+				}
+				
 				if withRepoEntryPoint {
 					repoName := fmt.Sprintf("%s-%s", env.Name, env.Repositories[0].Name)
 					args = append(args, "--repo", fmt.Sprintf("%s/%s:main", testOrg, repoName))
@@ -219,9 +255,34 @@ func runSteps(t *testing.T, steps []e2e.Step, workDir, cacheDir, mode string, wi
 				args = append(args, "--cache-dir", cacheDir)
 				cmd = exec.Command(takoPath, args...)
 			} else {
-				cmd = exec.Command(step.Command, step.Args...)
+				// Set up Maven repository directory before processing arguments
+				mavenRepoDir := filepath.Join(filepath.Dir(workDir), "maven-repo")
+				
+				args := make([]string, len(step.Args))
+				for i, arg := range step.Args {
+					// Special handling for template copy commands - only replace placeholders in destination path
+					if step.Command == "cp" && i == 0 && strings.Contains(arg, "test/e2e/templates/") {
+						args[i] = arg // Keep template source path as-is
+					} else {
+						args[i] = replacePathPlaceholders(arg, env, workDir, cacheDir, withRepoEntryPoint)
+					}
+					// Replace Maven repository variable in all arguments
+					args[i] = strings.ReplaceAll(args[i], "${MAVEN_REPO_DIR}", mavenRepoDir)
+				}
+				cmd = exec.Command(step.Command, args...)
 			}
-			cmd.Dir = workDir
+			// Set working directory - use project root for template access, workDir for other commands
+			if step.Command == "cp" && strings.Contains(strings.Join(step.Args, " "), "test/e2e/templates/") {
+				// For copying from templates, use project root as working directory
+				projectRoot := findProjectRoot(workDir)
+				cmd.Dir = projectRoot
+			} else {
+				cmd.Dir = workDir
+			}
+			cmd.Env = os.Environ()
+			// Set Maven repo to a location within the test environment for isolation
+			mavenRepoDir := filepath.Join(filepath.Dir(workDir), "maven-repo")
+			cmd.Env = append(cmd.Env, fmt.Sprintf("MAVEN_REPO_DIR=%s", mavenRepoDir))
 
 			var out bytes.Buffer
 			cmd.Stdout = &out
@@ -263,6 +324,27 @@ func replacePlaceholders(s string, env e2e.TestEnvironmentDef) string {
 		placeholder := fmt.Sprintf("{{.Repo.%s}}", repo.Name)
 		fullName := fmt.Sprintf("%s-%s", env.Name, repo.Name)
 		s = strings.ReplaceAll(s, placeholder, fullName)
+	}
+	s = strings.ReplaceAll(s, "{{.Owner}}", testOrg)
+	return s
+}
+
+func replacePathPlaceholders(s string, env e2e.TestEnvironmentDef, workDir, cacheDir string, withRepoEntryPoint bool) string {
+	for _, repo := range env.Repositories {
+		placeholder := fmt.Sprintf("{{.Repo.%s}}", repo.Name)
+		fullName := fmt.Sprintf("%s-%s", env.Name, repo.Name)
+		
+		var repoPath string
+		if withRepoEntryPoint {
+			repoPath = filepath.Join(cacheDir, "repos", testOrg, fullName)
+		} else {
+			if repo.Name == env.Repositories[0].Name {
+				repoPath = filepath.Join(workDir, fullName)
+			} else {
+				repoPath = filepath.Join(cacheDir, "repos", testOrg, fullName)
+			}
+		}
+		s = strings.ReplaceAll(s, placeholder, repoPath)
 	}
 	s = strings.ReplaceAll(s, "{{.Owner}}", testOrg)
 	return s

@@ -42,6 +42,8 @@ func NewSetupCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Bool("local", false, "Setup the test case locally")
+	cmd.Flags().String("work-dir", "", "The working directory to use")
+	cmd.Flags().String("cache-dir", "", "The cache directory to use")
 	cmd.Flags().Bool("with-repo-entrypoint", false, "Setup the test case with a remote entrypoint")
 	cmd.Flags().String("owner", "", "The owner of the repositories")
 	cmd.MarkFlagRequired("owner")
@@ -50,16 +52,37 @@ func NewSetupCmd() *cobra.Command {
 
 func setupLocal(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) error {
 	withRepoEntrypoint, _ := cmd.Flags().GetBool("with-repo-entrypoint")
-	tmpDir := filepath.Join(os.TempDir(), env.Name)
-	if err := os.RemoveAll(tmpDir); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(tmpDir, 0755); err != nil {
-		return err
+	workDir, _ := cmd.Flags().GetString("work-dir")
+	cacheDir, _ := cmd.Flags().GetString("cache-dir")
+
+	if workDir == "" {
+		tmpDir := filepath.Join(os.TempDir(), env.Name)
+		if err := os.RemoveAll(tmpDir); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(tmpDir, 0755); err != nil {
+			return err
+		}
+		workDir = filepath.Join(tmpDir, "workdir")
+		cacheDir = filepath.Join(tmpDir, "cache")
+	} else {
+		// Convert relative paths to absolute paths
+		if !filepath.IsAbs(workDir) {
+			wd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			workDir = filepath.Join(wd, workDir)
+		}
+		if cacheDir != "" && !filepath.IsAbs(cacheDir) {
+			wd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			cacheDir = filepath.Join(wd, cacheDir)
+		}
 	}
 
-	cacheDir := filepath.Join(tmpDir, "cache")
-	workDir := filepath.Join(tmpDir, "workdir")
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return err
 	}
@@ -244,7 +267,11 @@ func createRepoFiles(repoPath string, repoDef *e2e.RepositoryDef, envName, owner
 		// Replace placeholders
 		content = strings.ReplaceAll(content, "{{.Owner}}", owner)
 		content = strings.ReplaceAll(content, "{{.EnvName}}", repoDef.Name)
-		if err := os.WriteFile(filepath.Join(repoPath, fileDef.Path), []byte(content), 0644); err != nil {
+		filePath := filepath.Join(repoPath, fileDef.Path)
+		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
 			return err
 		}
 	}

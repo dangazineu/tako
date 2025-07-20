@@ -74,7 +74,6 @@ func GetEnvironments(owner string) map[string]TestEnvironmentDef {
 						{Path: "pom.xml", Template: "java-binary-incompatibility/repo-a/pom.xml"},
 						{Path: "src/main/java/com/tako/lib_a/SuperClass.java", Template: "java-binary-incompatibility/repo-a/src/main/java/com/tako/lib_a/SuperClass.java"},
 						{Path: "src/main/java/com/tako/lib_a/SubClass.java", Template: "java-binary-incompatibility/repo-a/src/main/java/com/tako/lib_a/SubClass.java"},
-						{Path: "src/main/java/com/tako/lib_a/SubClass_modified.java", Template: "java-binary-incompatibility/repo-a/src/main/java/com/tako/lib_a/SubClass_modified.java"},
 					},
 				},
 				{
