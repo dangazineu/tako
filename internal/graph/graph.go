@@ -6,6 +6,7 @@ import (
 	"github.com/dangazineu/tako/internal/git"
 	"io"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -25,6 +26,81 @@ type Node struct {
 
 func (n *Node) AddChild(child *Node) {
 	n.Children = append(n.Children, child)
+}
+
+func (n *Node) AllNodes() []*Node {
+	var nodes []*Node
+	visited := make(map[string]bool)
+	var collect func(node *Node)
+	collect = func(node *Node) {
+		if visited[node.Name] {
+			return
+		}
+		visited[node.Name] = true
+		nodes = append(nodes, node)
+		for _, child := range node.Children {
+			collect(child)
+		}
+	}
+	collect(n)
+	return nodes
+}
+
+func (n *Node) TopologicalSort() ([]*Node, error) {
+	inDegree := make(map[string]int)
+	nodes := n.AllNodes()
+	for _, node := range nodes {
+		inDegree[node.Name] = 0
+	}
+	for _, node := range nodes {
+		for _, child := range node.Children {
+			inDegree[child.Name]++
+		}
+	}
+
+	var queue []*Node
+	for _, node := range nodes {
+		if inDegree[node.Name] == 0 {
+			queue = append(queue, node)
+		}
+	}
+	sort.Slice(queue, func(i, j int) bool {
+		return queue[i].Name < queue[j].Name
+	})
+
+	var sorted []*Node
+	for len(queue) > 0 {
+		node := queue[0]
+		queue = queue[1:]
+		sorted = append(sorted, node)
+
+		sortedChildren := node.Children
+		sort.Slice(sortedChildren, func(i, j int) bool {
+			return sortedChildren[i].Name < sortedChildren[j].Name
+		})
+
+		for _, child := range sortedChildren {
+			inDegree[child.Name]--
+			if inDegree[child.Name] == 0 {
+				queue = append(queue, child)
+			}
+		}
+		sort.Slice(queue, func(i, j int) bool {
+			return queue[i].Name < queue[j].Name
+		})
+	}
+
+	if len(sorted) != len(nodes) {
+		var cycle []string
+		for _, node := range nodes {
+			if inDegree[node.Name] > 0 {
+				cycle = append(cycle, node.Name)
+			}
+		}
+		return nil, &CircularDependencyError{Path: cycle}
+	}
+
+	return sorted, nil
 }
 
 func BuildGraph(path, cacheDir string, localOnly bool) (*Node, error) {
