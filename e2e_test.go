@@ -20,9 +20,9 @@ import (
 const testOrg = "tako-test"
 
 var (
-	local        = flag.Bool("local", false, "run local tests")
-	remote       = flag.Bool("remote", false, "run remote tests")
-	entrypoint   = flag.String("entrypoint", "all", "entrypoint mode to run tests in (all, path, repo)")
+	local       = flag.Bool("local", false, "run local tests")
+	remote      = flag.Bool("remote", false, "run remote tests")
+	entrypoint  = flag.String("entrypoint", "all", "entrypoint mode to run tests in (all, path, repo)")
 	preserveTmp = flag.Bool("preserve-tmp", false, "preserve temporary directories")
 )
 

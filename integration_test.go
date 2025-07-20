@@ -1,5 +1,3 @@
-//go:build integration
-
 package main_test
 
 import (
@@ -75,7 +73,7 @@ func TestCoverage(t *testing.T) {
 	}
 }
 
-// sscanf is a simple implementation of sscanf
+// sscanf is a simple implementation of sscanf.
 func sscanf(str, format string, a ...interface{}) (int, error) {
 	n, err := fmt.Sscanf(str, format, a...)
 	return n, err
