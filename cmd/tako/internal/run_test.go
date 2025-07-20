@@ -9,10 +9,17 @@ import (
 )
 
 func TestRunCmd(t *testing.T) {
+	tmpDir := t.TempDir()
+	mustWriteFile(t, filepath.Join(tmpDir, "tako.yml"), `
+version: 0.1.0
+metadata:
+  name: test-repo
+`)
+
 	cmd := internal.NewRunCmd()
 	b := bytes.NewBufferString("")
 	cmd.SetOut(b)
-	cmd.SetArgs([]string{"--root", "/tmp", "echo", "hello"})
+	cmd.SetArgs([]string{"--root", tmpDir, "echo", "hello"})
 	err := cmd.Execute()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
