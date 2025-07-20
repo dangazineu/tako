@@ -14,6 +14,7 @@ func TestRunCmd(t *testing.T) {
 version: 0.1.0
 metadata:
   name: test-repo
+dependents: []
 `)
 
 	cmd := internal.NewRunCmd()
