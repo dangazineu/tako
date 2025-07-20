@@ -5,9 +5,10 @@ type Step struct {
 	Name             string
 	Command          string // The command to execute (e.g., "tako", "mvn", "git")
 	Args             []string
-	ExpectedOutput   string // Expected stdout
-	ExpectedExitCode int    // Defaults to 0
-	AssertOutput     bool   // Whether to perform a strict assertion on the output
+	ExpectedOutput       string   // Expected stdout
+	AssertOutput         bool     // Whether to perform a strict assertion on the output
+	AssertOutputContains []string // Substrings to assert are present in the output
+	ExpectedExitCode     int      // Defaults to 0
 }
 
 // TestCase defines a multi-step test to run within an environment.

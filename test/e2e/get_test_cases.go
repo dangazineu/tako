@@ -43,24 +43,45 @@ func GetTestCases() []TestCase {
 					Args:    []string{"run", "mvn clean install -Dmaven.repo.local=${MAVEN_REPO_DIR}"},
 				},
 				{
-					Name:    "introduce incompatible change",
-					Command: "cp",
-					Args: []string{
-						"test/e2e/templates/java-binary-incompatibility/repo-a/src/main/java/com/tako/lib_a/SubClass_modified.java",
-						"{{.Repo.repo-a}}/src/main/java/com/tako/lib_a/SubClass.java",
-					},
+					Name:    "verify lib-a was installed",
+					Command: "test",
+					Args:    []string{"-f", "${MAVEN_REPO_DIR}/com/tako/lib-a/1.0.0/lib-a-1.0.0.jar"},
 				},
 				{
-					Name:    "naive partial rebuild",
-					Command: "mvn",
-					Args:    []string{"-f", "{{.Repo.repo-a}}/pom.xml", "clean", "install", "-Dmaven.repo.local=${MAVEN_REPO_DIR}"},
+					Name:    "verify lib-b was installed",
+					Command: "test",
+					Args:    []string{"-f", "${MAVEN_REPO_DIR}/com/tako/lib-b/1.0.0/lib-b-1.0.0.jar"},
 				},
 			},
 			Test: []Step{
 				{
-					Name:    "the tako solution",
+					Name:    "introduce incompatible change",
+					Command: "cp",
+					Args:    []string{"test/e2e/templates/java-binary-incompatibility/repo-a/src/main/java/com/tako/lib_a/Producer_modified.java", "{{.Repo.repo-a}}/src/main/java/com/tako/lib_a/Producer.java"},
+				},
+				{
+					Name:    "naive partial rebuild only repo-a",
+					Command: "mvn",
+					Args:    []string{"-f", "{{.Repo.repo-a}}/pom.xml", "clean", "install", "-Dmaven.repo.local=${MAVEN_REPO_DIR}"},
+				},
+				{
+					Name:             "verify downstream failure",
+					Command:          "mvn",
+					Args:             []string{"-f", "{{.Repo.repo-c}}/pom.xml", "clean", "test", "-Dmaven.repo.local=${MAVEN_REPO_DIR}"},
+					ExpectedExitCode: 1,
+					AssertOutputContains: []string{
+						"IncompatibleClassChange Expecting non-static method",
+					},
+				},
+				{
+					Name:    "tako run rebuilds entire dependency chain",
 					Command: "tako",
 					Args:    []string{"run", "mvn clean install -Dmaven.repo.local=${MAVEN_REPO_DIR}"},
+				},
+				{
+					Name:    "verify downstream success",
+					Command: "mvn",
+					Args:    []string{"-f", "{{.Repo.repo-c}}/pom.xml", "clean", "test", "-Dmaven.repo.local=${MAVEN_REPO_DIR}"},
 				},
 			},
 		},

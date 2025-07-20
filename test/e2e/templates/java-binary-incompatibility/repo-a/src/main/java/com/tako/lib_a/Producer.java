@@ -1,6 +1,6 @@
 package com.tako.lib_a;
 
-public class SuperClass {
+public class Producer {
     public String myMethod() {
         return "hello";
     }

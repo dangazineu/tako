@@ -42,6 +42,11 @@ func NewRunCmd() *cobra.Command {
 				return err
 			}
 
+			//   1. Dependency: If repo-a's tako.yml lists repo-b as a dependent, it means B depends on A. The graph edge is A -> B.
+			//   2. Build Order: To build B, its dependency A must be built first.
+			//   3. Topological Sort: A topological sort of the graph A -> B will correctly produce the list [A, B].
+			//   4. Conclusion: The run command must iterate through the topologically sorted list in its natural, forward order (A, then B) to ensure dependencies are built
+			//      before the projects that need them.
 			for _, node := range sortedNodes {
 				fmt.Fprintf(cmd.OutOrStdout(), "--- Running in %s ---\n", node.Name)
 				c := exec.Command("bash", "-c", commandStr)

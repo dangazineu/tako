@@ -35,47 +35,107 @@ func TestAllNodes(t *testing.T) {
 }
 
 func TestTopologicalSort(t *testing.T) {
-	// Create a simple graph
+	// A -> B
+	nodeB1 := &Node{Name: "B"}
+	nodeA1 := &Node{Name: "A", Children: []*Node{nodeB1}}
+
+	// A -> B, A -> C
+	nodeB2 := &Node{Name: "B"}
+	nodeC2 := &Node{Name: "C"}
+	nodeA2 := &Node{Name: "A", Children: []*Node{nodeB2, nodeC2}}
+
 	// A -> B -> C
-	//   -> D
-	nodeD := &Node{Name: "D"}
-	nodeC := &Node{Name: "C"}
-	nodeB := &Node{Name: "B", Children: []*Node{nodeC}}
-	nodeA := &Node{Name: "A", Children: []*Node{nodeB, nodeD}}
+	nodeC3 := &Node{Name: "C"}
+	nodeB3 := &Node{Name: "B", Children: []*Node{nodeC3}}
+	nodeA3 := &Node{Name: "A", Children: []*Node{nodeB3}}
 
-	sorted, err := nodeA.TopologicalSort()
-	if err != nil {
-		t.Fatalf("Expected no error, but got %v", err)
-	}
-	if len(sorted) != 4 {
-		t.Fatalf("Expected 4 sorted nodes, but got %d", len(sorted))
+	// Diamond: A -> B, A -> C, B -> D, C -> D
+	nodeD4 := &Node{Name: "D"}
+	nodeB4 := &Node{Name: "B", Children: []*Node{nodeD4}}
+	nodeC4 := &Node{Name: "C", Children: []*Node{nodeD4}}
+	nodeA4 := &Node{Name: "A", Children: []*Node{nodeB4, nodeC4}}
+
+	// Circular: A -> B -> A
+	nodeA5 := &Node{Name: "A"}
+	nodeB5 := &Node{Name: "B", Children: []*Node{nodeA5}}
+	nodeA5.Children = []*Node{nodeB5}
+
+	testCases := []struct {
+		name          string
+		root          *Node
+		expectedOrder []string
+		expectError   bool
+	}{
+		{
+			name:          "Simple Chain",
+			root:          nodeA1,
+			expectedOrder: []string{"A", "B"},
+			expectError:   false,
+		},
+		{
+			name:          "Single root, multiple children",
+			root:          nodeA2,
+			expectedOrder: []string{"A", "B", "C"},
+			expectError:   false,
+		},
+		{
+			name:          "Longer Chain",
+			root:          nodeA3,
+			expectedOrder: []string{"A", "B", "C"},
+			expectError:   false,
+		},
+		{
+			name:          "Diamond Shape",
+			root:          nodeA4,
+			expectedOrder: []string{"A", "B", "C", "D"},
+			expectError:   false,
+		},
+		{
+			name:        "Circular Dependency",
+			root:        nodeA5,
+			expectError: true,
+		},
+		{
+			name:          "Single Node",
+			root:          &Node{Name: "A"},
+			expectedOrder: []string{"A"},
+			expectError:   false,
+		},
+		{
+			name:          "Empty Graph",
+			root:          &Node{Name: "A", Children: []*Node{}},
+			expectedOrder: []string{"A"},
+			expectError:   false,
+		},
 	}
 
-	// Check the order
-	names := make([]string, len(sorted))
-	for i, n := range sorted {
-		names[i] = n.Name
-	}
-	expected := []string{"A", "B", "C", "D"}
-	if !reflect.DeepEqual(names, expected) {
-		t.Errorf("Expected sorted order %v, but got %v", expected, names)
-	}
-}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			sorted, err := tc.root.TopologicalSort()
 
-func TestTopologicalSort_CircularDependency(t *testing.T) {
-	// Create a graph with a circular dependency
-	// A -> B -> C -> A
-	nodeA := &Node{Name: "A"}
-	nodeC := &Node{Name: "C", Children: []*Node{nodeA}}
-	nodeB := &Node{Name: "B", Children: []*Node{nodeC}}
-	nodeA.Children = []*Node{nodeB}
+			if tc.expectError {
+				if err == nil {
+					t.Fatal("Expected an error, but got nil")
+				}
+				if _, ok := err.(*CircularDependencyError); !ok {
+					t.Errorf("Expected error of type *CircularDependencyError, but got %T", err)
+				}
+				return
+			}
 
-	_, err := nodeA.TopologicalSort()
-	if err == nil {
-		t.Fatal("Expected an error, but got nil")
-	}
-	if _, ok := err.(*CircularDependencyError); !ok {
-		t.Errorf("Expected error of type *CircularDependencyError, but got %T", err)
+			if err != nil {
+				t.Fatalf("Expected no error, but got %v", err)
+			}
+
+			names := make([]string, len(sorted))
+			for i, n := range sorted {
+				names[i] = n.Name
+			}
+
+			if !reflect.DeepEqual(names, tc.expectedOrder) {
+				t.Errorf("Expected sorted order %v, but got %v", tc.expectedOrder, names)
+			}
+		})
 	}
 }
 

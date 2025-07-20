@@ -68,27 +68,26 @@ func GetEnvironments(owner string) map[string]TestEnvironmentDef {
 			Name: "java-binary-incompatibility",
 			Repositories: []RepositoryDef{
 				{
-					Name:   "repo-a",
-					Branch: "main",
+					Name:         "repo-a",
+					Branch:       "main",
+					Dependencies: []string{"repo-b"},
 					Files: []FileDef{
 						{Path: "pom.xml", Template: "java-binary-incompatibility/repo-a/pom.xml"},
-						{Path: "src/main/java/com/tako/lib_a/SuperClass.java", Template: "java-binary-incompatibility/repo-a/src/main/java/com/tako/lib_a/SuperClass.java"},
-						{Path: "src/main/java/com/tako/lib_a/SubClass.java", Template: "java-binary-incompatibility/repo-a/src/main/java/com/tako/lib_a/SubClass.java"},
+						{Path: "src/main/java/com/tako/lib_a/Producer.java", Template: "java-binary-incompatibility/repo-a/src/main/java/com/tako/lib_a/Producer.java"},
 					},
 				},
 				{
 					Name:         "repo-b",
 					Branch:       "main",
-					Dependencies: []string{"repo-a"},
+					Dependencies: []string{"repo-c"},
 					Files: []FileDef{
 						{Path: "pom.xml", Template: "java-binary-incompatibility/repo-b/pom.xml"},
 						{Path: "src/main/java/com/tako/lib_b/Consumer.java", Template: "java-binary-incompatibility/repo-b/src/main/java/com/tako/lib_b/Consumer.java"},
 					},
 				},
 				{
-					Name:         "repo-c",
-					Branch:       "main",
-					Dependencies: []string{"repo-b"},
+					Name:   "repo-c",
+					Branch: "main",
 					Files: []FileDef{
 						{Path: "pom.xml", Template: "java-binary-incompatibility/repo-c/pom.xml"},
 						{Path: "src/test/java/com/tako/app_c/AppTest.java", Template: "java-binary-incompatibility/repo-c/src/test/java/com/tako/app_c/AppTest.java"},

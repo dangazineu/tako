@@ -266,7 +266,7 @@ func createRepoFiles(repoPath string, repoDef *e2e.RepositoryDef, envName, owner
 		}
 		// Replace placeholders
 		content = strings.ReplaceAll(content, "{{.Owner}}", owner)
-		content = strings.ReplaceAll(content, "{{.EnvName}}", repoDef.Name)
+		content = strings.ReplaceAll(content, "{{.EnvName}}", envName)
 		filePath := filepath.Join(repoPath, fileDef.Path)
 		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
 			return err

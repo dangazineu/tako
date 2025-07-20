@@ -308,7 +308,18 @@ func runSteps(t *testing.T, steps []e2e.Step, workDir, cacheDir, mode string, wi
 					t.Errorf("expected output to match:\n%s\ngot:\n%s", expected, out.String())
 				}
 			}
+
+			if len(step.AssertOutputContains) > 0 {
+				for _, s := range step.AssertOutputContains {
+					if !strings.Contains(out.String(), s) {
+						t.Errorf("expected output to contain %q, but it did not. Got:\n%s", s, out.String())
+					}
+				}
+			}
 		})
+		if t.Failed() {
+			t.Fatalf("stopping test case %s due to step failure: %s", tc.Name, step.Name)
+		}
 	}
 }
 
