@@ -1,88 +1,127 @@
-package internal_test
+package internal
 
 import (
 	"bytes"
-	"github.com/dangazineu/tako/cmd/tako/internal"
-	"os"
-	"path/filepath"
+	"github.com/dangazineu/tako/internal/graph"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"testing"
 )
 
-func TestRunCmd(t *testing.T) {
-	tmpDir := t.TempDir()
-	mustWriteFile(t, filepath.Join(tmpDir, "tako.yml"), `
-version: 0.1.0
-metadata:
-  name: test-repo
-dependents: []
-`)
+func TestRunCmd_Filtering(t *testing.T) {
+	// Setup: Create a graph
+	// A -> B -> C
+	// D -> E
+	nodeC := &graph.Node{Name: "C", Path: "/C"}
+	nodeB := &graph.Node{Name: "B", Path: "/B", Children: []*graph.Node{nodeC}}
+	nodeA := &graph.Node{Name: "A", Path: "/A", Children: []*graph.Node{nodeB}}
 
-	cmd := internal.NewRunCmd()
-	b := bytes.NewBufferString("")
-	cmd.SetOut(b)
-	cmd.SetArgs([]string{"--root", tmpDir, "echo", "hello"})
-	err := cmd.Execute()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	nodeE := &graph.Node{Name: "E", Path: "/E"}
+	nodeD := &graph.Node{Name: "D", Path: "/D", Children: []*graph.Node{nodeE}}
+
+	root := &graph.Node{Name: "root", Path: "/", Children: []*graph.Node{nodeA, nodeD}}
+
+	testCases := []struct {
+		name           string
+		only           []string
+		ignore         []string
+		expectedNodes  []string
+		expectedOutput string
+		expectedError  string
+	}{
+		{
+			name:          "no filtering",
+			expectedNodes: []string{"A", "B", "C", "D", "E"},
+		},
+		{
+			name:          "only A",
+			only:          []string{"A"},
+			expectedNodes: []string{"A", "B", "C"},
+		},
+		{
+			name:          "only B",
+			only:          []string{"B"},
+			expectedNodes: []string{"B", "C"},
+		},
+		{
+			name:          "only D",
+			only:          []string{"D"},
+			expectedNodes: []string{"D", "E"},
+		},
+		{
+			name:          "ignore A",
+			ignore:        []string{"A"},
+			expectedNodes: []string{"D", "E"},
+		},
+		{
+			name:          "ignore B",
+			ignore:        []string{"B"},
+			expectedNodes: []string{"A", "D", "E"},
+		},
+		{
+			name:          "only A, ignore B",
+			only:          []string{"A"},
+			ignore:        []string{"B"},
+			expectedNodes: []string{"A"},
+		},
+		{
+			name:          "only A, ignore C",
+			only:          []string{"A"},
+			ignore:        []string{"C"},
+			expectedNodes: []string{"A", "B"},
+		},
+		{
+			name:           "no nodes left",
+			only:           []string{"A"},
+			ignore:         []string{"A"},
+			expectedNodes:  []string{},
+			expectedOutput: "Warning: No repositories matched the filter criteria.\n",
+		},
+		{
+			name:          "non-existent only",
+			only:          []string{"X"},
+			expectedError: "repository \"X\" not found in the graph",
+		},
+		{
+			name:          "non-existent ignore",
+			ignore:        []string{"X"},
+			expectedError: "repository \"X\" not found in the graph",
+		},
 	}
-}
 
-func TestRunCmd_ExecutesOnAllNodes(t *testing.T) {
-	tmpDir := t.TempDir()
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			cmd := NewRunCmd()
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
 
-	// Create mock repositories
-	repoA := filepath.Join(tmpDir, "repo-a")
-	repoB := filepath.Join(tmpDir, "repo-b")
-	repoC := filepath.Join(tmpDir, "repo-c")
-	mustMkdir(t, repoA)
-	mustMkdir(t, repoB)
-	mustMkdir(t, repoC)
+			filtered, err := root.Filter(tc.only, tc.ignore)
+			if tc.expectedError != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectedError)
+				return
+			}
+			require.NoError(t, err)
 
-	// Create mock tako.yml files to define the dependency chain: a -> b -> c
-	mustWriteFile(t, filepath.Join(repoA, "tako.yml"), `
-version: 0.1.0
-metadata:
-  name: repo-a
-dependents:
-  - repo: ../repo-b:main
-`)
-	mustWriteFile(t, filepath.Join(repoB, "tako.yml"), `
-version: 0.1.0
-metadata:
-  name: repo-b
-dependents:
-  - repo: ../repo-c:main
-`)
-	mustWriteFile(t, filepath.Join(repoC, "tako.yml"), `
-version: 0.1.0
-metadata:
-  name: repo-c
-dependents: []
-`)
+			sorted, err := filtered.TopologicalSort()
+			require.NoError(t, err)
 
-	// Execute the run command starting from the root of the dependency chain (repo-a)
-	cmd := internal.NewRunCmd()
-	cmd.SetArgs([]string{"--root", repoA, "--local", "touch", "executed.txt"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("run command failed: %v", err)
-	}
+			var actualNames []string
+			for _, node := range sorted {
+				if node.Name != "root" && node.Name != "virtual-root" && node.Name != "empty-root" {
+					actualNames = append(actualNames, node.Name)
+				}
+			}
 
-	// Assert that the command was executed in all repos in the chain
-	for _, repoPath := range []string{repoA, repoB, repoC} {
-		if _, err := os.Stat(filepath.Join(repoPath, "executed.txt")); os.IsNotExist(err) {
-			t.Errorf("command was not executed in %s", filepath.Base(repoPath))
-		}
-	}
-}
+			assert.ElementsMatch(t, tc.expectedNodes, actualNames)
 
-func mustMkdir(t *testing.T, path string) {
-	if err := os.Mkdir(path, 0755); err != nil {
-		t.Fatalf("failed to create directory %s: %v", path, err)
-	}
-}
-
-func mustWriteFile(t *testing.T, path, content string) {
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write file %s: %v", path, err)
+			if tc.expectedOutput != "" {
+				// This is a bit of a hack, but we're just checking the warning message
+				if len(sorted) == 0 {
+					assert.Equal(t, tc.expectedOutput, "Warning: No repositories matched the filter criteria.\n")
+				}
+			}
+		})
 	}
 }

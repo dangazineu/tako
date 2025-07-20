@@ -103,6 +103,109 @@ func (n *Node) TopologicalSort() ([]*Node, error) {
 	return sorted, nil
 }
 
+func (n *Node) Filter(only, ignore []string) (*Node, error) {
+	allNodes := n.AllNodes()
+	nodeMap := make(map[string]*Node)
+	for _, node := range allNodes {
+		nodeMap[node.Name] = node
+	}
+
+	var onlyNodes []*Node
+	if len(only) > 0 {
+		for _, name := range only {
+			if node, ok := nodeMap[name]; ok {
+				onlyNodes = append(onlyNodes, node.AllNodes()...)
+			} else {
+				return nil, fmt.Errorf("repository %q not found in the graph", name)
+			}
+		}
+	} else {
+		onlyNodes = allNodes
+	}
+
+	var ignoreNodes []*Node
+	if len(ignore) > 0 {
+		for _, name := range ignore {
+			if node, ok := nodeMap[name]; ok {
+				ignoreNodes = append(ignoreNodes, node.AllNodes()...)
+			} else {
+				return nil, fmt.Errorf("repository %q not found in the graph", name)
+			}
+		}
+	}
+
+	filteredNodes := make(map[string]*Node)
+	for _, node := range onlyNodes {
+		isIgnored := false
+		for _, ignoreNode := range ignoreNodes {
+			if node.Name == ignoreNode.Name {
+				isIgnored = true
+				break
+			}
+		}
+		if !isIgnored {
+			// Create a new node with the same properties but empty children
+			filteredNodes[node.Name] = &Node{
+				Name:     node.Name,
+				Path:     node.Path,
+				Children: []*Node{},
+			}
+		}
+	}
+
+	// Reconnect children for the filtered nodes
+	for _, originalNode := range onlyNodes {
+		if filteredNode, ok := filteredNodes[originalNode.Name]; ok {
+			for _, originalChild := range originalNode.Children {
+				if _, childInFilteredSet := filteredNodes[originalChild.Name]; childInFilteredSet {
+					filteredNode.AddChild(filteredNodes[originalChild.Name])
+				}
+			}
+		}
+	}
+
+	// Find the root of the new graph. The root is the node with no parents in the filtered set.
+	inDegree := make(map[string]int)
+	for _, node := range filteredNodes {
+		inDegree[node.Name] = 0
+	}
+	for _, node := range filteredNodes {
+		for _, child := range node.Children {
+			inDegree[child.Name]++
+		}
+	}
+
+	var roots []*Node
+	for name, degree := range inDegree {
+		if degree == 0 {
+			roots = append(roots, filteredNodes[name])
+		}
+	}
+
+	if len(roots) == 0 && len(filteredNodes) > 0 {
+		// This can happen if the filtering results in a graph with only cycles.
+		// In this case, we can pick an arbitrary node as the root.
+		for _, node := range filteredNodes {
+			return node, nil
+		}
+	}
+	if len(roots) == 1 {
+		return roots[0], nil
+	}
+
+	// If there are multiple roots, create a new virtual root
+	if len(roots) > 1 {
+		newRoot := &Node{Name: "virtual-root", Path: ""}
+		for _, root := range roots {
+			newRoot.AddChild(root)
+		}
+		return newRoot, nil
+	}
+
+	// If there are no nodes left, return a new empty node
+	return &Node{Name: "empty-root", Path: ""}, nil
+}
+
 func BuildGraph(path, cacheDir string, localOnly bool) (*Node, error) {
 	return buildGraphRecursive(path, cacheDir, make(map[string]*Node), []string{}, []string{}, localOnly)
 }
