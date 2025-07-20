@@ -10,9 +10,7 @@ These rules are designed to be used by an AI assistant to help with development 
 
 Before starting, ensure your development environment is set up correctly:
 
-1.  **Install Go:** Version 1.24.4 or later.
-2.  **Install `golangci-lint`:** The project uses `golangci-lint` for linting.
-3.  **Install `tako` and `takotest`:**
+ **Install `tako` and `takotest`:**
     ```bash
     go install ./cmd/tako
     go install ./cmd/takotest
@@ -40,29 +38,31 @@ Commit messages should not reference the issue number, instead they should descr
 ## 4. Code Style and Quality
 
 -   All code must be formatted with `gofmt`.
--   All code must pass the linting checks defined in `.golangci.yaml`. Run `golangci-lint run` to check your code.
--   The following linters are enabled: `containedctx`, `contextcheck`, `fatcontext`, `godot`, `govet`, `ineffassign`, `misspell`, `staticcheck`, `unparam`, `unused`, `usetesting`.
+-   All linter tests are implemented in `linter_test.go`, which is invoked when you run `go test -v ./...`.
 
 ## 5. Testing
 
 -   All new features must include unit tests.
 -   Run all tests with `go test -v ./...`.
--   Run integration tests with `go test -v -tags=integration ./...`.
 -   Run E2E tests with `go test -v -tags=e2e --local ./...` or `go test -v -tags=e2e --remote ./...`.
 -   All new testing tags and flags must be documented on the `README.md` and on `AIRULES.md`.
 
 ### Pre-Commit Workflow
 Before committing any changes, the following sequence of tests **must** be executed and pass to ensure the stability and quality of the codebase:
 
-1.  **Unit and Integration Tests:**
+1. **Short Unit Tests:** Use this for quick feedback on functionality. These tests don't include linters, only functional tests. 
     ```bash
-    go test -v ./... && go test -v -tags=integration ./...
+    go test -v -test.short ./...
     ```
-2.  **Local End-to-End Tests:**
+2. **Unit Tests:** All the above, plus linters
+    ```bash
+    go test -v ./...
+    ```
+3. **Local End-to-End Tests:** Safe for CI, does not require external resources.
     ```bash
     go test -v -tags=e2e --local ./...
     ```
-3.  **Remote End-to-End Tests:**
+3.  **Remote End-to-End Tests:** Requires access to a shared GitHub organization (cannot be run in parallel).
     ```bash
     go test -v -tags=e2e --remote ./...
     ```
@@ -102,5 +102,5 @@ act --container-architecture linux/amd64 -P ubuntu-latest=catthehacker/ubuntu:ac
 
 ## 10. Repository Cache and Lookup
 
--   **Consistent Cache Structure:** The repository cache path must be consistent for both local and remote operations. The structure should always be `~/.tako/cache/repos/<owner>/<repo>`.
+-   **Consistent Cache Structure:** The repository cache path must be consistent for both local and remote operations. The structure should always be `~/.tako/cache/repos/<owner>/<repo>/<branch>`.
 -   **The `--local` Flag:** The `--local` flag's only purpose is to prevent network access (e.g., `git fetch` or `git clone`). It should not change the directory path where `tako` looks for a cached repository. When running with `--local`, if a repository is not found in the cache at the expected path, the operation should fail.

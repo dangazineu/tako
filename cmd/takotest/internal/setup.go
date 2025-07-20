@@ -95,7 +95,7 @@ func setupLocal(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) e
 		// Create all repos in the cache
 		for _, repo := range reposToCreate {
 			repoName := fmt.Sprintf("%s-%s", env.Name, repo.Name)
-			repoPath := filepath.Join(cacheDir, "repos", owner, repoName)
+			repoPath := filepath.Join(cacheDir, "repos", owner, repoName, repo.Branch)
 			if err := os.MkdirAll(repoPath, 0755); err != nil {
 				return err
 			}
@@ -121,7 +121,7 @@ func setupLocal(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) e
 		// Create the cached repos
 		for _, repo := range cachedRepos {
 			repoName := fmt.Sprintf("%s-%s", env.Name, repo.Name)
-			repoPath := filepath.Join(cacheDir, "repos", owner, repoName)
+			repoPath := filepath.Join(cacheDir, "repos", owner, repoName, repo.Branch)
 			if err := os.MkdirAll(repoPath, 0755); err != nil {
 				return err
 			}
