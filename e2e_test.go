@@ -20,9 +20,10 @@ import (
 const testOrg = "tako-test"
 
 var (
-	local      = flag.Bool("local", false, "run local tests")
-	remote     = flag.Bool("remote", false, "run remote tests")
-	entrypoint = flag.String("entrypoint", "all", "entrypoint mode to run tests in (all, path, repo)")
+	local       = flag.Bool("local", false, "run local tests")
+	remote      = flag.Bool("remote", false, "run remote tests")
+	entrypoint  = flag.String("entrypoint", "all", "entrypoint mode to run tests in (all, path, repo)")
+	preserveTmp = flag.Bool("preserve-tmp", false, "preserve temporary directories")
 )
 
 func findProjectRoot(start string) string {
@@ -208,6 +209,9 @@ func cleanupEnvironment(t *testing.T, takotestPath, envName, mode, workDir, cach
 	var cleanupArgs []string
 	if mode == "local" {
 		cleanupArgs = append(cleanupArgs, "--local")
+	}
+	if *preserveTmp {
+		cleanupArgs = append(cleanupArgs, "--preserve-tmp")
 	}
 	cleanupArgs = append(cleanupArgs, "--owner", testOrg, envName)
 	cleanupCmd := exec.Command(takotestPath, append([]string{"cleanup"}, cleanupArgs...)...)

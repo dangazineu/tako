@@ -2,20 +2,28 @@ package git
 
 import (
 	"fmt"
+	"github.com/dangazineu/tako/internal/errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Clone clones a repository from the given url into the given path.
 func Clone(url, path string) error {
-	cmd := exec.Command("git", "clone", url, path)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to clone repo %s: %s", url, string(output))
+	var err error
+	var output []byte
+	for i := 0; i < 3; i++ {
+		cmd := exec.Command("git", "clone", url, path)
+		output, err = cmd.CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		err = errors.Wrap(err, "TAKO_E001", fmt.Sprintf("failed to clone repo %s: %s", url, string(output)))
+		time.Sleep(2 * time.Second)
 	}
-	return nil
+	return err
 }
 
 // Checkout checks out a specific ref in the given repository path.
@@ -23,7 +31,7 @@ func Checkout(path, ref string) error {
 	cmd := exec.Command("git", "-C", path, "checkout", ref)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to checkout ref %s in %s: %s", ref, path, string(output))
+		return errors.Wrap(err, "TAKO_E002", fmt.Sprintf("failed to checkout ref %s in %s: %s", ref, path, string(output)))
 	}
 	return nil
 }
@@ -38,7 +46,7 @@ func GetEntrypointPath(root, repo, cacheDir string, localOnly bool) (string, err
 		var err error
 		root, err = os.Getwd()
 		if err != nil {
-			return "", err
+			return "", errors.Wrap(err, "TAKO_E003", "failed to get current working directory")
 		}
 	}
 	return root, nil
@@ -69,14 +77,14 @@ func GetRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, er
 		if cacheDir == "~/.tako/cache" {
 			homeDir, err := os.UserHomeDir()
 			if err != nil {
-				return "", fmt.Errorf("failed to get home dir: %w", err)
+				return "", errors.Wrap(err, "TAKO_E004", "failed to get home dir")
 			}
 			cacheDir = filepath.Join(homeDir, ".tako", "cache")
 		}
 
 		repoParts := strings.Split(repo, "/")
 		if len(repoParts) < 2 {
-			return "", fmt.Errorf("invalid remote repository format: %s", repo)
+			return "", errors.New("TAKO_E005", fmt.Sprintf("invalid remote repository format: %s", repo))
 		}
 		repoOwner := repoParts[0]
 
@@ -102,7 +110,7 @@ func GetRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, er
 				// Fallback to cache if not found in the immediate test structure
 				repoPath = filepath.Join(cacheDir, "repos", repoOwner, repoName)
 				if _, err := os.Stat(repoPath); os.IsNotExist(err) {
-					return "", fmt.Errorf("repository %s not found in cache or local test structure", repo)
+					return "", errors.Wrap(err, "TAKO_E006", fmt.Sprintf("repository %s not found in cache or local test structure", repo))
 				}
 			}
 		} else {
@@ -116,7 +124,7 @@ func GetRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, er
 			} else {
 				cmd := exec.Command("git", "-C", repoPath, "fetch")
 				if err := cmd.Run(); err != nil {
-					return "", fmt.Errorf("failed to update repo %s: %w", repo, err)
+					return "", errors.Wrap(err, "TAKO_E007", fmt.Sprintf("failed to update repo %s", repo))
 				}
 			}
 			if ref != "" {

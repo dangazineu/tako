@@ -24,7 +24,11 @@ func NewCleanupCmd() *cobra.Command {
 				return fmt.Errorf("environment not found: %s", envName)
 			}
 
+			preserveTmp, _ := cmd.Flags().GetBool("preserve-tmp")
 			if local {
+				if preserveTmp {
+					return nil
+				}
 				tmpDir := filepath.Join(os.TempDir(), env.Name)
 				return os.RemoveAll(tmpDir)
 			}
@@ -47,6 +51,7 @@ func NewCleanupCmd() *cobra.Command {
 	}
 	cmd.Flags().String("owner", "", "The owner of the repositories")
 	cmd.Flags().Bool("local", false, "Cleanup the test case locally")
+	cmd.Flags().Bool("preserve-tmp", false, "Preserve the temporary directory")
 	cmd.MarkFlagRequired("owner")
 	return cmd
 }
