@@ -9,10 +9,16 @@ import (
 )
 
 func TestGolangCILint(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: skipping golangci-lint")
+	}
 	rungo(t, "run", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest", "run")
 }
 
 func TestGoFmt(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: skipping gofmt")
+	}
 	cmd := exec.Command("gofmt", "-l", ".")
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -27,18 +33,30 @@ func TestGoFmt(t *testing.T) {
 }
 
 func TestGoModTidy(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: skipping go mod tidy")
+	}
 	rungo(t, "mod", "tidy", "-diff")
 }
 
 func TestGovulncheck(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: skipping govulncheck")
+	}
 	rungo(t, "run", "golang.org/x/vuln/cmd/govulncheck@latest", "./...")
 }
 
 func TestGodocLint(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: skipping godoc-lint")
+	}
 	rungo(t, "run", "github.com/godoc-lint/godoc-lint/cmd/godoclint@latest", "./...")
 }
 
 func TestCoverage(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: skipping coverage")
+	}
 	rungo(t, "test", "-coverprofile=coverage.out", "./internal/...", "./cmd/tako/...")
 
 	// Check coverage
