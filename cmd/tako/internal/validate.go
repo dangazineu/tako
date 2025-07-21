@@ -2,6 +2,7 @@ package internal
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/dangazineu/tako/internal/config"
@@ -20,7 +21,16 @@ func NewValidateCmd() *cobra.Command {
 			local, _ := cmd.Flags().GetBool("local")
 			cacheDir, _ := cmd.InheritedFlags().GetString("cache-dir")
 
-			entrypointPath, err := git.GetEntrypointPath(root, repo, cacheDir, local)
+			workingDir, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				return err
+			}
+
+			entrypointPath, err := git.GetEntrypointPath(root, repo, cacheDir, workingDir, homeDir, local)
 			if err != nil {
 				return err
 			}

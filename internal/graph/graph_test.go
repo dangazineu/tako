@@ -194,7 +194,7 @@ dependents:
 		t.Fatal(err)
 	}
 
-	_, err := BuildGraph(repoA, cacheDir, true)
+	_, err := BuildGraph(repoA, cacheDir, "", true)
 	if err == nil {
 		t.Fatal("Expected an error, but got nil")
 	}
