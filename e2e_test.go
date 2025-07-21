@@ -133,12 +133,12 @@ func verify(t *testing.T, tc *e2e.TestCase, workDir, cacheDir string, withRepoEn
 			repoName := fmt.Sprintf("%s-%s", env.Name, repo.Name)
 			var filePath string
 			if withRepoEntryPoint {
-				filePath = filepath.Join(cacheDir, "repos", testOrg, repoName, fileCheck.FileName)
+				filePath = filepath.Join(cacheDir, "repos", testOrg, repoName, repo.Branch, fileCheck.FileName)
 			} else {
 				if repo.Name == env.Repositories[0].Name {
 					filePath = filepath.Join(workDir, repoName, fileCheck.FileName)
 				} else {
-					filePath = filepath.Join(cacheDir, "repos", testOrg, repoName, fileCheck.FileName)
+					filePath = filepath.Join(cacheDir, "repos", testOrg, repoName, repo.Branch, fileCheck.FileName)
 				}
 			}
 
@@ -371,12 +371,12 @@ func replacePathPlaceholders(s string, env e2e.TestEnvironmentDef, workDir, cach
 
 		var repoPath string
 		if withRepoEntryPoint {
-			repoPath = filepath.Join(cacheDir, "repos", testOrg, fullName)
+			repoPath = filepath.Join(cacheDir, "repos", testOrg, fullName, repo.Branch)
 		} else {
 			if repo.Name == env.Repositories[0].Name {
 				repoPath = filepath.Join(workDir, fullName)
 			} else {
-				repoPath = filepath.Join(cacheDir, "repos", testOrg, fullName)
+				repoPath = filepath.Join(cacheDir, "repos", testOrg, fullName, repo.Branch)
 			}
 		}
 		s = strings.ReplaceAll(s, placeholder, repoPath)

@@ -96,7 +96,7 @@ func TestGetEntrypointPath(t *testing.T) {
 	t.Run("with repo flag", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		cacheDir := filepath.Join(tmpDir, "cache")
-		repoPath := filepath.Join(cacheDir, "repos", "owner", "repo")
+		repoPath := filepath.Join(cacheDir, "repos", "owner", "repo", "main")
 		err := os.MkdirAll(repoPath, 0755)
 		if err != nil {
 			t.Fatalf("failed to create repo path: %v", err)
@@ -122,6 +122,68 @@ func TestGetEntrypointPath(t *testing.T) {
 		}
 		if path != wd {
 			t.Errorf("expected path %s, got %s", wd, path)
+		}
+	})
+}
+
+func TestGetRepoPath_BranchSpecificCaching(t *testing.T) {
+	tmpDir := t.TempDir()
+	cacheDir := filepath.Join(tmpDir, "cache")
+
+	t.Run("different branches should have different cache paths", func(t *testing.T) {
+		// Create cache directories for both branches
+		mainBranchPath := filepath.Join(cacheDir, "repos", "owner", "repo", "main")
+		devBranchPath := filepath.Join(cacheDir, "repos", "owner", "repo", "dev")
+
+		err := os.MkdirAll(mainBranchPath, 0755)
+		if err != nil {
+			t.Fatalf("failed to create main branch cache path: %v", err)
+		}
+
+		err = os.MkdirAll(devBranchPath, 0755)
+		if err != nil {
+			t.Fatalf("failed to create dev branch cache path: %v", err)
+		}
+
+		// Test main branch
+		mainPath, err := git.GetRepoPath("owner/repo:main", "", cacheDir, true)
+		if err != nil {
+			t.Fatalf("failed to get repo path for main branch: %v", err)
+		}
+		if mainPath != mainBranchPath {
+			t.Errorf("expected main branch path %s, got %s", mainBranchPath, mainPath)
+		}
+
+		// Test dev branch
+		devPath, err := git.GetRepoPath("owner/repo:dev", "", cacheDir, true)
+		if err != nil {
+			t.Fatalf("failed to get repo path for dev branch: %v", err)
+		}
+		if devPath != devBranchPath {
+			t.Errorf("expected dev branch path %s, got %s", devBranchPath, devPath)
+		}
+
+		// Verify paths are different
+		if mainPath == devPath {
+			t.Error("main and dev branch paths should be different")
+		}
+	})
+
+	t.Run("default branch should be main when no branch specified", func(t *testing.T) {
+		// Create cache directory for main branch (default)
+		mainBranchPath := filepath.Join(cacheDir, "repos", "owner", "test-repo", "main")
+		err := os.MkdirAll(mainBranchPath, 0755)
+		if err != nil {
+			t.Fatalf("failed to create main branch cache path: %v", err)
+		}
+
+		// Test without branch specified (should default to main)
+		path, err := git.GetRepoPath("owner/test-repo", "", cacheDir, true)
+		if err != nil {
+			t.Fatalf("failed to get repo path for default branch: %v", err)
+		}
+		if path != mainBranchPath {
+			t.Errorf("expected default to main branch path %s, got %s", mainBranchPath, path)
 		}
 	})
 }

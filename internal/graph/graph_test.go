@@ -181,13 +181,16 @@ dependents:
 	}
 
 	// Create symlinks in the cache to simulate local repos
-	if err := os.MkdirAll(filepath.Join(cacheDir, "repos", "local"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(cacheDir, "repos", "local", "repo-a"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(repoA, filepath.Join(cacheDir, "repos", "local", "repo-a")); err != nil {
+	if err := os.MkdirAll(filepath.Join(cacheDir, "repos", "local", "repo-b"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(repoB, filepath.Join(cacheDir, "repos", "local", "repo-b")); err != nil {
+	if err := os.Symlink(repoA, filepath.Join(cacheDir, "repos", "local", "repo-a", "main")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(repoB, filepath.Join(cacheDir, "repos", "local", "repo-b", "main")); err != nil {
 		t.Fatal(err)
 	}
 

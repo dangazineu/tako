@@ -59,7 +59,7 @@ func GetEntrypointPath(root, repo, cacheDir string, localOnly bool) (string, err
 //
 // If the repo path is a remote repository (e.g., "owner/repo:branch"), it is
 // resolved to a standard location within the Tako cache
-// (`~/.tako/cache/repos/owner/repo`).
+// (`~/.tako/cache/repos/owner/repo/branch`).
 //
 // If the repository does not exist in the cache, it is cloned from GitHub. If it
 // already exists, it is updated with a `git fetch`.
@@ -93,6 +93,8 @@ func GetRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, er
 		var ref string
 		if len(repoAndRef) > 1 {
 			ref = repoAndRef[1]
+		} else {
+			ref = "main" // Default to main branch if no ref specified
 		}
 
 		var repoPath string
@@ -108,17 +110,20 @@ func GetRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, er
 			}
 			if repoPath == "" {
 				// Fallback to cache if not found in the immediate test structure
-				repoPath = filepath.Join(cacheDir, "repos", repoOwner, repoName)
+				repoPath = filepath.Join(cacheDir, "repos", repoOwner, repoName, ref)
 				if _, err := os.Stat(repoPath); os.IsNotExist(err) {
 					return "", errors.Wrap(err, "TAKO_E006", fmt.Sprintf("repository %s not found in cache or local test structure", repo))
 				}
 			}
 		} else {
 			// In remote mode, always use the cache
-			repoPath = filepath.Join(cacheDir, "repos", repoOwner, repoName)
+			repoPath = filepath.Join(cacheDir, "repos", repoOwner, repoName, ref)
 			if _, err := os.Stat(repoPath); os.IsNotExist(err) {
 				cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", repoOwner, repoName)
 				if err := Clone(cloneURL, repoPath); err != nil {
+					return "", err
+				}
+				if err := Checkout(repoPath, ref); err != nil {
 					return "", err
 				}
 			} else {
@@ -126,8 +131,6 @@ func GetRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, er
 				if err := cmd.Run(); err != nil {
 					return "", errors.Wrap(err, "TAKO_E007", fmt.Sprintf("failed to update repo %s", repo))
 				}
-			}
-			if ref != "" {
 				if err := Checkout(repoPath, ref); err != nil {
 					return "", err
 				}
