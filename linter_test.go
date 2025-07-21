@@ -4,7 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -95,6 +101,118 @@ func TestCoverage(t *testing.T) {
 func sscanf(str, format string, a ...interface{}) (int, error) {
 	n, err := fmt.Sscanf(str, format, a...)
 	return n, err
+}
+
+func TestNoEnvironmentVariableAccess(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: skipping environment variable access check")
+	}
+
+	violations := checkCodeViolations(t, "environment variable access", func(call *ast.CallExpr) (bool, string) {
+		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+			if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == "os" {
+				switch sel.Sel.Name {
+				case "Getenv", "LookupEnv", "Environ", "UserHomeDir", "Getwd":
+					return true, fmt.Sprintf("os.%s()", sel.Sel.Name)
+				}
+			}
+		}
+		return false, ""
+	})
+
+	if len(violations) > 0 {
+		t.Errorf("Found environment variable access outside of cmd packages:\n%s", strings.Join(violations, "\n"))
+	}
+}
+
+func TestNoFlagParsingAccess(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: skipping flag parsing access check")
+	}
+
+	violations := checkCodeViolations(t, "flag parsing", func(call *ast.CallExpr) (bool, string) {
+		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+			if ident, ok := sel.X.(*ast.Ident); ok {
+				switch ident.Name {
+				case "cobra", "pflag", "viper":
+					return true, fmt.Sprintf("%s.%s()", ident.Name, sel.Sel.Name)
+				case "flag":
+					// Only flag parsing functions, not flag.Set or other non-parsing functions
+					switch sel.Sel.Name {
+					case "Parse", "Bool", "String", "Int", "Float64", "Duration", "Var":
+						return true, fmt.Sprintf("flag.%s()", sel.Sel.Name)
+					}
+				}
+			}
+		}
+		return false, ""
+	})
+
+	if len(violations) > 0 {
+		t.Errorf("Found flag parsing outside of cmd packages:\n%s", strings.Join(violations, "\n"))
+	}
+}
+
+func checkCodeViolations(t *testing.T, checkType string, checkFunc func(*ast.CallExpr) (bool, string)) []string {
+	violations := []string{}
+
+	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip test files, cmd packages, and test directories
+		if strings.HasSuffix(path, "_test.go") ||
+			strings.HasPrefix(path, "cmd/") ||
+			strings.Contains(path, "/cmd/") ||
+			path == "e2e_test.go" ||
+			strings.HasPrefix(path, "test/") ||
+			strings.Contains(path, "/test/") {
+			return nil
+		}
+
+		// Only check Go files
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+
+		// Skip vendor and hidden directories
+		if strings.Contains(path, "/vendor/") || strings.Contains(path, "/.") {
+			return nil
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		// Parse the Go file
+		fset := token.NewFileSet()
+		node, err := parser.ParseFile(fset, path, content, parser.ParseComments)
+		if err != nil {
+			return err
+		}
+
+		// Check for violations
+		ast.Inspect(node, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				if isViolation, funcName := checkFunc(call); isViolation {
+					pos := fset.Position(call.Pos())
+					violations = append(violations, fmt.Sprintf("%s:%d:%d: found %s call outside of cmd package",
+						path, pos.Line, pos.Column, funcName))
+				}
+			}
+			return true
+		})
+
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("Failed to walk directory for %s check: %v", checkType, err)
+	}
+
+	return violations
 }
 
 func rungo(t *testing.T, args ...string) {

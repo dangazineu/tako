@@ -36,18 +36,17 @@ func Checkout(path, ref string) error {
 	return nil
 }
 
-func GetEntrypointPath(root, repo, cacheDir string, localOnly bool) (string, error) {
+func GetEntrypointPath(root, repo, cacheDir, workingDir, homeDir string, localOnly bool) (string, error) {
 	if repo != "" {
 		// When --repo is used, there's no "current" path, so we pass ""
-		return GetRepoPath(repo, "", cacheDir, localOnly)
+		return GetRepoPath(repo, "", cacheDir, homeDir, localOnly)
 	}
 
 	if root == "" {
-		var err error
-		root, err = os.Getwd()
-		if err != nil {
-			return "", errors.Wrap(err, "TAKO_E003", "failed to get current working directory")
+		if workingDir == "" {
+			return "", errors.New("TAKO_E003", "working directory must be provided when root is empty")
 		}
+		root = workingDir
 	}
 	return root, nil
 }
@@ -63,7 +62,7 @@ func GetEntrypointPath(root, repo, cacheDir string, localOnly bool) (string, err
 //
 // If the repository does not exist in the cache, it is cloned from GitHub. If it
 // already exists, it is updated with a `git fetch`.
-func GetRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, error) {
+func GetRepoPath(repo, currentPath, cacheDir, homeDir string, localOnly bool) (string, error) {
 	if strings.HasPrefix(repo, "file://") {
 		return strings.Split(strings.TrimPrefix(repo, "file://"), ":")[0], nil
 	}
@@ -75,9 +74,8 @@ func GetRepoPath(repo, currentPath, cacheDir string, localOnly bool) (string, er
 	if strings.Contains(repo, "/") {
 		// Remote repository reference (e.g., "tako-test/repo-y:main")
 		if cacheDir == "~/.tako/cache" {
-			homeDir, err := os.UserHomeDir()
-			if err != nil {
-				return "", errors.Wrap(err, "TAKO_E004", "failed to get home dir")
+			if homeDir == "" {
+				return "", errors.New("TAKO_E004", "home directory must be provided when using default cache path")
 			}
 			cacheDir = filepath.Join(homeDir, ".tako", "cache")
 		}

@@ -102,7 +102,7 @@ func TestGetEntrypointPath(t *testing.T) {
 			t.Fatalf("failed to create repo path: %v", err)
 		}
 
-		path, err := git.GetEntrypointPath("", "owner/repo:main", cacheDir, true)
+		path, err := git.GetEntrypointPath("", "owner/repo:main", cacheDir, "", "", true)
 		if err != nil {
 			t.Fatalf("failed to get entrypoint path: %v", err)
 		}
@@ -116,7 +116,7 @@ func TestGetEntrypointPath(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to get working directory: %v", err)
 		}
-		path, err := git.GetEntrypointPath("", "", "", false)
+		path, err := git.GetEntrypointPath("", "", "", wd, "", false)
 		if err != nil {
 			t.Fatalf("failed to get entrypoint path: %v", err)
 		}
@@ -146,7 +146,7 @@ func TestGetRepoPath_BranchSpecificCaching(t *testing.T) {
 		}
 
 		// Test main branch
-		mainPath, err := git.GetRepoPath("owner/repo:main", "", cacheDir, true)
+		mainPath, err := git.GetRepoPath("owner/repo:main", "", cacheDir, "", true)
 		if err != nil {
 			t.Fatalf("failed to get repo path for main branch: %v", err)
 		}
@@ -155,7 +155,7 @@ func TestGetRepoPath_BranchSpecificCaching(t *testing.T) {
 		}
 
 		// Test dev branch
-		devPath, err := git.GetRepoPath("owner/repo:dev", "", cacheDir, true)
+		devPath, err := git.GetRepoPath("owner/repo:dev", "", cacheDir, "", true)
 		if err != nil {
 			t.Fatalf("failed to get repo path for dev branch: %v", err)
 		}
@@ -178,7 +178,7 @@ func TestGetRepoPath_BranchSpecificCaching(t *testing.T) {
 		}
 
 		// Test without branch specified (should default to main)
-		path, err := git.GetRepoPath("owner/test-repo", "", cacheDir, true)
+		path, err := git.GetRepoPath("owner/test-repo", "", cacheDir, "", true)
 		if err != nil {
 			t.Fatalf("failed to get repo path for default branch: %v", err)
 		}

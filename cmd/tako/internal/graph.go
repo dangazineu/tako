@@ -4,6 +4,7 @@ import (
 	"github.com/dangazineu/tako/internal/git"
 	"github.com/dangazineu/tako/internal/graph"
 	"github.com/spf13/cobra"
+	"os"
 )
 
 func NewGraphCmd() *cobra.Command {
@@ -17,12 +18,21 @@ func NewGraphCmd() *cobra.Command {
 			dot, _ := cmd.Flags().GetBool("dot")
 			cacheDir, _ := cmd.InheritedFlags().GetString("cache-dir")
 
-			entrypointPath, err := git.GetEntrypointPath(root, repo, cacheDir, local)
+			workingDir, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			homeDir, err := os.UserHomeDir()
 			if err != nil {
 				return err
 			}
 
-			rootNode, err := graph.BuildGraph(entrypointPath, cacheDir, local)
+			entrypointPath, err := git.GetEntrypointPath(root, repo, cacheDir, workingDir, homeDir, local)
+			if err != nil {
+				return err
+			}
+
+			rootNode, err := graph.BuildGraph(entrypointPath, cacheDir, homeDir, local)
 			if err != nil {
 				if _, ok := err.(*graph.CircularDependencyError); ok {
 					return err

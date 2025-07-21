@@ -206,11 +206,11 @@ func (n *Node) Filter(only, ignore []string) (*Node, error) {
 	return &Node{Name: "empty-root", Path: ""}, nil
 }
 
-func BuildGraph(path, cacheDir string, localOnly bool) (*Node, error) {
-	return buildGraphRecursive(path, cacheDir, make(map[string]*Node), []string{}, []string{}, localOnly)
+func BuildGraph(path, cacheDir, homeDir string, localOnly bool) (*Node, error) {
+	return buildGraphRecursive(path, cacheDir, homeDir, make(map[string]*Node), []string{}, []string{}, localOnly)
 }
 
-func buildGraphRecursive(path, cacheDir string, visited map[string]*Node, currentPath []string, currentPathNames []string, localOnly bool) (*Node, error) {
+func buildGraphRecursive(path, cacheDir, homeDir string, visited map[string]*Node, currentPath []string, currentPathNames []string, localOnly bool) (*Node, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get absolute path: %w", err)
@@ -247,12 +247,12 @@ func buildGraphRecursive(path, cacheDir string, visited map[string]*Node, curren
 	newPathNames := append(currentPathNames, root.Name)
 
 	for _, dependent := range cfg.Dependents {
-		repoPath, err := git.GetRepoPath(dependent.Repo, absPath, cacheDir, localOnly)
+		repoPath, err := git.GetRepoPath(dependent.Repo, absPath, cacheDir, homeDir, localOnly)
 		if err != nil {
 			return nil, err
 		}
 
-		child, err := buildGraphRecursive(repoPath, cacheDir, visited, newPath, newPathNames, localOnly)
+		child, err := buildGraphRecursive(repoPath, cacheDir, homeDir, visited, newPath, newPathNames, localOnly)
 		if err != nil {
 			return nil, err
 		}

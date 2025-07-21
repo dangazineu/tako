@@ -5,6 +5,7 @@ import (
 	"github.com/dangazineu/tako/internal/git"
 	"github.com/dangazineu/tako/internal/graph"
 	"github.com/spf13/cobra"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -30,12 +31,21 @@ func NewRunCmd() *cobra.Command {
 				}
 			}
 
-			entrypointPath, err := git.GetEntrypointPath(root, repo, cacheDir, local)
+			workingDir, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			homeDir, err := os.UserHomeDir()
 			if err != nil {
 				return err
 			}
 
-			rootNode, err := graph.BuildGraph(entrypointPath, cacheDir, local)
+			entrypointPath, err := git.GetEntrypointPath(root, repo, cacheDir, workingDir, homeDir, local)
+			if err != nil {
+				return err
+			}
+
+			rootNode, err := graph.BuildGraph(entrypointPath, cacheDir, homeDir, local)
 			if err != nil {
 				return err
 			}
