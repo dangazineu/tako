@@ -8,7 +8,7 @@ This document provides the complete technical design for the `tako exec` workflo
 -   **Artifacts**: The tangible, versionable outputs of a repository. They are the explicit link between upstream and downstream workflows.
 -   **State**: A JSON object capturing step outputs, persisted locally for resumption.
 -   **Security**: Workflows run in unprivileged containers; secrets are managed via environment variables and are never persisted.
--   **Clarity & Precision**: The schema and execution model are designed to be unambiguous and directly implementable.
+-   **Clarity & Precision**: The schema and execution model are designed to be unambiguous and directly implementable. While alternative designs (e.g., event-driven, fully declarative) were considered, the imperative, step-based approach was chosen for its simplicity, predictability, and ease of debugging.
 
 ## 2. `tako.yml` Schema Reference (`v0.2.0`)
 
@@ -53,6 +53,15 @@ workflows:
         type: string # Supported types: string, boolean, number
         default: "patch"
         required: false
+        validation:
+          # Ensures the input is one of the specified values.
+          enum: [major, minor, patch]
+      tag:
+        description: "A tag for the release."
+        type: string
+        validation:
+          # Ensures the input matches the regex.
+          regex: "^v[0-9]+\.[0-9]+\.[0-9]+$"
     # Defines resource limits for the main workflow container.
     resources:
       cpu_limit: "1.0" # 1 full CPU core
@@ -93,6 +102,11 @@ dependents:
     artifacts: [tako-lib]
 ```
 
+### 2.5. Schema Evolution
+
+-   **Versioning**: The `version` field in `tako.yml` is mandatory and will be used to manage schema changes. The schema will follow semantic versioning.
+-   **Extensibility**: The initial design does not include support for organization-specific extensions to the schema. Future versions may include a mechanism for this if there is sufficient demand.
+
 ## 3. Workflow Execution Model
 
 1.  **Plan Generation**:
@@ -101,151 +115,178 @@ dependents:
     - The engine then traverses the dependency graph. It finds downstream repos that depend on `tako-lib` and have workflows with `on: artifact_update`.
     - For each potential downstream workflow, it evaluates the `if` condition using the **Common Expression Language (CEL)**. If the expression evaluates to true, the workflow is added to the execution plan.
 
-2.  **Execution**:
-    - Repositories are processed in parallel, limited by `--max-concurrent-repos` (default: 4).
-    - Each workflow runs in a container with resource limits specified in the `resources` block or via CLI flags (`--cpu-limit`, `--mem-limit`), which override the schema.
-    - The workspace (`~/.tako/workspaces/<run-id>/...`) is mounted into the container.
+2.  **Input Validation**:
+    - Before execution, the engine validates all workflow inputs against the `validation` rules defined in the schema.
+    - Type conversions are attempted (e.g., string "true" to boolean `true`). If a conversion fails or a validation rule is not met, the workflow fails with a descriptive error message.
 
-3.  **State & Resumption**:
-    - State is saved to `~/.tako/state/<run-id>.json` after each step. The file is checksummed to detect corruption. If corrupt, the run fails.
+3.  **Execution**:
+    - **Repository Parallelism**: Repositories are processed in parallel, limited by `--max-concurrent-repos` (default: 4).
+    - **Step Execution**: Within a single repository's workflow, steps are executed sequentially in the order they are defined. Dependencies between steps are managed by this sequential execution. The initial design does not support step-level parallelism.
+    - **Resource Limits**: Each workflow runs in a container. The `resources` block and corresponding CLI flags define hard limits for CPU and memory. If a container exceeds these limits, it will be terminated by the container runtime.
+    - **Workspace**: The workspace (`~/.tako/workspaces/<run-id>/...`) is mounted into the container.
+
+4.  **State & Resumption**:
+    - State is saved to `~/.tako/state/<run-id>.json` after each step. The file is checksummed to detect corruption. If the state file is found to be corrupt, the run fails, and there is no automatic recovery.
     - To resume, a user runs `tako exec --resume <run-id>`.
+    - **Idempotency**: It is the responsibility of the workflow author to design steps to be idempotent, especially in workflows that are expected to be resumed. The engine does not provide any guarantees about partially completed steps.
+    - **Cross-Repository Consistency**: The engine does not provide transactional guarantees for state changes across multiple repositories. A failure in one repository's workflow does not automatically roll back changes in another.
+
+### 3.1. Workspace Management
+
+-   **Workspace Path**: Each workflow run is executed in an isolated workspace located at `~/.tako/workspaces/<run-id>`.
+-   **Cleanup**: Workspaces are automatically cleaned up after a workflow completes successfully. For failed or persisted workflows, the workspace is retained to allow for debugging and resumption.
+-   **Storage Quotas**: The initial design does not include storage quotas for workspaces.
+
+### 3.2. Error Handling
+
+-   **Fail-Fast**: The engine follows a strict fail-fast policy. If any step in the workflow fails, the entire `tako exec` run will halt immediately. The initial design does not include configurable failure policies (e.g., `continue-on-error`), though this could be considered for a future release.
+
+### 3.3. Scalability
+
+-   **Local Execution**: The initial design is focused on providing a powerful and flexible workflow engine for local and single-machine CI environments.
+-   **Large-Scale Deployments**: The design does not explicitly address distributed execution or scaling to hundreds of concurrent workflows. These capabilities could be explored in a future release if there is sufficient demand.
 
 ## 4. Security
 
--   **Secret Scrubbing**: `tako` will maintain a list of secret names from the environment. It will perform a best-effort scrub of these exact string values from all logs.
+-   **Secret Scrubbing**: `tako` will maintain a list of secret names from the environment. It will perform a best-effort scrub of the exact string values of these secrets from all logs. This is a best-effort approach and may not catch secrets that have been encoded (e.g., Base64) or transformed. The performance impact of scanning logs is expected to be minimal for typical use cases.
 -   **Container Security**: Containers run as a fixed, non-root UID (`1001`). `tako` will `chown` the workspace directory to this UID before starting the container.
 -   **Network**: By default, containers have network access. It can be disabled per-step with a `network: none` key in the step definition.
+
+### 4.1. CEL Expression Security
+
+-   **Sandboxing**: CEL expressions are evaluated in a sandboxed environment with a restricted set of functions. The sandbox will not have access to the filesystem, network, or environment variables.
+-   **Resource Limits**: The execution of CEL expressions will be limited by a strict timeout (e.g., 100ms) to prevent denial-of-service attacks.
+-   **Error Handling**: If a CEL expression fails to evaluate due to a syntax or runtime error, the workflow will fail with a descriptive error message.
+
+### 4.2. Secrets Management
+
+To enhance security and align with best practices, the `tako.yml` file will not store secrets directly. Instead, it will define which secrets are required by a workflow. These secrets must be provided as environment variables during the `tako exec` run.
+
+```yaml
+workflows:
+  release:
+    on: exec
+    # Defines the secrets required by this workflow.
+    secrets:
+      - GITHUB_TOKEN
+      - NPM_TOKEN
+    steps:
+      - id: publish
+        run: ./scripts/publish.sh
+        # The engine will make the secrets available as environment
+        # variables inside the container.
+        env:
+          GITHUB_TOKEN: {{ .secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: {{ .secrets.NPM_TOKEN }}
+```
+
+-   **Declaration**: The `secrets` block in a workflow lists the names of the environment variables that the workflow's steps require.
+-   **Injection**: Before executing a step, the `tako` engine will read the values of the declared secrets from its own environment and make them available to the step's execution context (e.g., as environment variables within the container).
+-   **Scrubbing**: As mentioned in the `Security` section, the names of these secrets will be used to scrub them from logs.
+-   **Error Handling**: If a required secret is not present in the environment when `tako exec` is run, the execution will fail before any steps are run.
 
 ## 5. Caching
 
 -   **Cache Key**: A step's cache key is a SHA256 hash of:
     1.  The step's definition in `tako.yml`.
-    2.  A hash of the file contents of the repository, filtered by a `cache_key_files` glob pattern in the step definition (defaults to `**/*`). The `.git` directory is always excluded.
+    2.  A hash of the file contents of the repository. To mitigate performance issues in large repositories, the `cache_key_files` glob pattern in the step definition can be used to limit the set of files included in the hash (defaults to `**/*`). The hash is based on file content only; modification times, permissions, and symlinks are ignored. The `.git` directory and Git LFS files are always excluded.
+-   **Cache Invalidation**: The cache for a workflow run can be manually invalidated using the `--no-cache` flag on the `tako exec` command. Additionally, the entire cache can be cleared using the `tako cache clean` command.
+-   **Cache Management**: The initial design does not include cache size management or eviction policies. The cache is stored at `~/.tako/cache`.
 
 ## 6. Migration (`tako migrate`)
 
--   The `tako migrate` command will be provided to assist users in updating from `v0.1.0`. It will perform a best-effort conversion and add comments to areas that require manual intervention, such as defining `on: artifact_update` triggers. A `--dry-run` flag will be available.
+-   The `tako migrate` command will be provided to assist users in updating from `v0.1.0`. It will perform a best-effort conversion and add comments to areas that require manual intervention, such as defining `on: artifact_update` triggers. A `--dry-run` flag will be available to show the proposed changes without writing them to disk. A `--validate` flag will also be available to check the migrated configuration for schema errors without running any workflows.
+
+### 6.1. Schema Versioning and Compatibility
+
+-   **Breaking Change**: The `v0.2.0` schema is a breaking change. The `tako` binary at this version will only support `v0.2.0` and later schemas.
+-   **Transition Period**: For projects that need to support both `v0.1.0` and `v0.2.0` schemas during a transition, it is recommended to use different versions of the `tako` binary.
+-   **Rollback**: If critical issues are discovered in `v0.2.0`, the recommended rollback strategy is to revert to a previous version of the `tako` binary and the `tako.yml` configuration.
 
 ## 7. Built-in Steps (`uses:`)
 
 -   Built-in semantic steps (e.g., `tako/checkout@v1`) are versioned and bundled with the `tako` binary. A `tako steps list` command will be available to show available steps and their parameters.
+-   **Custom Steps**: The initial design does not include a plugin architecture for creating and distributing custom steps. This could be considered for a future release.
+
+### 7.1. Convenience Commands
+
+To maintain the ease of use for simple, one-off tasks, the existing `tako run` command will be retained as a simplified entrypoint to the workflow engine.
+
+-   **`tako run <command>`**: This command will be a shortcut for `tako exec --workflow-from-command -- <command>`. The engine will dynamically construct a single-step workflow from the provided command, allowing users to execute simple commands across repositories without creating a formal `tako.yml` workflow definition.
+-   **`tako lint`**: This command will perform a semantic validation of the `tako.yml` file. It will check for common errors such as circular dependencies, unreachable steps, and invalid syntax in CEL expressions.
+
+### 7.2. Debugging and Introspection
+
+-   **Debug Mode**: A `--debug` flag on `tako exec` will enable step-by-step execution, pausing before each step and waiting for user confirmation to proceed.
+-   **State Inspection**: A `tako state inspect <run-id>` command will be provided to print the persisted state of a workflow, which is useful for debugging.
+
+### 7.3. Testing Workflows
+
+-   **Local Testing**: The `--dry-run` flag on `tako exec` is the primary tool for testing workflow definitions. It allows developers to see the execution plan without making any changes.
+-   **Unit Testing Steps**: Individual steps that are defined as scripts or commands can be tested using standard shell scripting and testing techniques, outside of the `tako` engine.
+
+### 7.4. CI/CD Integration
+
+-   **Self-Contained System**: `tako` is designed to be a self-contained workflow engine. It can be run in any environment, including local machines and existing CI/CD systems like GitHub Actions or Jenkins.
+-   **Triggering from CI/CD**: A common pattern is to have an existing CI/CD pipeline call `tako exec` to orchestrate a multi-repo workflow.
+-   **Authentication**: Authentication with external systems (e.g., GitHub, Artifactory) is handled through the secrets management system.
 
 ## 8. Implementation Plan
 
 The implementation will be broken down into the following issues, organized by milestones.
 
-#### Milestone 1: Core Engine Scaffolding
+#### Milestone 1: MVP - Local, Synchronous Execution
+
+This milestone focuses on delivering the core, single-repository `on: exec` functionality without containerization. This provides immediate value and a solid foundation for more advanced features.
 
 1.  **`feat(config): Implement v0.2.0 schema & migrate command`**: Update `internal/config` and create the `tako migrate` command.
 2.  **`feat(cmd): Create 'tako exec' command`**: Add the `exec` command with support for typed inputs.
-3.  **`feat(engine): Implement synchronous local runner`**: Create the single-repo execution loop.
+3.  **`feat(engine): Implement synchronous local runner`**: Create the single-repo execution loop that runs commands directly on the host.
 4.  **`feat(engine): Implement step output passing`**: Implement `from_stdout` capture, the `produces` block, and `text/template` hydration.
+5.  **`test(e2e): Add E2E test for single-repo workflow`**.
 
-#### Milestone 2: Graph-Aware and Containerized Execution
+#### Milestone 2: Containerization and Graph-Aware Execution
 
-5.  **`feat(engine): Implement graph-aware execution & planning`**: Implement the artifact-based planning logic with CEL for `if` conditions and parallel execution.
+This milestone introduces the core security and isolation features, and expands execution to multiple repositories.
+
 6.  **`feat(engine): Introduce containerized step execution`**: Modify the runner to execute steps in a secure, isolated container with resource limits.
-7.  **`feat(engine): Implement 'tako/checkout@v1' semantic step`**: Create the first built-in semantic step and the `tako steps list` command.
+7.  **`feat(engine): Implement graph-aware execution & planning`**: Implement the artifact-based planning logic with CEL for `if` conditions and parallel execution.
+8.  **`feat(engine): Implement 'tako/checkout@v1' semantic step`**: Create the first built-in semantic step and the `tako steps list` command.
+9.  **`test(e2e): Add E2E test for multi-repo fan-out/fan-in`**.
 
 #### Milestone 3: Advanced Features & Use Cases
 
-8.  **`feat(engine): Implement 'tako/update-dependency@v1' semantic step`**.
-9.  **`feat(engine): Implement 'tako/create-pull-request@v1' semantic step`** with a default retry policy.
-10. **`feat(engine): Implement step caching`** with content-addressable keys.
-11. **`feat(engine): Implement asynchronous persistence and resume`**.
-12. **`feat(exec): Implement --dry-run mode`**.
-
-#### Milestone 4: Testing and Validation
-
-13. **`test(e2e): Add E2E test for single-repo workflow`**.
-14. **`test(e2e): Add E2E test for multi-repo fan-out/fan-in`**.
-
+10. **`feat(engine): Implement 'tako/update-dependency@v1' semantic step`**.
+11. **`feat(engine): Implement 'tako/create-pull-request@v1' semantic step`** with a default retry policy.
+12. **`feat(engine): Implement step caching`** with content-addressable keys.
+13. **`feat(engine): Implement asynchronous persistence and resume`**.
+14. **`feat(exec): Implement --dry-run mode`**.
 
 ### 9. Remaining Questions and Minor Gaps
 
 This is a comprehensive and well-thought-out design. The following are some suggestions for improvement and questions that came up during the review.
 
-### 9.1. Complexity and Phased Rollout
+### 9.1. Security Model
 
-The proposed design is a significant leap in functionality, and with that comes complexity. While the implementation plan is broken down into milestones, it might be beneficial to consider an even more phased rollout to de-risk the implementation.
+The security model is a strong point of the design. Running steps in containers is a great way to isolate them and prevent them from interfering with the host system. The addition of a `secrets` block in the workflow definition provides a clear and secure way to manage credentials.
 
-*   **Suggestion:** Could Milestone 1 be broken down further? For example, the first release could focus solely on the `on: exec` trigger and local, non-containerized execution. This would provide value to users quickly while the more complex features like containerization and `on: artifact_update` are being developed.
+### 9.2. Caching
 
-### 9.2. Security Model
+The caching mechanism is well-defined and will be a great performance enhancement. The addition of the `--no-cache` flag and `tako cache clean` command provide flexible ways to manage the cache.
 
-The security model is a strong point of the design. Running steps in containers is a great way to isolate them and prevent them from interfering with the host system.
+### 9.3. Usability
 
-*   **Question:** How will secrets be managed? The design mentions that they will be passed as environment variables, but it doesn't specify how they will be defined in the `tako.yml` file. Will there be a separate `secrets` block?
-*   **Suggestion:** It would be beneficial to add a section to the design that explicitly details the secret management strategy. This should include how secrets are defined, how they are passed to containers, and how they are scrubbed from logs.
+The proposed CLI is very flexible. The addition of the `tako run` convenience command preserves the simplicity of the original `run` command while integrating it with the more powerful workflow engine.
 
-### 9.3. Caching
+### 9.4. Migration
 
-The caching mechanism is well-defined and will be a great performance enhancement.
+The `tako migrate` command is a great idea and will be essential for users upgrading from v0.1.0. The addition of the `--validate` flag provides an extra layer of safety for users.
 
-*   **Suggestion:** It would be useful to have a way to manually invalidate the cache for a specific step or workflow. This could be a CLI flag (e.g., `tako exec --no-cache`) or a command (e.g., `tako cache clean`).
+### 9.5. Implementation and Testing
 
-### 9.4. Usability
+The implementation plan is very detailed, and the inclusion of E2E tests in each relevant milestone will help to ensure that the implementation is correct and that there are no regressions.
 
-The proposed CLI is very flexible, but it could be difficult to use for simple cases.
-
-*   **Suggestion:** Consider adding some convenience commands or flags to make it easier to use. For example, a `tako run` command that is a simplified version of `tako exec` for running a single command across all repositories. This would be similar to the existing `run` command, but it would be integrated with the new workflow engine.
-
-### 9.5. Migration
-
-The `tako migrate` command is a great idea and will be essential for users upgrading from v0.1.0.
-
-*   **Suggestion:** In addition to the `--dry-run` flag, it would be useful to have a `--validate` flag that checks the migrated configuration for errors without actually running any workflows. This would give users more confidence that the migration was successful.
-
-### 9.6. Implementation and Testing
-
-The implementation plan is very detailed, but it could be improved by adding more information about how the different milestones will be tested.
-
-*   **Suggestion:** For each milestone, it would be beneficial to define the specific E2E tests that will be created. This will help to ensure that the implementation is correct and that there are no regressions. For example, for Milestone 2, an E2E test could be created that runs a workflow in a container and verifies that the output is correct.
-
-### 9.7. Additional Suggestions 
-**❓ Input validation specifics**
-- Line 53 mentions `string`, `boolean`, `number` types but no validation rules
-- Are there plans for enum constraints, regex validation, range limits for numbers?
-- How are type conversion errors handled (e.g., passing "abc" to a number input)?
-
-**❓ CEL expression security and performance**
-- CEL expressions in `if` conditions could be compute-intensive or have security implications
-- Are there execution time limits? Sandboxing? Allowed function sets?
-- What happens with CEL evaluation errors (syntax or runtime)?
-
-**❓ Container resource enforcement**
-- Resource limits are specified but enforcement mechanism unclear
-- Are these hard limits (container killed) or soft limits (throttled)?
-- What happens when resource limits are exceeded?
-
-**❓ Workspace cleanup and storage management**
-- Line 107 mentions workspace path but no cleanup policy
-- Are workspaces automatically cleaned after successful runs?
-- What about failed runs? Storage quotas?
-
-**❓ Step caching edge cases**
-- Cache key includes "file contents of the repository" (line 123) - performance implications for large repos?
-- How are file modification times, permissions, and symlinks handled?
-- Is there cache size management or eviction policy?
-
-### 9.8. Minor Implementation Details
-
-**🔧 Error handling granularity**
-- Step failures halt execution, but no specification of partial recovery
-- Should there be continue-on-error options for specific steps?
-- How are temporary network failures vs. permanent errors distinguished?
-
-**🔧 Template performance optimization**
-- Template parsing per-step could be expensive for complex workflows
-- Are parsed templates cached across steps or workflows?
-- Memory usage implications for concurrent workflows?
-
-**🔧 Secret scrubbing implementation**
-- "Best-effort scrub of exact string values" (line 115) - what about encoded secrets?
-- Base64, URL encoding, JSON embedded secrets handling?
-- Performance impact of string scanning all logs?
-
-### 9.9. Security Posture Review
+### 9.6. Security Posture Review
 
 **Strong security foundation** with:
 - Container sandboxing with fixed non-root UID
@@ -257,109 +298,3 @@ The implementation plan is very detailed, but it could be improved by adding mor
 - CEL expression evaluation should be sandboxed
 - Large repository cache key computation could cause DoS
 - Secret scrubbing should handle encoded values
-
-## 10. Additional Review Feedback and Questions
-
-### 10.1. Migration Strategy and Backward Compatibility
-
-**❓ Schema versioning and rollback**
-- The design proposes a breaking change from v0.1.0 to v0.2.0, but what happens to repositories that need to support both versions during a transition period?
-- Should the engine support reading both v0.1.0 and v0.2.0 schemas simultaneously?
-- What's the rollback strategy if critical issues are discovered in v0.2.0?
-
-**❓ Migration validation**
-- The `tako migrate --dry-run` is mentioned, but should there also be a `--validate-only` mode that checks migrated configs without executing workflows?
-- How will users know if their v0.1.0 features have no direct v0.2.0 equivalent?
-
-### 10.2. Execution Model and State Management
-
-**❓ Concurrent workflow execution boundaries**
-- Line 105: `--max-concurrent-repos` limits repository parallelism, but what about step-level concurrency within a repository?
-- Should there be limits on concurrent steps within a single workflow to prevent resource exhaustion?
-- How are dependencies between steps within the same workflow handled?
-
-**❓ State corruption and recovery**
-- Line 110: State corruption detection via checksums is good, but what recovery options exist beyond failing the run?
-- Should there be automatic state backup/versioning to enable partial recovery?
-- How are partially completed steps handled during resume (idempotency concerns)?
-
-**❓ Cross-repository state consistency**
-- In multi-repo workflows, what happens if one repository's state becomes corrupted while others continue?
-- Should there be transaction-like semantics for multi-repo state changes?
-
-### 10.3. Performance and Scalability
-
-**❓ Large-scale deployment considerations**
-- The design doesn't address how this scales to organizations with hundreds of repositories
-- What are the memory/CPU implications of holding state for many concurrent workflows?
-- Should there be cluster/distributed execution capabilities for large organizations?
-
-**❓ Repository cache scaling**
-- Line 123: Cache key computation includes "file contents of the repository" - this could be expensive for repositories with thousands of files
-- Should there be options for selective file hashing (e.g., only tracking specific directories)?
-- What about Git LFS files or other large binary assets?
-
-### 10.4. Developer Experience and Debugging
-
-**❓ Workflow debugging and introspection**
-- How do developers debug failing workflows beyond logs?
-- Should there be a `tako exec --debug` mode with step-by-step execution?
-- What tooling exists for inspecting workflow state and execution history?
-
-**❓ Testing workflow definitions**
-- How do developers test their workflow definitions before committing them?
-- Should there be a local-only execution mode that doesn't affect downstream repositories?
-- What about unit testing individual workflow steps?
-
-### 10.5. Integration and Ecosystem
-
-**❓ Integration with existing CI/CD systems**
-- How does this interact with existing GitHub Actions, Jenkins, or other CI systems?
-- Should workflows be able to trigger external CI/CD systems or vice versa?
-- What about authentication/authorization when integrating with external systems?
-
-**❓ Plugin/extension architecture**
-- The built-in steps (`tako/checkout@v1`) are versioned and bundled, but is there a plan for third-party or custom steps?
-- Should there be a plugin architecture for extending the engine's capabilities?
-- How would custom steps be distributed and versioned?
-
-### 10.6. Configuration and Schema Evolution
-
-**❓ Schema extensibility**
-- The v0.2.0 schema is comprehensive, but how will future evolution be handled?
-- Should there be reserved/experimental fields for forward compatibility?
-- What about organization-specific extensions to the schema?
-
-**❓ Configuration validation and linting**
-- Beyond basic YAML validation, should there be semantic validation of workflow definitions?
-- What about catching common mistakes like circular dependencies or unreachable steps?
-- Should there be a `tako lint` command for configuration files?
-
-### 10.7. Alternative Design Considerations
-
-**🤔 Event-driven architecture alternative**
-- The current design is primarily imperative (steps in sequence). Has an event-driven approach been considered?
-- Could workflows be defined as event handlers that react to repository changes, rather than explicit step sequences?
-- This might provide more flexibility for complex dependency patterns.
-
-**🤔 Workflow composition and reusability**
-- The design doesn't address workflow composition or inheritance
-- Should there be a way to compose workflows from smaller, reusable components?
-- What about parameterized workflow templates that can be instantiated with different configurations?
-
-**🤔 Declarative vs. imperative step definitions**
-- Current steps are imperative (run this command), but should there be declarative alternatives?
-- For example, "ensure version X of dependency Y" rather than "run update command Z"
-- This could enable the engine to determine the optimal steps to achieve the desired state.
-
-### 10.8. Recommendations for Implementation Prioritization
-
-Given the comprehensive nature of this design, consider these prioritization suggestions:
-
-1. **Phase 0 (MVP)**: Local-only, synchronous execution with `on: exec` triggers only
-2. **Phase 1**: Add containerization and basic security model
-3. **Phase 2**: Implement `on: artifact_update` and multi-repo orchestration
-4. **Phase 3**: Add advanced features like caching, resumption, and built-in steps
-5. **Phase 4**: Performance optimizations and enterprise features
-
-This phased approach would provide value incrementally while reducing implementation risk.
