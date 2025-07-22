@@ -125,6 +125,8 @@ dependents:
       - **Trigger Context**: The `trigger` context will contain a list of artifacts, accessible via `.trigger.artifacts`. Each element in the list will have the same structure as a single artifact trigger (e.g., `.trigger.artifacts[0].name`, `.trigger.artifacts[0].outputs.version`).
       - **Failure Policy**: If any of the upstream workflows fail, the downstream workflow will not be triggered. The initial design does not support partial success or failure policies for aggregation.
       - **Timeout**: A configurable `aggregation_timeout` (default: `1h`) can be set on the downstream workflow to prevent indefinite waiting. If the timeout is reached before all upstream workflows complete, the workflow will fail.
+      
+      <!-- PRECISION LOSS: The `aggregation_timeout` configuration is mentioned but not shown in any schema examples. Where exactly does this configuration go in the tako.yml? At the workflow level? This needs to be clarified in section 2.3. -->
 
 2.  **Input Validation**:
     - Before execution, the engine validates all workflow inputs against the `validation` rules defined in the schema.
@@ -154,6 +156,10 @@ dependents:
     - The container will continue to run in the background. The user can check its status with `tako status <run-id>` and resume the workflow with `tako exec --resume <run-id>` once the long-running step has completed.
     - It is the responsibility of the workflow author to ensure that the long-running step will eventually complete and that there is a way to determine its completion (e.g., by writing a file, updating a status in a database). The `tako/poll@v1` built-in step is provided for this purpose.
     - **Failure Detection**: The engine does not actively monitor long-running steps for crashes or system reboots. If a container crashes, it will simply exit. It is up to the workflow author to use the `tako/poll@v1` step with appropriate timeouts and checks to detect such failures. For example, a polling step could check for the existence of a "success" file, and if the file is not present after a certain amount of time, the workflow would fail.
+    
+    <!-- RELIABILITY CONCERN: What happens if the system reboots while a long-running container is executing? The container would be lost, but the state file would still reference it. How does the engine handle this scenario during resume? Should there be container recovery mechanisms? -->
+    
+    <!-- RESOURCE LEAK CONCERN: Long-running containers that become orphaned (due to system issues, network problems, etc.) could accumulate over time and consume resources indefinitely. While manual cleanup is mentioned, should there be automatic detection and cleanup of containers that have been running beyond expected timeframes? -->
 
 ### 3.1. Workspace Management
 
@@ -466,6 +472,10 @@ workflows:
             VERSION=$(echo '{{ index .trigger.artifacts "'$i'" "outputs" "version" }}')
             ./scripts/update-bom.sh --name $NAME --version $VERSION
           done
+
+        <!-- COMPLEXITY CONCERN: This template syntax is quite complex and error-prone. The nested quoting with shell variables inside template expressions (e.g., "'$i'") could be difficult to debug and maintain. Consider whether a simpler approach would be more user-friendly. -->
+        
+        <!-- ALTERNATIVE SUGGESTION: Could the engine provide a more direct way to iterate over trigger artifacts, such as environment variables or a built-in step that handles this iteration? -->
 ```
 
 ### 9.2. Scenario 2: Asynchronous Workflow with Resume
@@ -499,6 +509,8 @@ workflows:
         # This new key indicates the engine should not wait for completion.
         long_running: true
         run: ./scripts/simulation.sh --dataset {{ .steps.prepare-data.outputs.dataset_id }}
+        
+        <!-- FUNCTIONALITY GAP: How are outputs captured from long-running steps? This step doesn't have a `produces` block, but long-running steps may need to communicate results to subsequent steps. How does this work when the step runs asynchronously? -->
       - id: check-simulation
         # This step polls for the result of the long-running step.
         # The `tako/poll` built-in step would handle the logic of checking
@@ -508,6 +520,8 @@ workflows:
           target: file
           path: ./results/{{ .steps.prepare-data.outputs.dataset_id }}.json
           timeout: 60m
+          
+        <!-- STATE CONSISTENCY CONCERN: The polling step only checks if a file exists, but how does it determine if the long-running step succeeded or failed? The file could exist but contain error information. Should polling steps also validate file contents or exit codes? -->
       - id: publish-results
         run: ./scripts/publish.sh --dataset {{ .steps.prepare-data.outputs.dataset_id }}
 ```
