@@ -514,8 +514,6 @@ workflows:
 
 We will need to add a new built-in step `tako/poll@v1` to support this functionality.
 
-<!-- SECURITY CONCERN: A polling mechanism that can check files, databases, or external systems could be a security risk if not properly sandboxed. How does polling interact with the container's network isolation and filesystem restrictions? -->
-
 <!-- EFFICIENCY CONCERN: Continuous polling for 60 minutes could be resource-intensive. Should there be exponential backoff or configurable polling intervals? -->
 
 
@@ -570,6 +568,8 @@ Polls for a specific condition to be met.
 -   `path` (string, required): The path to the file to check.
 -   `timeout` (duration, required): The maximum time to wait for the condition to be met.
 -   `interval` (duration, optional): The interval at which to poll. Defaults to `10s`.
+
+**Security Note**: The `tako/poll@v1` step executes within the step's container and is subject to the same security restrictions, including filesystem and network isolation. It can only access resources that are available to the container.
 
 **Sanitization**: All error messages originating from template parsing or execution will be sanitized to prevent the leaking of sensitive information or internal system details.
 
