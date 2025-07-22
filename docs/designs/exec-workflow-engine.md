@@ -156,6 +156,11 @@ dependents:
 -   **Format**: The `<run-id>` is a UUIDv4 string.
 -   **Collision Avoidance**: The use of UUIDv4 provides a high degree of confidence that each run will have a unique ID, preventing collisions between concurrent executions.
 
+### 3.7. Container Image Management
+
+-   **Image Pull Policy**: By default, `tako` will use the `pull-if-not-present` policy for container images. This can be overridden with an `image_pull_policy` key in the step definition (`always`, `never`, `if-not-present`).
+-   **Private Registries**: Authentication with private container registries is handled by the underlying container runtime (Docker, Podman). Users should configure their registry credentials in the standard location for their chosen runtime (e.g., `~/.docker/config.json`).
+
 ### 3.6. Designing for Resilience
 
 -   **Compensation Patterns**: Given the lack of transactional guarantees, workflows that perform mutating operations across multiple repositories should be designed with resilience in mind. This can be achieved by using compensation patterns, where a failure in one part of the workflow triggers a compensating action to revert changes in another part.
@@ -347,12 +352,6 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 ### 10.5. State Management and Consistency 
 
 ### 10.6. Performance and Resource Management
-
-**❓ Container Image Management**
-- Line 48: `golang:1.21` image specified, but no guidance on image lifecycle
-- Should images be pulled on every execution or cached?
-- What about private registry authentication?
-- **Missing Detail**: Image pull policies and registry authentication strategies.
 
 ### 10.7. Error Handling and Debugging
 
