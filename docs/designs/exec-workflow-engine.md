@@ -218,6 +218,7 @@ dependents:
     -   **Seccomp Profile**: A default seccomp profile will be applied to restrict the available syscalls.
     -   **Future Enhancements**: Future versions may include support for AppArmor and SELinux profiles for additional hardening.
 -   **Network**: By default, containers do not have network access. It can be enabled per-step with a `network: default` key in the step definition.
+-   **Long-Running Containers**: Long-running containers are subject to the same security restrictions as regular containers. It is the responsibility of the user to ensure that long-running containers are eventually stopped and that workspaces are cleaned up. The `tako workspace clean` command can be used for this purpose. Future versions may include a mechanism to automatically clean up orphaned containers that have been running for an excessive amount of time.
 
 ### 4.1. CEL Expression Security
 
@@ -497,8 +498,6 @@ workflows:
         # This new key indicates the engine should not wait for completion.
         long_running: true
         run: ./scripts/simulation.sh --dataset {{ .steps.prepare-data.outputs.dataset_id }}
-        
-        <!-- SECURITY CONCERN: Long-running containers that persist after the main tako process exits could be a security risk. How are these containers secured? What prevents them from running indefinitely? Are there automatic cleanup mechanisms? -->
         
         <!-- FUNCTIONALITY QUESTION: How does the engine track the status of long-running steps? What happens if the container crashes or the system reboots? Is there a mechanism to detect if the long-running step has actually completed successfully? -->
       - id: check-simulation
