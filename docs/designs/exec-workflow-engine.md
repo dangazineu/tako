@@ -169,7 +169,7 @@ dependents:
 ### 4.1. CEL Expression Security
 
 -   **Sandboxing**: CEL expressions are evaluated in a sandboxed environment with a restricted set of functions. The sandbox will not have access to the filesystem, network, or environment variables.
--   **Resource Limits**: The execution of CEL expressions will be limited by a strict timeout (e.g., 100ms) to prevent denial-of-service attacks.
+-   **Resource Limits**: The execution of CEL expressions will be limited by a strict timeout (e.g., 100ms) and a memory limit (e.g., 64MB) to prevent denial-of-service attacks.
 -   **Error Handling**: If a CEL expression fails to evaluate due to a syntax or runtime error, the workflow will fail with a descriptive error message.
 
 ### 4.2. Secrets Management
@@ -329,11 +329,6 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 ### 10.2. Critical Implementation Questions
 
 ### 10.3. Security and Template Safety
-
-**🔒 CEL Memory and CPU Limits**
-- Line 158: 100ms timeout specified, but no memory limits for CEL evaluation
-- Malicious expressions could consume excessive memory before timing out
-- **Recommendation**: Add explicit memory limits (e.g., 64MB) for CEL expression evaluation.
 
 ### 10.4. Usability and Developer Experience
 
