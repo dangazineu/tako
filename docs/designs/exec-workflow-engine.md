@@ -151,6 +151,11 @@ dependents:
 -   **Local Execution**: The initial design is focused on providing a powerful and flexible workflow engine for local and single-machine CI environments.
 -   **Large-Scale Deployments**: The design does not explicitly address distributed execution or scaling to hundreds of concurrent workflows. These capabilities could be explored in a future release if there is sufficient demand.
 
+#### 3.3.1. Performance Considerations
+
+-   **Graph Parsing**: The performance of a topological sort on the dependency graph is negligible. However, the I/O required to fetch and parse the `tako.yml` file for each repository can introduce a noticeable delay in workflows with a large number of repositories (e.g., >50).
+-   **Warning**: The engine will issue a warning if a dependency graph exceeds 50 repositories to alert the user to potential performance degradation. No hard limit will be imposed.
+
 ### 3.4. Run ID Generation
 
 -   **Format**: The `<run-id>` is a UUIDv4 string.
@@ -193,7 +198,8 @@ dependents:
     -   **Read-Only Root Filesystem**: The container's root filesystem will be mounted as read-only.
     -   **Dropped Capabilities**: By default, all Linux capabilities are dropped. A `capabilities` block can be added to a step to request specific capabilities.
     -   **Seccomp Profile**: A default seccomp profile will be applied to restrict the available syscalls.
--   **Network**: By default, containers have network access. It can be disabled per-step with a `network: none` key in the step definition.
+    -   **Future Enhancements**: Future versions may include support for AppArmor and SELinux profiles for additional hardening.
+-   **Network**: By default, containers do not have network access. It can be enabled per-step with a `network: default` key in the step definition.
 
 ### 4.1. CEL Expression Security
 
@@ -246,6 +252,30 @@ workflows:
 ## 6. Migration (`tako migrate`)
 
 -   The `tako migrate` command will be provided to assist users in updating from `v0.1.0`. It will perform a best-effort conversion and add comments to areas that require manual intervention, such as defining `on: artifact_update` triggers. A `--dry-run` flag will be available to show the proposed changes without writing them to disk. A `--validate` flag will also be available to check the migrated configuration for schema errors without running any workflows.
+
+    **Example Output of `tako migrate --dry-run`**:
+
+    ```diff
+    --- a/tako.yml
+    +++ b/tako.yml
+    @@ -1,5 +1,15 @@
+    -version: 0.1.0
+    -command:
+    -  release:
+    -    run: ./scripts/release.sh
+    +version: 0.2.0
+    +workflows:
+    +  release:
+    +    on: exec
+    +    steps:
+    +      - id: release
+    +        run: ./scripts/release.sh
+    +        # TODO: Define the artifacts produced by this step.
+    +        # produces:
+    +        #   artifact: <artifact-name>
+    +        #   outputs:
+    +        #     version: from_stdout
+    ```
 
 ### 6.1. Schema Versioning and Compatibility
 
@@ -338,13 +368,6 @@ This milestone introduces the core security and isolation features, and expands 
 **✅ Image Management (Section 3.7)**: Pull policies and private registry authentication covered  
 **✅ Template Performance (Section 3)**: Caching strategy addresses performance concerns  
 
-### 11.3. Minor Implementation Details Needing Clarification
-
-**❓ Large Repository Performance**
-- Line 113-114: Topological sort on "all repositories defined in dependents sections"
-- What's the performance with 100+ repositories in a complex dependency graph?
-- Should there be graph size limits or performance warnings?
-
 ### 11.4. Security Model Excellence
 
 **🔒 Outstanding Security Design**:
@@ -354,11 +377,6 @@ This milestone introduces the core security and isolation features, and expands 
 - CEL sandboxing with resource limits ✅
 - Debug mode secret redaction ✅
 - State file secret exclusion ✅
-
-**Minor Security Enhancement Opportunities**:
-- Container network isolation could be default-deny rather than default-allow
-- Consider adding AppArmor/SELinux profile specifications for additional hardening
-- Template parsing error messages should be sanitized to prevent information disclosure
 
 ### 11.5. Architectural Soundness
 
@@ -397,30 +415,12 @@ This milestone introduces the core security and isolation features, and expands 
 - Container runtime detection and adaptation
 - Large-scale performance optimization
 
-### 11.7. Minor Documentation Enhancements
 
-**❓ CLI Specification Completeness**
-- Several CLI flags are mentioned (`--max-concurrent-repos`, `--no-cache`, `--debug`) but not fully specified
-- **Suggestion**: Add a comprehensive CLI reference section or appendix
 
-**❓ Built-in Steps Specification**
-- `tako/checkout@v1`, `tako/update-dependency@v1` are referenced but not detailed
-- What parameters do they accept? What do they do?
-- **Suggestion**: Either specify these steps or note they'll be detailed in implementation issues
+### 11.8. Open Questions
 
-**❓ Migration Command Details**
-- Line 198: `tako migrate` command is mentioned but specifics are sparse
-- What does the migration output look like?
-- How are breaking changes communicated to users?
+-   Should there be a hard limit on the size of the template cache?
 
-### 11.8. Final Recommendations
-
-1. **Document the secrets vs. non-secrets template syntax distinction** - this is actually a excellent security design choice
-2. **Specify default container capabilities** and extension mechanism  
-3. **Add CLI reference section** for completeness
-4. **Consider adding template cache memory limits** for large workflows
-5. **Specify built-in steps** or defer to implementation documentation
-6. **Add performance guidance** for large dependency graphs
 
 ### 11.9. Implementation Confidence Assessment
 
@@ -436,4 +436,49 @@ This design has reached a level of precision and completeness that makes success
 - Pragmatic scope management (MVP first, then containerization)
 
 **Bottom Line**: This is now an **excellent, implementation-ready design** that successfully balances functionality, security, and implementation feasibility. The design has consistently **gained precision** across iterations without losing clarity or introducing complexity bloat.
+
+## Appendix A: CLI Reference
+
+| Flag                     | Description                                                                                             | Default |
+| ------------------------ | ------------------------------------------------------------------------------------------------------- | ------- |
+| `--max-concurrent-repos` | The maximum number of repositories to process in parallel.                                              | `4`       |
+| `--no-cache`             | Invalidate the cache for this run and execute all steps.                                                | `false`   |
+| `--debug`                | Enable debug mode, which provides step-by-step execution and additional logging.                        | `false`   |
+| `--resume <run-id>`      | Resume a previously persisted workflow run.                                                             |         |
+| `--dry-run`              | Print the execution plan without making any changes.                                                    | `false`   |
+| `--inputs.<name>=<value>`| Pass an input variable to the workflow.                                                                 |         |
+
+## Appendix B: Built-in Steps
+
+### `tako/checkout@v1`
+
+Checks out the source code of the repository.
+
+**Parameters**:
+
+-   `ref` (string): The branch, tag, or commit SHA to checkout. Defaults to the current branch.
+
+### `tako/update-dependency@v1`
+
+Updates a dependency in a repository. The step will automatically detect the package manager and update the dependency.
+
+**Parameters**:
+
+-   `name` (string, required): The name of the dependency to update.
+-   `version` (string, required): The new version of the dependency.
+
+### `tako/create-pull-request@v1`
+
+Creates a pull request on the code hosting platform.
+
+**Parameters**:
+
+-   `title` (string, required): The title of the pull request.
+-   `body` (string, required): The body of the pull request.
+-   `base` (string, required): The base branch for the pull request.
+-   `head` (string, required): The head branch for the pull request.
+
+
+
+-   **Sanitization**: All error messages originating from template parsing or execution will be sanitized to prevent the leaking of sensitive information or internal system details.
 
