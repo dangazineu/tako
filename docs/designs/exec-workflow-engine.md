@@ -313,6 +313,7 @@ To maintain the ease of use for simple, one-off tasks, the existing `tako run` c
     -   **Interactive Mode**: In an interactive shell, the engine will pause before each step and wait for user confirmation to proceed.
     -   **Non-Interactive Mode**: In a non-interactive environment (e.g., CI), the engine will log the step information and continue without pausing.
 -   **State Inspection**: A `tako state inspect <run-id>` command will be provided to print the persisted state of a workflow, which is useful for debugging.
+-   **Status Check**: A `tako status <run-id>` command will be provided to check the status of a running or completed workflow. For long-running steps, this command will show the status of the detached container.
 
 ### 7.3. Testing Workflows
 
@@ -355,6 +356,7 @@ This milestone introduces the core security and isolation features, and expands 
 12. **`feat(engine): Implement step caching`** with content-addressable keys.
 13. **`feat(engine): Implement asynchronous persistence and resume`**.
 14. **`feat(exec): Implement --dry-run mode`**.
+15. **`feat(cmd): Create 'tako status' command`**.
 
 
 ## 9. Testing Scenarios
@@ -467,8 +469,6 @@ This scenario tests the ability to persist the state of a long-running workflow 
 3.  The `run-simulation` step begins. Because it is marked as `long_running`, the `tako` engine persists the workflow state to `~/.tako/state/<run-id>.json` and exits, returning the `<run-id>` to the user.
 4.  The user can now close their terminal. The simulation continues to run in its container.
 5.  Later, the user checks the status of the simulation. Once it is complete, they resume the workflow with `tako exec --resume <run-id>`.
-
-<!-- EFFICIENCY CONCERN: How does the user "check the status of the simulation"? There's no documented command for this. Should there be a `tako status <run-id>` command? -->
 
 <!-- RESOURCE MANAGEMENT QUESTION: Long-running containers could consume system resources indefinitely. Are there resource limits that persist after the main process exits? What happens if the system runs out of disk space or memory? -->
 6.  The engine loads the state, sees that the `run-simulation` step was the last one running, and proceeds to the next step, `publish-results`.
