@@ -267,7 +267,9 @@ To maintain the ease of use for simple, one-off tasks, the existing `tako run` c
 
 ### 7.2. Debugging and Introspection
 
--   **Debug Mode**: A `--debug` flag on `tako exec` will enable step-by-step execution, pausing before each step and waiting for user confirmation to proceed.
+-   **Debug Mode**: A `--debug` flag on `tako exec` will enable step-by-step execution.
+    -   **Interactive Mode**: In an interactive shell, the engine will pause before each step and wait for user confirmation to proceed.
+    -   **Non-Interactive Mode**: In a non-interactive environment (e.g., CI), the engine will log the step information and continue without pausing.
 -   **State Inspection**: A `tako state inspect <run-id>` command will be provided to print the persisted state of a workflow, which is useful for debugging.
 
 ### 7.3. Testing Workflows
@@ -368,11 +370,6 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 ### 10.6. Performance and Resource Management
 
 ### 10.7. Error Handling and Debugging
-
-**❓ Debug Mode Implementation Details**
-- Line 220: Debug mode "pauses before each step" - but how is user input handled?
-- What if debug mode is used in CI environments without interactive shells?
-- **Missing Detail**: Specify interactive vs. non-interactive debug behaviors.
 
 ### 10.8. Architectural Consistency
 
