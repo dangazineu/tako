@@ -128,9 +128,10 @@ dependents:
     - **Step Execution**: Within a single repository's workflow, steps are executed sequentially in the order they are defined. Dependencies between steps are managed by this sequential execution. The initial design does not support step-level parallelism.
     - **Resource Limits**: Each workflow runs in a container. The `resources` block and corresponding CLI flags define hard limits for CPU and memory. If a container exceeds these limits, it will be terminated by the container runtime.
     - **Workspace**: The workspace (`~/.tako/workspaces/<run-id>/...`) is mounted into the container.
+    - **Template Caching**: To optimize performance, templates are parsed once per workflow execution and the parsed representation is cached for the duration of the run.
 
 4.  **State & Resumption**:
-    - -   State is saved to `~/.tako/state/<run-id>.json` after each step. The file is checksummed to detect corruption. If the state file is found to be corrupt, the run fails. While there is no automatic recovery in the initial version, state file versioning and incremental backups are being considered for future releases to improve resilience.
+    - State is saved to `~/.tako/state/<run-id>.json` after each step. The file is checksummed to detect corruption. If the state file is found to be corrupt, the run fails. While there is no automatic recovery in the initial version, state file versioning and incremental backups are being considered for future releases to improve resilience.
     - To resume, a user runs `tako exec --resume <run-id>`.
     - **Idempotency**: It is the responsibility of the workflow author to design steps to be idempotent, especially in workflows that are expected to be resumed. The engine does not provide any guarantees about partially completed steps.
     - **Cross-Repository Consistency**: The engine does not provide transactional guarantees for state changes across multiple repositories. A failure in one repository's workflow does not automatically roll back changes in another.
@@ -346,11 +347,6 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 ### 10.5. State Management and Consistency 
 
 ### 10.6. Performance and Resource Management
-
-**❓ Template Parsing Performance**
-- Templates are parsed for every step execution
-- Complex workflows with many steps could suffer from repeated parsing overhead
-- **Question**: Are parsed templates cached? Should there be template pre-compilation?
 
 **❓ Workspace Storage Growth**
 - Line 138: Workspaces retained for failed runs, but no cleanup strategy
