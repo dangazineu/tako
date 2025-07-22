@@ -156,6 +156,20 @@ dependents:
 -   **Format**: The `<run-id>` is a UUIDv4 string.
 -   **Collision Avoidance**: The use of UUIDv4 provides a high degree of confidence that each run will have a unique ID, preventing collisions between concurrent executions.
 
+### 3.8. Error Message Quality
+
+-   **Standard**: Error messages should be clear, concise, and actionable. They should provide context, explain the error, and suggest a solution.
+-   **Example of a Good Error Message**:
+    ```
+    Error: Failed to execute step 'get_version' in workflow 'release'.
+    Reason: Input validation failed for 'version-bump'.
+    Details: Expected one of [major, minor, patch], but got 'invalid'.
+    ```
+-   **Example of a Bad Error Message**:
+    ```
+    Error: Step failed.
+    ```
+
 ### 3.7. Container Image Management
 
 -   **Image Pull Policy**: By default, `tako` will use the `pull-if-not-present` policy for container images. This can be overridden with an `image_pull_policy` key in the step definition (`always`, `never`, `if-not-present`).
@@ -354,11 +368,6 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 ### 10.6. Performance and Resource Management
 
 ### 10.7. Error Handling and Debugging
-
-**❓ Error Message Quality**
-- Line 120: "descriptive error message" mentioned but no examples or standards
-- Poor error messages could significantly impact developer productivity
-- **Suggestion**: Include examples of good vs. bad error messages in the design.
 
 **❓ Debug Mode Implementation Details**
 - Line 220: Debug mode "pauses before each step" - but how is user input handled?
