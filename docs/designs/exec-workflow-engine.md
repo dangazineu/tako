@@ -85,6 +85,8 @@ workflows:
     # A CEL expression to filter triggers. This workflow only runs if the
     # triggering artifact was 'tako-lib'.
     if: trigger.artifact.name == 'tako-lib'
+    # Timeout for waiting for all upstream artifacts to complete (default: 1h)
+    aggregation_timeout: "2h"
     steps:
       - uses: tako/checkout@v1
       - uses: tako/update-dependency@v1
@@ -125,8 +127,6 @@ dependents:
       - **Trigger Context**: The `trigger` context will contain a list of artifacts, accessible via `.trigger.artifacts`. Each element in the list will have the same structure as a single artifact trigger (e.g., `.trigger.artifacts[0].name`, `.trigger.artifacts[0].outputs.version`).
       - **Failure Policy**: If any of the upstream workflows fail, the downstream workflow will not be triggered. The initial design does not support partial success or failure policies for aggregation.
       - **Timeout**: A configurable `aggregation_timeout` (default: `1h`) can be set on the downstream workflow to prevent indefinite waiting. If the timeout is reached before all upstream workflows complete, the workflow will fail.
-      
-      <!-- PRECISION LOSS: The `aggregation_timeout` configuration is mentioned but not shown in any schema examples. Where exactly does this configuration go in the tako.yml? At the workflow level? This needs to be clarified in section 2.3. -->
 
 2.  **Input Validation**:
     - Before execution, the engine validates all workflow inputs against the `validation` rules defined in the schema.
@@ -156,10 +156,11 @@ dependents:
     - The container will continue to run in the background. The user can check its status with `tako status <run-id>` and resume the workflow with `tako exec --resume <run-id>` once the long-running step has completed.
     - It is the responsibility of the workflow author to ensure that the long-running step will eventually complete and that there is a way to determine its completion (e.g., by writing a file, updating a status in a database). The `tako/poll@v1` built-in step is provided for this purpose.
     - **Failure Detection**: The engine does not actively monitor long-running steps for crashes or system reboots. If a container crashes, it will simply exit. It is up to the workflow author to use the `tako/poll@v1` step with appropriate timeouts and checks to detect such failures. For example, a polling step could check for the existence of a "success" file, and if the file is not present after a certain amount of time, the workflow would fail.
-    
-    <!-- RELIABILITY CONCERN: What happens if the system reboots while a long-running container is executing? The container would be lost, but the state file would still reference it. How does the engine handle this scenario during resume? Should there be container recovery mechanisms? -->
-    
-    <!-- RESOURCE LEAK CONCERN: Long-running containers that become orphaned (due to system issues, network problems, etc.) could accumulate over time and consume resources indefinitely. While manual cleanup is mentioned, should there be automatic detection and cleanup of containers that have been running beyond expected timeframes? -->
+    - **System Reboot Recovery**: When a system reboots while a long-running container is executing, the container will be lost. During workflow resumption, the engine will detect that the referenced container no longer exists and will restart the long-running step from the beginning. The engine accomplishes this by checking container existence before attempting to poll or resume from a long-running step. While this means some work may be repeated, it ensures consistent behavior and prevents the workflow from becoming permanently stuck.
+    - **Orphaned Container Management**: To prevent resource leaks from long-running containers that become orphaned, the engine will implement automatic cleanup mechanisms:
+      - **Container Labeling**: All `tako`-managed containers are labeled with metadata including the run ID and creation timestamp.
+      - **Automatic Cleanup**: The `tako status` and `tako exec --resume` commands will automatically detect and clean up containers that have been running for more than 24 hours without an associated active workflow state.
+      - **Manual Cleanup**: A `tako container clean --older-than <duration>` command will be provided to manually clean up orphaned containers based on age or other criteria.
 
 ### 3.1. Workspace Management
 
