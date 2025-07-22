@@ -160,23 +160,49 @@ The implementation will be broken down into the following issues, organized by m
 13. **`test(e2e): Add E2E test for single-repo workflow`**.
 14. **`test(e2e): Add E2E test for multi-repo fan-out/fan-in`**.
 
-## 9. Final Review and Implementation Readiness Assessment
 
-### 9.1. Major Improvements ✅
+### 9. Remaining Questions and Minor Gaps
 
-This version represents a **significant leap in precision and implementability**:
+This is a comprehensive and well-thought-out design. The following are some suggestions for improvement and questions that came up during the review.
 
-- **Artifact output association fixed**: The `produces` block (lines 64-67) elegantly solves the previous design flaw where outputs were associated with ALL artifacts
-- **CEL expression engine specified**: Line 102 clearly states Common Expression Language for `if` conditions
-- **Resource limits syntax defined**: Lines 58-59 provide concrete examples (`cpu_limit: "1.0"`, `mem_limit: "512Mi"`)
-- **Input type system added**: Line 53 specifies supported types (`string`, `boolean`, `number`) 
-- **Cache algorithm specified**: Line 121 specifies SHA256 hashing
-- **Security details clarified**: Fixed UID 1001 (line 116), network restriction syntax (line 117)
-- **Built-in step discovery**: `tako steps list` command (line 131)
-- **Migration validation**: `--dry-run` flag for migration (line 127)
+### 9.1. Complexity and Phased Rollout
 
-### 9.2. Remaining Questions and Minor Gaps
+The proposed design is a significant leap in functionality, and with that comes complexity. While the implementation plan is broken down into milestones, it might be beneficial to consider an even more phased rollout to de-risk the implementation.
 
+*   **Suggestion:** Could Milestone 1 be broken down further? For example, the first release could focus solely on the `on: exec` trigger and local, non-containerized execution. This would provide value to users quickly while the more complex features like containerization and `on: artifact_update` are being developed.
+
+### 9.2. Security Model
+
+The security model is a strong point of the design. Running steps in containers is a great way to isolate them and prevent them from interfering with the host system.
+
+*   **Question:** How will secrets be managed? The design mentions that they will be passed as environment variables, but it doesn't specify how they will be defined in the `tako.yml` file. Will there be a separate `secrets` block?
+*   **Suggestion:** It would be beneficial to add a section to the design that explicitly details the secret management strategy. This should include how secrets are defined, how they are passed to containers, and how they are scrubbed from logs.
+
+### 9.3. Caching
+
+The caching mechanism is well-defined and will be a great performance enhancement.
+
+*   **Suggestion:** It would be useful to have a way to manually invalidate the cache for a specific step or workflow. This could be a CLI flag (e.g., `tako exec --no-cache`) or a command (e.g., `tako cache clean`).
+
+### 9.4. Usability
+
+The proposed CLI is very flexible, but it could be difficult to use for simple cases.
+
+*   **Suggestion:** Consider adding some convenience commands or flags to make it easier to use. For example, a `tako run` command that is a simplified version of `tako exec` for running a single command across all repositories. This would be similar to the existing `run` command, but it would be integrated with the new workflow engine.
+
+### 9.5. Migration
+
+The `tako migrate` command is a great idea and will be essential for users upgrading from v0.1.0.
+
+*   **Suggestion:** In addition to the `--dry-run` flag, it would be useful to have a `--validate` flag that checks the migrated configuration for errors without actually running any workflows. This would give users more confidence that the migration was successful.
+
+### 9.6. Implementation and Testing
+
+The implementation plan is very detailed, but it could be improved by adding more information about how the different milestones will be tested.
+
+*   **Suggestion:** For each milestone, it would be beneficial to define the specific E2E tests that will be created. This will help to ensure that the implementation is correct and that there are no regressions. For example, for Milestone 2, an E2E test could be created that runs a workflow in a container and verifies that the output is correct.
+
+### 9.7. Additional Suggestions 
 **❓ Input validation specifics**
 - Line 53 mentions `string`, `boolean`, `number` types but no validation rules
 - Are there plans for enum constraints, regex validation, range limits for numbers?
@@ -202,7 +228,7 @@ This version represents a **significant leap in precision and implementability**
 - How are file modification times, permissions, and symlinks handled?
 - Is there cache size management or eviction policy?
 
-### 9.3. Minor Implementation Details
+### 9.8. Minor Implementation Details
 
 **🔧 Error handling granularity**
 - Step failures halt execution, but no specification of partial recovery
@@ -219,26 +245,7 @@ This version represents a **significant leap in precision and implementability**
 - Base64, URL encoding, JSON embedded secrets handling?
 - Performance impact of string scanning all logs?
 
-### 9.4. Design Quality Assessment
-
-**Precision Level: EXCELLENT** 🎯
-- This version maintains high technical precision while being well-organized
-- Critical specifications are present and unambiguous
-- Examples are concrete and implementation-ready
-
-**Implementation Readiness: 95%** 🚀
-- All major architectural decisions are clearly specified
-- Schema is complete with concrete examples
-- Security model is well-defined
-- Migration path is clear
-
-**Remaining 5%** comprises minor implementation details that can be resolved during development:
-- Input validation specifics
-- CEL security sandbox configuration  
-- Resource limit enforcement mechanism
-- Workspace cleanup policies
-
-### 9.5. Security Posture Review
+### 9.9. Security Posture Review
 
 **Strong security foundation** with:
 - Container sandboxing with fixed non-root UID
@@ -250,17 +257,3 @@ This version represents a **significant leap in precision and implementability**
 - CEL expression evaluation should be sandboxed
 - Large repository cache key computation could cause DoS
 - Secret scrubbing should handle encoded values
-
-### 9.6. Final Recommendation
-
-This design document is **ready for implementation**. The major architectural concerns have been resolved, and the specification is sufficiently detailed for development teams to begin work.
-
-The progression from earlier iterations shows **consistent improvement in precision** without losing clarity. The document successfully balances technical rigor with readability.
-
-**Recommended next steps**:
-1. Begin Milestone 1 implementation 
-2. Create detailed issue templates based on implementation plan
-3. Establish acceptance criteria for each milestone
-4. Consider creating a technical RFC process for the minor gaps identified above
-
-**Overall Assessment: APPROVED FOR IMPLEMENTATION** ✅
