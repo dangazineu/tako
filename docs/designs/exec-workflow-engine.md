@@ -132,9 +132,10 @@ dependents:
     - **Repository Parallelism**: Repositories are processed in parallel, limited by `--max-concurrent-repos` (default: 4).
     - **Step Execution**: Within a single repository's workflow, steps are executed sequentially. Each step can have an optional `if` condition (a CEL expression). The step is skipped if the condition evaluates to false.
     
-    <!-- PRECISION LOSS: Step-level `if` conditions are mentioned here but not documented in the schema section (2.3). The schema examples don't show this feature. This is a significant omission that reduces implementation precision. -->
-    
-    <!-- QUESTION: What variables are available in step-level `if` expressions? Can they reference `.inputs`, `.steps.previous-step.outputs`, `.trigger`, etc.? This needs to be clearly specified. -->
+      - **`if` Condition Context**: The CEL expression in a step's `if` condition has access to the following contexts:
+        -   `.inputs`: The workflow's input parameters.
+        -   `.steps`: The outputs of all previously completed steps in the same workflow (e.g., `.steps.previous-step.outputs.version`).
+        -   `.trigger`: For workflows with `on: artifact_update`, the trigger context containing information about the upstream artifact(s).
     - **Resource Limits**: Each workflow runs in a container. The `resources` block and corresponding CLI flags define hard limits for CPU and memory. If a container exceeds these limits, it will be terminated by the container runtime.
     - **Workspace**: The workspace (`~/.tako/workspaces/<run-id>/...`) is mounted into the container.
     - **Template Caching**: To optimize performance, templates are parsed once per workflow execution and the parsed representation is cached in-memory for the duration of the run. The initial design does not include hard limits on the template cache size, as the memory footprint is expected to be minimal for typical workflows. No hard limit will be imposed.
