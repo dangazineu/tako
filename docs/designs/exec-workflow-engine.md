@@ -639,7 +639,77 @@ Polls for a specific condition to be met, typically used to check the status of 
 
 **Sanitization**: All error messages originating from template parsing or execution will be sanitized to prevent the leaking of sensitive information or internal system details.
 
-## 9. Implementation Plan
+## 10. Open Questions
+
+Based on the comprehensive design review, the following open questions require resolution before or during implementation:
+
+### 10.1. Schema and Configuration Questions
+
+1. **`on_failure` Schema Integration**: The `on_failure` block is described in section 3.2.1 but not formally documented in the schema reference (section 2.3). How does this integrate with the step schema? Should it be at the same level as `run` and `uses`, or nested within?
+
+2. **CEL Function Library**: The design mentions `semver.satisfies()` functions in CEL expressions (line 133) but doesn't specify the complete function library. What CEL functions will be available beyond the standard set? Should this be documented in an appendix?
+
+3. **Step-Level Image Override**: The schema shows workflow-level `image` specification, but can individual steps override this with their own `image` field? This impacts containerization flexibility.
+
+### 10.2. Execution Model Questions
+
+4. **Multi-Repository State Consistency**: How does the engine handle the case where one repository succeeds but another fails in the same `tako exec` run? Is there a way to query the overall status of a multi-repo execution?
+
+5. **Concurrent `tako exec` Runs**: What happens if multiple `tako exec` commands are run simultaneously that affect overlapping repository sets? Should there be locking mechanisms or conflict detection?
+
+6. **Step Dependency Beyond Sequential**: The current design executes steps sequentially within a workflow. Are there use cases where explicit step dependencies (e.g., step C depends on both step A and B) would be valuable?
+
+### 10.3. Long-Running Steps and Async Operations
+
+7. **Long-Running Step Output Timing**: When exactly are outputs from long-running steps captured? When the `.tako/outputs.json` file appears, or when the polling step succeeds? This affects timing guarantees.
+
+8. **Container Persistence Guarantees**: What happens to long-running containers during system maintenance, Docker daemon restarts, or host migration? Should there be health checks or heartbeat mechanisms?
+
+9. **Polling Step Lifecycle**: Can a single workflow have multiple polling steps for different long-running operations? How do they interact with workflow resumption?
+
+### 10.4. Security and Isolation Questions
+
+10. **Template Function Security Boundary**: Beyond `shell_quote`, what other template functions are planned? Each function introduces potential security considerations - should there be a security review process for new template functions?
+
+11. **Cross-Container Communication**: In multi-step workflows, can containers access outputs from previous steps beyond the JSON state? This has implications for security isolation.
+
+12. **Secret Rotation During Execution**: How should the engine handle secret rotation that occurs during a long-running workflow execution? Should workflows be pausable for credential updates?
+
+### 10.5. Performance and Scalability Questions
+
+13. **State File Size Limits**: The design mentions state files can grow large but doesn't specify limits or mitigation strategies. Should there be warnings or hard limits to prevent resource exhaustion?
+
+14. **Template Cache Eviction**: While template cache has no size limits, should there be an eviction policy for workflows with thousands of templates to prevent memory leaks?
+
+15. **Repository Checkout Optimization**: For large monorepos or workflows with many repositories, is shallow cloning or sparse checkout supported to improve performance?
+
+### 10.6. Testing and Development Experience
+
+16. **Testing Framework Integration**: Should built-in steps like `tako/checkout@v1` support test-specific behaviors (e.g., mock modes, fixtures) to facilitate workflow testing?
+
+17. **Workflow Composition**: Are there plans for including or referencing workflows from other repositories? This would enable workflow libraries and reuse patterns.
+
+18. **Development Workflow Integration**: How should the engine integrate with development workflows that use feature branches, pull requests, and code reviews?
+
+### 10.7. Implementation Strategy Questions
+
+19. **Milestone Dependencies**: Issue 13 (long-running steps) depends on Issue 6 (containerization) and Issue 15 (status command), but the dependencies aren't clearly documented. Should the implementation plan specify prerequisite relationships?
+
+20. **Backward Compatibility Strategy**: The migration from v0.1.0 to v0.2.0 is a breaking change. What's the long-term strategy for schema evolution to minimize future breaking changes?
+
+21. **Error Recovery Granularity**: Should there be different recovery strategies for different types of failures (network issues, authentication failures, resource exhaustion, etc.)?
+
+### 10.8. Missing Implementation Details
+
+22. **Built-in Step Parameters**: The `tako/update-dependency@v1` step mentions automatic package manager detection, but doesn't specify how ecosystem-specific parameters (e.g., Maven profiles, npm registry) are handled.
+
+23. **Dry-Run Completeness**: How comprehensive should dry-run mode be? Should it simulate template resolution, artifact dependency checking, and resource validation without execution?
+
+24. **Metrics and Observability**: Beyond resource monitoring, should the engine provide metrics for workflow success rates, execution times, and performance trends?
+
+These questions represent areas where the design could benefit from additional specification or where implementation decisions will need to be made with careful consideration of the overall architecture and user experience.
+
+## 11. Implementation Plan
 
 The implementation will be broken down into the following GitHub issues, organized by milestones.
 
