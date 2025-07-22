@@ -146,6 +146,11 @@ dependents:
 ### 3.3. Scalability
 
 -   **Local Execution**: The initial design is focused on providing a powerful and flexible workflow engine for local and single-machine CI environments.
+### 3.5. Run ID Generation
+
+-   **Format**: The `<run-id>` is a UUIDv4 string.
+-   **Collision Avoidance**: The use of UUIDv4 provides a high degree of confidence that each run will have a unique ID, preventing collisions between concurrent executions.
+
 ### 3.4. Container Runtime
 
 -   **Supported Runtimes**: The engine will support both Docker and Podman as container runtimes. It will detect the available runtime by looking for the respective executables in the system's `PATH`.
@@ -313,12 +318,6 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 **✅ Precision Maintained**: The design has actually *gained* precision rather than losing it, with concrete examples, specific timeouts, and clear error handling policies.
 
 ### 10.2. Critical Implementation Questions
-
-**❓ Run ID Generation and Collision Handling**
-- Multiple references to `<run-id>` but no specification of how IDs are generated
-- What prevents collisions between concurrent executions?
-- What's the ID format and length?
-- **Suggestion**: Specify UUID4 or timestamp-based generation with collision detection.
 
 ### 10.3. Security and Template Safety
 
