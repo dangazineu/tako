@@ -159,7 +159,11 @@ dependents:
 ## 4. Security
 
 -   **Secret Scrubbing**: `tako` will maintain a list of secret names from the environment. It will perform a best-effort scrub of the exact string values of these secrets from all logs. This is a best-effort approach and may not catch secrets that have been encoded (e.g., Base64) or transformed. The performance impact of scanning logs is expected to be minimal for typical use cases.
--   **Container Security**: Containers run as a fixed, non-root UID (`1001`). `tako` will `chown` the workspace directory to this UID before starting the container.
+-   **Container Security**: Containers are executed with a set of hardening measures to reduce the risk of container escape and privilege escalation:
+    -   **Non-Root User**: Containers run as a fixed, non-root UID (`1001`). `tako` will `chown` the workspace directory to this UID before starting the container.
+    -   **Read-Only Root Filesystem**: The container's root filesystem will be mounted as read-only.
+    -   **Dropped Capabilities**: All Linux capabilities will be dropped, and only the necessary capabilities will be added back.
+    -   **Seccomp Profile**: A default seccomp profile will be applied to restrict the available syscalls.
 -   **Network**: By default, containers have network access. It can be disabled per-step with a `network: none` key in the step definition.
 
 ### 4.1. CEL Expression Security
@@ -325,12 +329,6 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 ### 10.2. Critical Implementation Questions
 
 ### 10.3. Security and Template Safety
-
-**🔒 Container Escape and Privilege Escalation**
-- Line 152: Fixed UID 1001 is good, but what about container escape scenarios?
-- No mention of seccomp profiles, AppArmor, or SELinux policies
-- Container capabilities are not restricted
-- **Suggestion**: Specify additional container hardening measures (readonly root filesystem, dropped capabilities, etc.).
 
 **🔒 CEL Memory and CPU Limits**
 - Line 158: 100ms timeout specified, but no memory limits for CEL evaluation
