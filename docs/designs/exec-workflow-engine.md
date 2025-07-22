@@ -119,11 +119,10 @@ dependents:
     - The `get_version` step runs and, because of its `produces` block, the engine associates its output (`version`) with the `tako-lib` artifact.
     - The engine then traverses the dependency graph. It finds downstream repos that depend on `tako-lib` and have workflows with `on: artifact_update`.
     - For each potential downstream workflow, it evaluates the `if` condition using the **Common Expression Language (CEL)**. If the expression evaluates to true, the workflow is added to the execution plan. The traversal has no fixed depth limit but is protected from infinite loops by the initial cycle detection.
-    - **Artifact Aggregation**: If a downstream repository depends on multiple artifacts that are updated within the same `tako exec` run, the engine will wait for all the corresponding upstream workflows to complete successfully. It will then trigger the downstream workflow only once, providing a list of all triggering artifacts in the `trigger` context.
-      
-      <!-- QUESTION: How exactly is the trigger context structured when multiple artifacts are provided? Is it `.trigger.artifacts[0].name`, `.trigger.artifacts[1].name`, etc.? The examples in Section 9.1 still use the singular `.trigger.artifact.name` syntax. This needs clarification to avoid implementation confusion. -->
-      
-      <!-- CRITIQUE: This aggregation logic could introduce significant delays in fan-out scenarios. What happens if one upstream workflow fails after others have completed? Are there timeout mechanisms? Should there be a configurable policy for partial failures in aggregation scenarios? -->
+    - **Artifact Aggregation**: If a downstream repository depends on multiple artifacts that are updated within the same `tako exec` run, the engine will wait for all the corresponding upstream workflows to complete successfully. It will then trigger the downstream workflow only once.
+      - **Trigger Context**: The `trigger` context will contain a list of artifacts, accessible via `.trigger.artifacts`. Each element in the list will have the same structure as a single artifact trigger (e.g., `.trigger.artifacts[0].name`, `.trigger.artifacts[0].outputs.version`).
+      - **Failure Policy**: If any of the upstream workflows fail, the downstream workflow will not be triggered. The initial design does not support partial success or failure policies for aggregation.
+      - **Timeout**: A configurable `aggregation_timeout` (default: `1h`) can be set on the downstream workflow to prevent indefinite waiting. If the timeout is reached before all upstream workflows complete, the workflow will fail.
 
 2.  **Input Validation**:
     - Before execution, the engine validates all workflow inputs against the `validation` rules defined in the schema.
