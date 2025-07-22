@@ -128,7 +128,7 @@ dependents:
     - **Step Execution**: Within a single repository's workflow, steps are executed sequentially in the order they are defined. Dependencies between steps are managed by this sequential execution. The initial design does not support step-level parallelism.
     - **Resource Limits**: Each workflow runs in a container. The `resources` block and corresponding CLI flags define hard limits for CPU and memory. If a container exceeds these limits, it will be terminated by the container runtime.
     - **Workspace**: The workspace (`~/.tako/workspaces/<run-id>/...`) is mounted into the container.
-    - **Template Caching**: To optimize performance, templates are parsed once per workflow execution and the parsed representation is cached for the duration of the run.
+    - **-   **Template Caching**: To optimize performance, templates are parsed once per workflow execution and the parsed representation is cached in-memory for the duration of the run. The initial design does not include hard limits on the template cache size, as the memory footprint is expected to be minimal for typical workflows.
 
 4.  **State & Resumption**:
     - State is saved to `~/.tako/state/<run-id>.json` after each step. The file is checksummed to detect corruption. If the state file is found to be corrupt, the run fails. While there is no automatic recovery in the initial version, state file versioning and incremental backups are being considered for future releases to improve resilience.
@@ -313,4 +313,137 @@ This milestone introduces the core security and isolation features, and expands 
 12. **`feat(engine): Implement step caching`** with content-addressable keys.
 13. **`feat(engine): Implement asynchronous persistence and resume`**.
 14. **`feat(exec): Implement --dry-run mode`**.
+
+## 11. Final Design Review: Precision, Implementation Readiness, and Remaining Considerations
+
+### 11.1. Overall Assessment - Excellent Evolution
+
+**✅ Outstanding Precision Improvement**: This iteration has significantly **increased** precision while addressing virtually all previously identified concerns. The design has evolved from good to excellent with comprehensive technical details.
+
+**✅ Implementation-Ready**: The level of detail now provided makes this design highly implementable with minimal ambiguity during development.
+
+**✅ Security-First Approach**: The enhanced security model, particularly the secrets management redesign, demonstrates excellent security thinking.
+
+### 11.2. Successfully Addressed Concerns
+
+**✅ Container Runtime (Section 3.5)**: Docker/Podman detection with clear fallback behavior  
+**✅ Graph Traversal (Section 3)**: Topological sort with cycle detection is algorithmically sound  
+**✅ Run ID Generation (Section 3.4)**: UUIDv4 eliminates collision concerns  
+**✅ Container Security (Section 4)**: Comprehensive hardening measures (read-only fs, dropped caps, seccomp)  
+**✅ CEL Security (Section 4.1)**: Both timeout (100ms) and memory limits (64MB) specified  
+**✅ Error Messages (Section 3.8)**: Excellent good vs. bad examples provided  
+**✅ Debug Mode (Section 7.2)**: Interactive vs. non-interactive behavior clearly defined  
+**✅ Image Management (Section 3.7)**: Pull policies and private registry authentication covered  
+**✅ Template Performance (Section 3)**: Caching strategy addresses performance concerns  
+
+### 11.3. Minor Implementation Details Needing Clarification
+
+**❓ Secrets vs. Non-Secrets Template Inconsistency**
+- Line 222-223: Secrets use `GH_TOKEN: GITHUB_TOKEN` (env mapping)
+- Line 91: Non-secrets still use `{{ .trigger.artifact.outputs.version }}` (template interpolation)
+- This dual approach is actually **correct for security**, but should be explicitly documented
+- **Suggestion**: Add a note explaining why secrets and non-secrets use different syntaxes
+
+**❓ Container Capability Management**
+- Line 192: "All Linux capabilities will be dropped, and only the necessary capabilities will be added back"
+- Which capabilities are considered "necessary" for typical workflows?
+- How are additional capabilities requested when needed?
+- **Suggestion**: Provide a default capability set and extension mechanism
+
+**❓ Large Repository Performance**
+- Line 113-114: Topological sort on "all repositories defined in dependents sections"
+- What's the performance with 100+ repositories in a complex dependency graph?
+- Should there be graph size limits or performance warnings?
+
+### 11.4. Security Model Excellence
+
+**🔒 Outstanding Security Design**:
+- Secrets never interpolated into templates ✅
+- Environment variable isolation ✅  
+- Container hardening with multiple layers ✅
+- CEL sandboxing with resource limits ✅
+- Debug mode secret redaction ✅
+- State file secret exclusion ✅
+
+**Minor Security Enhancement Opportunities**:
+- Container network isolation could be default-deny rather than default-allow
+- Consider adding AppArmor/SELinux profile specifications for additional hardening
+- Template parsing error messages should be sanitized to prevent information disclosure
+
+### 11.5. Architectural Soundness
+
+**✅ Excellent Design Decisions**:
+- UUIDv4 for run IDs prevents collisions
+- Topological sort naturally handles dependency ordering
+- Sequential step execution avoids concurrency complexity
+- Fail-fast error handling reduces debugging complexity
+- Template caching optimizes performance
+- Workspace isolation prevents cross-run interference
+
+**✅ Pragmatic Scope Management**:
+- MVP approach reduces initial implementation risk
+- Deferred features (plugins, distributed execution) are appropriate
+- Clear migration path from existing tools
+
+### 11.6. Implementation Risk Assessment
+
+**Low Risk Components** (ready for immediate implementation):
+- Schema parsing and validation
+- UUIDv4 run ID generation  
+- Template parsing and caching
+- Host-based step execution (MVP)
+- State file management
+- Basic error handling and messaging
+
+**Medium Risk Components** (require careful implementation):
+- Container orchestration with security hardening
+- CEL expression evaluation and sandboxing
+- Cross-repository dependency graph traversal
+- Secrets management and environment isolation
+
+**Higher Risk Components** (suitable for later milestones):
+- Multi-repository state consistency
+- Resume/recovery mechanisms
+- Container runtime detection and adaptation
+- Large-scale performance optimization
+
+### 11.7. Minor Documentation Enhancements
+
+**❓ CLI Specification Completeness**
+- Several CLI flags are mentioned (`--max-concurrent-repos`, `--no-cache`, `--debug`) but not fully specified
+- **Suggestion**: Add a comprehensive CLI reference section or appendix
+
+**❓ Built-in Steps Specification**
+- `tako/checkout@v1`, `tako/update-dependency@v1` are referenced but not detailed
+- What parameters do they accept? What do they do?
+- **Suggestion**: Either specify these steps or note they'll be detailed in implementation issues
+
+**❓ Migration Command Details**
+- Line 198: `tako migrate` command is mentioned but specifics are sparse
+- What does the migration output look like?
+- How are breaking changes communicated to users?
+
+### 11.8. Final Recommendations
+
+1. **Document the secrets vs. non-secrets template syntax distinction** - this is actually a excellent security design choice
+2. **Specify default container capabilities** and extension mechanism  
+3. **Add CLI reference section** for completeness
+4. **Consider adding template cache memory limits** for large workflows
+5. **Specify built-in steps** or defer to implementation documentation
+6. **Add performance guidance** for large dependency graphs
+
+### 11.9. Implementation Confidence Assessment
+
+**Implementation Confidence: HIGH** 🚀
+
+This design has reached a level of precision and completeness that makes successful implementation highly likely. The three-milestone approach appropriately manages complexity, and the technical specifications are comprehensive enough to guide implementation decisions.
+
+**Key Success Factors**:
+- Clear algorithmic specifications (topological sort, UUIDv4)
+- Comprehensive security model with specific measures
+- Practical error handling with examples  
+- Performance optimization strategies (template caching, concurrent repos)
+- Pragmatic scope management (MVP first, then containerization)
+
+**Bottom Line**: This is now an **excellent, implementation-ready design** that successfully balances functionality, security, and implementation feasibility. The design has consistently **gained precision** across iterations without losing clarity or introducing complexity bloat.
 
