@@ -170,7 +170,9 @@ dependents:
 
 ### 4.2. Secrets Management
 
-To enhance security and align with best practices, the `tako.yml` file will not store secrets directly. Instead, it will define which secrets are required by a workflow. These secrets must be provided as environment variables during the `tako exec` run.
+To enhance security and align with best practices, the `tako.yml` file will not store secrets directly. Instead, it will define which secrets are required by a workflow. These secrets must be provided as environment variables to the `tako exec` process.
+
+**Important**: Secret values are **never** interpolated directly into the `tako.yml` file or any logs. The templating engine does not have access to secret values.
 
 ```yaml
 workflows:
@@ -184,16 +186,19 @@ workflows:
       - id: publish
         run: ./scripts/publish.sh
         # The engine will make the secrets available as environment
-        # variables inside the container.
+        # variables inside the container. The script can then use them.
         env:
-          GITHUB_TOKEN: {{ .secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: {{ .secrets.NPM_TOKEN }}
+          GH_TOKEN: GITHUB_TOKEN
+          NPM_TOKEN: NPM_TOKEN
 ```
 
 -   **Declaration**: The `secrets` block in a workflow lists the names of the environment variables that the workflow's steps require.
--   **Injection**: Before executing a step, the `tako` engine will read the values of the declared secrets from its own environment and make them available to the step's execution context (e.g., as environment variables within the container).
--   **Scrubbing**: As mentioned in the `Security` section, the names of these secrets will be used to scrub them from logs.
+-   **Injection**: The `env` block within a step maps the name of an environment variable inside the container (e.g., `GH_TOKEN`) to the name of a secret declared in the `secrets` block (e.g., `GITHUB_TOKEN`). The `tako` engine is responsible for securely passing the secret's value from its own environment into the container as the specified environment variable.
+-   **Scrubbing**: As mentioned in the `Security` section, the names of these secrets will be used to scrub their values from logs.
 -   **Error Handling**: If a required secret is not present in the environment when `tako exec` is run, the execution will fail before any steps are run.
+
+-   **Debug Mode**: A `--debug` flag on `tako exec` will enable step-by-step execution, pausing before each step and waiting for user confirmation to proceed. Secret values will be redacted from any debug output.
+-   **State Inspection**: A `tako state inspect <run-id>` command will be provided to print the persisted state of a workflow, which is useful for debugging. Secret values are never persisted to the state file.
 
 ## 5. Caching
 
@@ -320,12 +325,6 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 ### 10.2. Critical Implementation Questions
 
 ### 10.3. Security and Template Safety
-
-**🔒 Secrets Template Interpolation Risk**
-- Line 179-180: `{{ .secrets.GITHUB_TOKEN }}` in YAML could be logged during template parsing
-- Debug mode (line 220) could expose secrets through step-by-step output
-- Template parsing errors might include secret values in error messages
-- **Recommendation**: Implement secret-aware template parsing that redacts secret values from all outputs.
 
 **🔒 Container Escape and Privilege Escalation**
 - Line 152: Fixed UID 1001 is good, but what about container escape scenarios?
