@@ -346,44 +346,11 @@ To maintain the ease of use for simple, one-off tasks, the existing `tako run` c
 -   **Triggering from CI/CD**: A common pattern is to have an existing CI/CD pipeline call `tako exec` to orchestrate a multi-repo workflow.
 -   **Authentication**: Authentication with external systems (e.g., GitHub, Artifactory) is handled through the secrets management system.
 
-## 8. Implementation Plan
-
-The implementation will be broken down into the following issues, organized by milestones.
-
-#### Milestone 1: MVP - Local, Synchronous Execution
-
-This milestone focuses on delivering the core, single-repository `on: exec` functionality without containerization. This provides immediate value and a solid foundation for more advanced features.
-
-1.  **`feat(config): Implement v0.2.0 schema & migrate command`**: Update `internal/config` and create the `tako migrate` command.
-2.  **`feat(cmd): Create 'tako exec' command`**: Add the `exec` command with support for typed inputs.
-3.  **`feat(engine): Implement synchronous local runner`**: Create the single-repo execution loop that runs commands directly on the host.
-4.  **`feat(engine): Implement step output passing`**: Implement `from_stdout` capture, the `produces` block, and `text/template` hydration.
-5.  **`test(e2e): Add E2E test for single-repo workflow`**.
-
-#### Milestone 2: Containerization and Graph-Aware Execution
-
-This milestone introduces the core security and isolation features, and expands execution to multiple repositories.
-
-6.  **`feat(engine): Introduce containerized step execution`**: Modify the runner to execute steps in a secure, isolated container with resource limits.
-7.  **`feat(engine): Implement graph-aware execution & planning`**: Implement the artifact-based planning logic with CEL for `if` conditions and parallel execution.
-8.  **`feat(engine): Implement 'tako/checkout@v1' semantic step`**: Create the first built-in semantic step and the `tako steps list` command.
-9.  **`test(e2e): Add E2E test for multi-repo fan-out/fan-in`**.
-
-#### Milestone 3: Advanced Features & Use Cases
-
-10. **`feat(engine): Implement 'tako/update-dependency@v1' semantic step`**.
-11. **`feat(engine): Implement 'tako/create-pull-request@v1' semantic step`** with a default retry policy.
-12. **`feat(engine): Implement step caching`** with content-addressable keys.
-13. **`feat(engine): Implement asynchronous persistence and resume`**.
-14. **`feat(exec): Implement --dry-run mode`**.
-15. **`feat(cmd): Create 'tako status' command`**.
-
-
-## 9. Testing Scenarios
+## 8. Testing Scenarios
 
 This section outlines several testing scenarios to validate the capabilities of the workflow engine and explore the flow of information between steps and repositories.
 
-### 9.1. Scenario 1: Fan-Out/Fan-In Release
+### 8.1. Scenario 1: Fan-Out/Fan-In Release
 
 This scenario tests the core graph-aware execution model, where a change in a central library fans out to its dependents, which are then aggregated in a final "bill of materials" repository.
 
@@ -475,7 +442,7 @@ workflows:
           {{ end }}
 ```
 
-### 9.2. Scenario 2: Asynchronous Workflow with Resume
+### 8.2. Scenario 2: Asynchronous Workflow with Resume
 
 This scenario tests the ability to persist the state of a long-running workflow and resume it later.
 
@@ -579,4 +546,447 @@ Polls for a specific condition to be met, typically used to check the status of 
 **Security Note**: The `tako/poll@v1` step executes within the step's container and is subject to the same security restrictions, including filesystem and network isolation. It can only access resources that are available to the container.
 
 **Sanitization**: All error messages originating from template parsing or execution will be sanitized to prevent the leaking of sensitive information or internal system details.
+
+## 9. Implementation Plan
+
+The implementation will be broken down into the following GitHub issues, organized by milestones.
+
+### Milestone 1: MVP - Local, Synchronous Execution
+
+This milestone focuses on delivering the core, single-repository `on: exec` functionality without containerization. This provides immediate value and a solid foundation for more advanced features.
+
+### Issue 1: `feat(config): Implement v0.2.0 schema & migrate command`
+
+**Description:**
+Update the configuration system to support the new v0.2.0 schema with workflows, step definitions, and input validation. Implement the `tako migrate` command to convert v0.1.0 configurations to v0.2.0.
+
+**Implementation Details:**
+- Update `internal/config/config.go` to support the new workflow schema
+- Extend `Workflow` struct to include `On`, `If`, `AggregationTimeout`, `Inputs`, `Resources`, `Steps` fields
+- Implement step schema with `ID`, `If`, `Run`, `Uses`, `With`, `Produces`, `LongRunning` fields
+- Add input validation types (string, boolean, number) with enum and regex validation
+- Create `cmd/tako/internal/migrate.go` command
+- Support `--dry-run` and `--validate` flags for migration command
+- Implement schema version validation to reject unsupported versions
+- Update existing tests to use v0.2.0 schema
+- Add comprehensive migration test coverage
+
+**Acceptance Criteria:**
+- [ ] v0.2.0 schema fully supported in config loading
+- [ ] `tako migrate` converts v0.1.0 to v0.2.0 with comments for manual steps
+- [ ] `tako migrate --dry-run` shows proposed changes without modification
+- [ ] `tako migrate --validate` checks migrated config for errors
+- [ ] Backward compatibility: v0.2.0+ schemas load correctly
+- [ ] Breaking change: v0.1.0 schemas are rejected with clear error message
+- [ ] All existing tests pass with updated configuration
+
+**Files to Modify:**
+- `internal/config/config.go`
+- `cmd/tako/internal/migrate.go` (new)
+- Test files throughout the codebase
+- Example `tako.yml` files in tests
+
+---
+
+### Issue 2: `feat(cmd): Create 'tako exec' command`
+
+**Description:**
+Implement the `tako exec` command to execute workflows defined in `tako.yml`. Support workflow input validation, type conversion, and basic command execution without containerization.
+
+**Implementation Details:**
+- Create `cmd/tako/internal/exec.go` command
+- Implement workflow input parsing from `--inputs.<name>=<value>` CLI flags
+- Add input validation against schema (type checking, enum validation, regex validation)
+- Implement type conversion (string to boolean/number)
+- Create basic workflow execution loop for single repository
+- Support workflow-level `if` conditions using CEL evaluation
+- Add step-level `if` condition support
+- Integrate CEL expression evaluation with security sandboxing
+- Implement template parsing and caching for performance
+- Add comprehensive error messages following the design standard
+- Support `--debug` flag for step-by-step execution
+
+**Acceptance Criteria:**
+- [ ] `tako exec <workflow-name>` executes workflows from current directory
+- [ ] `--inputs.<name>=<value>` flags properly parsed and validated
+- [ ] Type conversions work correctly (string "true" → boolean true)
+- [ ] Input validation errors are clear and actionable
+- [ ] Workflow-level and step-level `if` conditions work with CEL
+- [ ] Template variables are properly substituted in step commands
+- [ ] `--debug` mode provides interactive step-by-step execution
+- [ ] Error messages follow the design standard (context, reason, details)
+
+**Files to Modify:**
+- `cmd/tako/internal/exec.go` (new)
+- `internal/engine/` package (new)
+- Integration with existing `internal/config` and `internal/errors`
+
+---
+
+### Issue 3: `feat(engine): Implement synchronous local runner`
+
+**Description:**
+Create the core execution engine that runs workflow steps sequentially on the host system. This provides the foundation for step execution, output capture, and state management.
+
+**Implementation Details:**
+- Create `internal/engine/runner.go` for step execution
+- Implement synchronous step execution on host (no containers initially)
+- Add workspace management at `~/.tako/workspaces/<run-id>/`
+- Implement UUIDv4 run ID generation
+- Create basic state persistence to `~/.tako/state/<run-id>.json`
+- Add state file checksumming for corruption detection
+- Support step execution with proper directory context switching
+- Implement basic resource limit monitoring (process-level)
+- Add workspace cleanup after successful completion
+- Create foundation for resumable execution (state loading)
+
+**Acceptance Criteria:**
+- [ ] Steps execute sequentially in workspace directory
+- [ ] Unique UUIDv4 run IDs generated for each execution
+- [ ] Workspace created at `~/.tako/workspaces/<run-id>/`
+- [ ] State persisted to `~/.tako/state/<run-id>.json` after each step
+- [ ] State files include checksums and detect corruption
+- [ ] Failed workflows retain workspace for debugging
+- [ ] Successful workflows clean up workspace automatically
+- [ ] Step execution respects working directory context
+
+**Files to Modify:**
+- `internal/engine/runner.go` (new)
+- `internal/engine/state.go` (new)
+- `internal/engine/workspace.go` (new)
+
+---
+
+### Issue 4: `feat(engine): Implement step output passing`
+
+**Description:**
+Implement the `produces` block functionality to capture step outputs and make them available to subsequent steps via template variables.
+
+**Implementation Details:**
+- Extend step execution to capture stdout when `produces.outputs.from_stdout` is specified
+- Implement artifact association via `produces.artifact` field
+- Add template context with `.inputs`, `.steps.<id>.outputs`, and `.trigger` variables
+- Create output state management and persistence
+- Support template variable resolution in step commands
+- Add custom template functions for iteration (e.g., `range .trigger.artifacts`)
+- Implement template caching for performance optimization
+- Add validation for output references in templates
+- Support step output chaining (step A → step B → step C)
+
+**Acceptance Criteria:**
+- [ ] `produces.outputs` captures stdout and stores in workflow state
+- [ ] Template variables `.steps.<id>.outputs.<name>` work in subsequent steps
+- [ ] Artifact association via `produces.artifact` field functions correctly
+- [ ] Custom template functions for iteration are available
+- [ ] Template parsing errors provide clear error messages
+- [ ] Output state is properly persisted between steps
+- [ ] Template performance is acceptable with caching
+
+**Files to Modify:**
+- `internal/engine/runner.go`
+- `internal/engine/template.go` (new)
+- `internal/engine/outputs.go` (new)
+
+---
+
+### Issue 5: `test(e2e): Add E2E test for single-repo workflow`
+
+**Description:**
+Create comprehensive end-to-end tests for single-repository workflow execution to validate the MVP functionality.
+
+**Implementation Details:**
+- Create test workflow scenarios using the existing E2E test framework
+- Test basic workflow execution with inputs and outputs
+- Verify step output passing and template variable resolution
+- Test input validation (type conversion, enum validation, regex validation)
+- Add error case testing (invalid inputs, template errors, step failures)
+- Test workspace and state management
+- Verify cleanup behavior for successful and failed workflows
+- Test debug mode functionality
+- Create test scenarios matching the design examples
+
+**Acceptance Criteria:**
+- [ ] E2E tests cover basic workflow execution
+- [ ] Input validation test cases (success and failure scenarios)
+- [ ] Step output passing verified through multiple steps
+- [ ] Template variable resolution tested with various contexts
+- [ ] Error handling and error message quality verified
+- [ ] Workspace and state management tested
+- [ ] Debug mode functionality validated
+- [ ] Tests run reliably in CI environment
+
+**Files to Modify:**
+- `internal/e2e/exec_test.go` (new)
+- Test fixture files for workflow scenarios
+
+---
+
+### Milestone 2: Containerization and Graph-Aware Execution
+
+This milestone introduces the core security and isolation features, and expands execution to multiple repositories.
+
+### Issue 6: `feat(engine): Introduce containerized step execution`
+
+**Description:**
+Modify the execution engine to run steps in secure, isolated containers with proper resource limits and security hardening.
+
+**Implementation Details:**
+- Add container runtime detection (Docker/Podman)
+- Implement container execution with security hardening:
+  - Non-root user (UID 1001)
+  - Read-only root filesystem
+  - Dropped capabilities (with optional `capabilities` block)
+  - Default seccomp profile
+  - No network access by default (with optional `network: default`)
+- Add workspace mounting into containers
+- Implement resource limits (CPU, memory) enforcement
+- Add container image pull policy support
+- Create container lifecycle management
+- Support both containerized and host execution modes
+- Add container cleanup after step completion
+- Implement proper error handling for container failures
+
+**Acceptance Criteria:**
+- [ ] Steps execute in isolated containers by default
+- [ ] Security hardening measures are properly applied
+- [ ] Resource limits are enforced and prevent resource exhaustion
+- [ ] Workspace is properly mounted and accessible to containers
+- [ ] Container images are pulled according to configured policy
+- [ ] Containers are cleaned up after step completion
+- [ ] Host execution mode still works for non-containerized steps
+- [ ] Clear error messages for container runtime issues
+
+**Files to Modify:**
+- `internal/engine/container.go` (new)
+- `internal/engine/runner.go` (extend)
+- `internal/engine/security.go` (new)
+
+---
+
+### Issue 7: `feat(engine): Implement graph-aware execution & planning`
+
+**Description:**
+Extend the execution engine to support multi-repository workflows with artifact-based dependency management and parallel execution.
+
+**Implementation Details:**
+- Extend existing graph building logic for artifact dependencies
+- Implement artifact aggregation logic with configurable timeouts
+- Add support for `on: artifact_update` workflows
+- Create trigger context with `.trigger.artifact` and `.trigger.artifacts`
+- Implement parallel repository execution with `--max-concurrent-repos`
+- Add CEL evaluation for workflow and step-level `if` conditions
+- Support artifact-based workflow triggering across repositories
+- Implement failure policy for aggregation scenarios
+- Add comprehensive logging for multi-repo execution flow
+- Integrate with existing repository caching and checkout logic
+
+**Acceptance Criteria:**
+- [ ] Multi-repository workflows execute in topological order
+- [ ] Artifact updates trigger downstream workflows correctly
+- [ ] Artifact aggregation waits for all upstream workflows
+- [ ] Parallel repository execution respects concurrency limits
+- [ ] Trigger context provides correct artifact information
+- [ ] CEL conditions work with trigger, inputs, and steps contexts
+- [ ] Aggregation timeouts prevent indefinite waiting
+- [ ] Clear error messages for dependency resolution issues
+
+**Files to Modify:**
+- `internal/engine/planner.go` (new)
+- `internal/engine/artifacts.go` (new)
+- `internal/graph/graph.go` (extend)
+- `cmd/tako/internal/exec.go` (extend)
+
+---
+
+### Issue 8: `feat(engine): Implement 'tako/checkout@v1' semantic step`
+
+**Description:**
+Create the first built-in semantic step and establish the framework for additional built-in steps. Implement the `tako steps list` command.
+
+**Implementation Details:**
+- Create `internal/steps/` package for built-in steps
+- Implement `tako/checkout@v1` step with `ref` parameter
+- Add step registration and discovery mechanism
+- Create `cmd/tako/internal/steps.go` for `tako steps list` command
+- Integrate built-in steps with the execution engine
+- Add proper parameter validation for built-in steps
+- Support versioning for built-in steps (@v1, @v2, etc.)
+- Add comprehensive documentation for built-in step parameters
+- Create testing framework for built-in steps
+
+**Acceptance Criteria:**
+- [ ] `uses: tako/checkout@v1` works in workflow steps
+- [ ] `ref` parameter properly checks out specified branch/tag/commit
+- [ ] `tako steps list` displays available built-in steps and parameters
+- [ ] Step versioning works correctly (@v1 syntax)
+- [ ] Parameter validation provides clear error messages
+- [ ] Built-in step framework supports future extensions
+- [ ] Integration tests verify checkout functionality
+
+**Files to Modify:**
+- `internal/steps/checkout.go` (new)
+- `internal/steps/registry.go` (new)
+- `cmd/tako/internal/steps.go` (new)
+- `internal/engine/runner.go` (extend)
+
+---
+
+### Issue 9: `test(e2e): Add E2E test for multi-repo fan-out/fan-in`
+
+**Description:**
+Create comprehensive end-to-end tests for multi-repository workflow execution to validate graph-aware execution and artifact aggregation.
+
+**Implementation Details:**
+- Implement the fan-out/fan-in test scenario from the design document
+- Create test repositories with proper dependency relationships
+- Test artifact production and consumption across repositories
+- Verify parallel execution and aggregation behavior
+- Test artifact aggregation timeouts and failure policies
+- Add comprehensive logging verification
+- Test trigger context population with multiple artifacts
+- Verify proper cleanup of multi-repo test environments
+
+**Acceptance Criteria:**
+- [ ] Fan-out/fan-in scenario executes correctly
+- [ ] Artifact dependencies trigger downstream workflows
+- [ ] Parallel execution respects repository concurrency limits
+- [ ] Artifact aggregation waits for all upstream completions
+- [ ] Trigger context contains correct artifact information
+- [ ] Test reliably reproduces the design scenario
+- [ ] Performance is acceptable for typical multi-repo workflows
+
+**Files to Modify:**
+- `internal/e2e/multi_repo_test.go` (new)
+- Test fixture repositories and configurations
+
+---
+
+### Milestone 3: Advanced Features & Use Cases
+
+### Issue 10: `feat(engine): Implement 'tako/update-dependency@v1' semantic step`
+
+**Description:**
+Implement the update-dependency built-in step that automatically detects package managers and updates dependencies.
+
+**Implementation Details:**
+- Add package manager detection (go.mod, package.json, pom.xml, etc.)
+- Implement dependency update logic for each supported ecosystem
+- Add proper error handling for update failures
+- Support `name` and `version` parameters
+- Add validation for dependency names and version formats
+- Integrate with existing ecosystem tooling
+- Create comprehensive test coverage for different package managers
+
+**Acceptance Criteria:**
+- [ ] `uses: tako/update-dependency@v1` works with `name` and `version` parameters
+- [ ] Automatic package manager detection functions correctly
+- [ ] Dependency updates work for supported ecosystems (Go, Node.js, Maven)
+- [ ] Clear error messages for unsupported package managers or invalid versions
+- [ ] Step integrates properly with workflow execution
+
+---
+
+### Issue 11: `feat(engine): Implement 'tako/create-pull-request@v1' semantic step`
+
+**Description:**
+Implement the create-pull-request built-in step with retry logic for integration with code hosting platforms.
+
+**Implementation Details:**
+- Add support for creating pull requests via GitHub API
+- Implement retry policy with exponential backoff
+- Add authentication via secrets management system
+- Support required parameters: title, body, base, head
+- Add proper error handling and rate limit management
+- Create integration tests with GitHub API
+
+**Acceptance Criteria:**
+- [ ] Pull request creation works with GitHub
+- [ ] Retry policy handles transient failures
+- [ ] Authentication works via secrets management
+- [ ] All required parameters are properly validated
+
+---
+
+### Issue 12: `feat(engine): Implement step caching`
+
+**Description:**
+Implement content-addressable step caching to improve workflow execution performance.
+
+**Implementation Details:**
+- Create cache key generation based on step definition and repository content hash
+- Implement cache storage at `~/.tako/cache`
+- Add `cache_key_files` glob pattern support
+- Support `--no-cache` flag for cache invalidation
+- Add `tako cache clean` command
+- Implement cache hit/miss logic and validation
+
+**Acceptance Criteria:**
+- [ ] Step results are cached and reused when appropriate
+- [ ] Cache keys are generated correctly from step definition and file content
+- [ ] `--no-cache` flag bypasses cache as expected
+- [ ] Cache management commands work correctly
+
+---
+
+### Issue 13: `feat(engine): Implement asynchronous persistence and resume`
+
+**Description:**
+Implement long-running step support with container persistence and workflow resumption.
+
+**Implementation Details:**
+- Add `long_running: true` step support
+- Implement container persistence after main process exit
+- Create output capture via `.tako/outputs.json` file
+- Add container lifecycle management and recovery
+- Implement orphaned container cleanup (24-hour policy)
+- Support system reboot recovery with container restart
+- Add container labeling with run ID and timestamps
+
+**Acceptance Criteria:**
+- [ ] Long-running steps persist containers after main process exit
+- [ ] Output capture works correctly via `.tako/outputs.json`
+- [ ] Container recovery handles system reboots appropriately
+- [ ] Orphaned container cleanup prevents resource leaks
+- [ ] Workflow resumption works correctly with long-running steps
+
+---
+
+### Issue 14: `feat(exec): Implement --dry-run mode`
+
+**Description:**
+Implement dry-run functionality to show execution plans without making changes.
+
+**Implementation Details:**
+- Add execution plan generation and display
+- Show workflow and step execution order
+- Display template variable resolution without execution
+- Add dependency graph visualization
+- Support dry-run for both single and multi-repo workflows
+
+**Acceptance Criteria:**
+- [ ] `--dry-run` flag shows execution plan without changes
+- [ ] Template variables are resolved and displayed
+- [ ] Dependency execution order is clearly shown
+- [ ] No side effects occur during dry-run mode
+
+---
+
+### Issue 15: `feat(cmd): Create 'tako status' command`
+
+**Description:**
+Implement the status command to check workflow execution status and long-running container status.
+
+**Implementation Details:**
+- Create `cmd/tako/internal/status.go` command
+- Display workflow execution status from state files
+- Show long-running container status and resource usage
+- Add automatic cleanup of orphaned containers during status check
+- Support status display for completed, failed, and in-progress workflows
+- Add container labeling verification and cleanup
+
+**Acceptance Criteria:**
+- [ ] `tako status <run-id>` shows comprehensive workflow status
+- [ ] Long-running container status is displayed correctly
+- [ ] Orphaned containers are detected and cleaned up automatically
+- [ ] Status information is clear and actionable for users
 
