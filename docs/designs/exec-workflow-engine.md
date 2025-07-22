@@ -130,7 +130,7 @@ dependents:
     - **Workspace**: The workspace (`~/.tako/workspaces/<run-id>/...`) is mounted into the container.
 
 4.  **State & Resumption**:
-    - State is saved to `~/.tako/state/<run-id>.json` after each step. The file is checksummed to detect corruption. If the state file is found to be corrupt, the run fails, and there is no automatic recovery.
+    - -   State is saved to `~/.tako/state/<run-id>.json` after each step. The file is checksummed to detect corruption. If the state file is found to be corrupt, the run fails. While there is no automatic recovery in the initial version, state file versioning and incremental backups are being considered for future releases to improve resilience.
     - To resume, a user runs `tako exec --resume <run-id>`.
     - **Idempotency**: It is the responsibility of the workflow author to design steps to be idempotent, especially in workflows that are expected to be resumed. The engine does not provide any guarantees about partially completed steps.
     - **Cross-Repository Consistency**: The engine does not provide transactional guarantees for state changes across multiple repositories. A failure in one repository's workflow does not automatically roll back changes in another.
@@ -148,12 +148,14 @@ dependents:
 ### 3.3. Scalability
 
 -   **Local Execution**: The initial design is focused on providing a powerful and flexible workflow engine for local and single-machine CI environments.
-### 3.5. Run ID Generation
+-   **Large-Scale Deployments**: The design does not explicitly address distributed execution or scaling to hundreds of concurrent workflows. These capabilities could be explored in a future release if there is sufficient demand.
+
+### 3.4. Run ID Generation
 
 -   **Format**: The `<run-id>` is a UUIDv4 string.
 -   **Collision Avoidance**: The use of UUIDv4 provides a high degree of confidence that each run will have a unique ID, preventing collisions between concurrent executions.
 
-### 3.4. Container Runtime
+### 3.5. Container Runtime
 
 -   **Supported Runtimes**: The engine will support both Docker and Podman as container runtimes. It will detect the available runtime by looking for the respective executables in the system's `PATH`.
 -   **Fallback Behavior**: If neither Docker nor Podman is available, and a workflow requires containerized execution, the workflow will fail with a clear error message. For workflows that do not specify an `image`, steps will be run directly on the host.
@@ -337,11 +339,6 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 ### 10.4. Usability and Developer Experience
 
 ### 10.5. State Management and Consistency 
-
-**❓ State File Corruption Recovery**
-- Line 129: "no automatic recovery" from state corruption is harsh for production use
-- Large workflows could lose hours of progress due to disk corruption
-- **Suggestion**: Consider state file versioning or incremental backups during long-running workflows.
 
 **❓ Cross-Repository State Race Conditions**
 - Line 132: No transactional guarantees across repositories
