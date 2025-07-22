@@ -128,7 +128,7 @@ dependents:
     - **Step Execution**: Within a single repository's workflow, steps are executed sequentially in the order they are defined. Dependencies between steps are managed by this sequential execution. The initial design does not support step-level parallelism.
     - **Resource Limits**: Each workflow runs in a container. The `resources` block and corresponding CLI flags define hard limits for CPU and memory. If a container exceeds these limits, it will be terminated by the container runtime.
     - **Workspace**: The workspace (`~/.tako/workspaces/<run-id>/...`) is mounted into the container.
-    - **-   **Template Caching**: To optimize performance, templates are parsed once per workflow execution and the parsed representation is cached in-memory for the duration of the run. The initial design does not include hard limits on the template cache size, as the memory footprint is expected to be minimal for typical workflows. No hard limit will be imposed.
+    - **Template Caching**: To optimize performance, templates are parsed once per workflow execution and the parsed representation is cached in-memory for the duration of the run. The initial design does not include hard limits on the template cache size, as the memory footprint is expected to be minimal for typical workflows. No hard limit will be imposed.
 
 4.  **State & Resumption**:
     - State is saved to `~/.tako/state/<run-id>.json` after each step. The file is checksummed to detect corruption. If the state file is found to be corrupt, the run fails. While there is no automatic recovery in the initial version, state file versioning and incremental backups are being considered for future releases to improve resilience.
