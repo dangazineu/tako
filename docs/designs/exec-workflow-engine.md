@@ -74,6 +74,9 @@ workflows:
           artifact: tako-lib
           outputs:
             version: from_stdout
+        <!-- SUGGESTION: Consider adding an example of step-level `if` conditions here since this feature is mentioned in section 3 but not demonstrated in the schema examples. For example:
+        if: .inputs.version-bump != "none"
+        -->
 
   downstream-test:
     # This workflow is triggered automatically by an update to an artifact
@@ -119,6 +122,10 @@ dependents:
     - The engine then traverses the dependency graph. It finds downstream repos that depend on `tako-lib` and have workflows with `on: artifact_update`.
     - For each potential downstream workflow, it evaluates the `if` condition using the **Common Expression Language (CEL)**. If the expression evaluates to true, the workflow is added to the execution plan. The traversal has no fixed depth limit but is protected from infinite loops by the initial cycle detection.
     - **Artifact Aggregation**: If a downstream repository depends on multiple artifacts that are updated within the same `tako exec` run, the engine will wait for all the corresponding upstream workflows to complete successfully. It will then trigger the downstream workflow only once, providing a list of all triggering artifacts in the `trigger` context.
+      
+      <!-- QUESTION: How exactly is the trigger context structured when multiple artifacts are provided? Is it `.trigger.artifacts[0].name`, `.trigger.artifacts[1].name`, etc.? The examples in Section 9.1 still use the singular `.trigger.artifact.name` syntax. This needs clarification to avoid implementation confusion. -->
+      
+      <!-- CRITIQUE: This aggregation logic could introduce significant delays in fan-out scenarios. What happens if one upstream workflow fails after others have completed? Are there timeout mechanisms? Should there be a configurable policy for partial failures in aggregation scenarios? -->
 
 2.  **Input Validation**:
     - Before execution, the engine validates all workflow inputs against the `validation` rules defined in the schema.
@@ -127,6 +134,10 @@ dependents:
 3.  **Execution**:
     - **Repository Parallelism**: Repositories are processed in parallel, limited by `--max-concurrent-repos` (default: 4).
     - **Step Execution**: Within a single repository's workflow, steps are executed sequentially. Each step can have an optional `if` condition (a CEL expression). The step is skipped if the condition evaluates to false.
+    
+    <!-- PRECISION LOSS: Step-level `if` conditions are mentioned here but not documented in the schema section (2.3). The schema examples don't show this feature. This is a significant omission that reduces implementation precision. -->
+    
+    <!-- QUESTION: What variables are available in step-level `if` expressions? Can they reference `.inputs`, `.steps.previous-step.outputs`, `.trigger`, etc.? This needs to be clearly specified. -->
     - **Resource Limits**: Each workflow runs in a container. The `resources` block and corresponding CLI flags define hard limits for CPU and memory. If a container exceeds these limits, it will be terminated by the container runtime.
     - **Workspace**: The workspace (`~/.tako/workspaces/<run-id>/...`) is mounted into the container.
     - **Template Caching**: To optimize performance, templates are parsed once per workflow execution and the parsed representation is cached in-memory for the duration of the run. The initial design does not include hard limits on the template cache size, as the memory footprint is expected to be minimal for typical workflows. No hard limit will be imposed.
@@ -439,6 +450,10 @@ workflows:
       - id: update_json
         # This script would need to handle multiple trigger artifacts
         run: ./scripts/update-bom.sh --name {{ .trigger.artifact.name }} --version {{ .trigger.artifact.outputs.version }}
+        
+        <!-- PRECISION LOSS: This example shows the singular `.trigger.artifact.name` syntax, but according to the artifact aggregation feature described in section 3.1, this repository should receive multiple artifacts from both app-one and app-two. The template syntax doesn't match the described functionality. -->
+        
+        <!-- FUNCTIONALITY QUESTION: How does the script handle multiple trigger artifacts as mentioned in the comment? The template only shows accessing a single artifact. Should this be `.trigger.artifacts` (plural) with an array? -->
 ```
 
 ### 9.2. Scenario 2: Asynchronous Workflow with Resume
@@ -452,6 +467,10 @@ This scenario tests the ability to persist the state of a long-running workflow 
 3.  The `run-simulation` step begins. Because it is marked as `long_running`, the `tako` engine persists the workflow state to `~/.tako/state/<run-id>.json` and exits, returning the `<run-id>` to the user.
 4.  The user can now close their terminal. The simulation continues to run in its container.
 5.  Later, the user checks the status of the simulation. Once it is complete, they resume the workflow with `tako exec --resume <run-id>`.
+
+<!-- EFFICIENCY CONCERN: How does the user "check the status of the simulation"? There's no documented command for this. Should there be a `tako status <run-id>` command? -->
+
+<!-- RESOURCE MANAGEMENT QUESTION: Long-running containers could consume system resources indefinitely. Are there resource limits that persist after the main process exits? What happens if the system runs out of disk space or memory? -->
 6.  The engine loads the state, sees that the `run-simulation` step was the last one running, and proceeds to the next step, `publish-results`.
 
 **Configuration**:
@@ -471,6 +490,12 @@ workflows:
         # This new key indicates the engine should not wait for completion.
         long_running: true
         run: ./scripts/simulation.sh --dataset {{ .steps.prepare-data.outputs.dataset_id }}
+        
+        <!-- PRECISION LOSS: The `long_running` feature is introduced here without any documentation in the main schema section (2.3) or execution model (section 3). This is a significant new feature that affects container lifecycle, state management, and resource usage. -->
+        
+        <!-- SECURITY CONCERN: Long-running containers that persist after the main tako process exits could be a security risk. How are these containers secured? What prevents them from running indefinitely? Are there automatic cleanup mechanisms? -->
+        
+        <!-- FUNCTIONALITY QUESTION: How does the engine track the status of long-running steps? What happens if the container crashes or the system reboots? Is there a mechanism to detect if the long-running step has actually completed successfully? -->
       - id: check-simulation
         # This step polls for the result of the long-running step.
         # The `tako/poll` built-in step would handle the logic of checking
@@ -485,6 +510,12 @@ workflows:
 ```
 
 We will need to add a new built-in step `tako/poll@v1` to support this functionality.
+
+<!-- PRECISION LOSS: The `tako/poll@v1` built-in step is used in the example above but not documented in Appendix B: Built-in Steps. This reduces implementation precision. -->
+
+<!-- SECURITY CONCERN: A polling mechanism that can check files, databases, or external systems could be a security risk if not properly sandboxed. How does polling interact with the container's network isolation and filesystem restrictions? -->
+
+<!-- EFFICIENCY CONCERN: Continuous polling for 60 minutes could be resource-intensive. Should there be exponential backoff or configurable polling intervals? -->
 
 
 ## Appendix A: CLI Reference
