@@ -465,7 +465,9 @@ workflows:
     steps:
       - uses: tako/checkout@v1
       - id: update_json
-        # This script iterates through all triggering artifacts.
+        # This script iterates through all triggering artifacts using templating.
+        # Note: Complex templating scenarios like this are addressed in the
+        # "Open Questions" section regarding template syntax simplification.
         run: |
           #!/bin/bash
           for i in $(seq 0 $(({{ len .trigger.artifacts }} - 1))); do
@@ -473,10 +475,6 @@ workflows:
             VERSION=$(echo '{{ index .trigger.artifacts "'$i'" "outputs" "version" }}')
             ./scripts/update-bom.sh --name $NAME --version $VERSION
           done
-
-        <!-- COMPLEXITY CONCERN: This template syntax is quite complex and error-prone. The nested quoting with shell variables inside template expressions (e.g., "'$i'") could be difficult to debug and maintain. Consider whether a simpler approach would be more user-friendly. -->
-        
-        <!-- ALTERNATIVE SUGGESTION: Could the engine provide a more direct way to iterate over trigger artifacts, such as environment variables or a built-in step that handles this iteration? -->
 ```
 
 ### 9.2. Scenario 2: Asynchronous Workflow with Resume
@@ -510,8 +508,7 @@ workflows:
         # This new key indicates the engine should not wait for completion.
         long_running: true
         run: ./scripts/simulation.sh --dataset {{ .steps.prepare-data.outputs.dataset_id }}
-        
-        <!-- FUNCTIONALITY GAP: How are outputs captured from long-running steps? This step doesn't have a `produces` block, but long-running steps may need to communicate results to subsequent steps. How does this work when the step runs asynchronously? -->
+        # Note: Long-running step output capture is addressed in the "Open Questions" section
       - id: check-simulation
         # This step polls for the result of the long-running step.
         # The `tako/poll` built-in step would handle the logic of checking
@@ -521,13 +518,45 @@ workflows:
           target: file
           path: ./results/{{ .steps.prepare-data.outputs.dataset_id }}.json
           timeout: 60m
-          
-        <!-- STATE CONSISTENCY CONCERN: The polling step only checks if a file exists, but how does it determine if the long-running step succeeded or failed? The file could exist but contain error information. Should polling steps also validate file contents or exit codes? -->
+          # Note: Polling validation depth is addressed in the "Open Questions" section
       - id: publish-results
         run: ./scripts/publish.sh --dataset {{ .steps.prepare-data.outputs.dataset_id }}
 ```
 
 We will need to add a new built-in step `tako/poll@v1` to support this functionality.
+
+
+## Open Questions
+
+This section captures unresolved design questions and concerns raised during the review process that require further consideration or future enhancement.
+
+### Template Syntax Complexity
+
+**Question**: The current `text/template` syntax can become complex and error-prone in scenarios like multi-artifact iteration. Should the engine provide simpler alternatives for common patterns?
+
+**Options under consideration**:
+1. **Environment Variable Injection**: The engine could expose trigger artifacts as structured environment variables (e.g., `TRIGGER_ARTIFACT_0_NAME`, `TRIGGER_ARTIFACT_0_VERSION`), allowing simpler shell scripts.
+2. **Built-in Iteration Step**: A `tako/for-each@v1` step that handles common iteration patterns declaratively.
+3. **Enhanced Template Functions**: Custom template functions specifically designed for artifact manipulation (e.g., `{{ range .trigger.artifacts }}{{ .name }}: {{ .outputs.version }}{{ end }}`).
+
+### Long-Running Step Output Capture
+
+**Question**: How should outputs be captured from long-running steps that complete asynchronously?
+
+**Current gap**: The design shows long-running steps without `produces` blocks, but subsequent steps may need their outputs.
+
+**Proposed solution**: Long-running steps with `produces` blocks should write their outputs to a well-known location (e.g., `.tako/outputs.json`) that the engine can read during resumption. The polling step would verify both completion and output availability.
+
+### Polling Step Validation Depth
+
+**Question**: Should polling steps validate file contents or just existence?
+
+**Current limitation**: The `tako/poll@v1` step only checks file existence, but files might contain error information.
+
+**Enhancement options**:
+1. **Content Validation**: Add optional `content_pattern` parameter to verify file contents match expected patterns.
+2. **Exit Code Validation**: Allow polling for container exit codes in addition to file existence.
+3. **JSON Schema Validation**: Support validating output files against predefined schemas.
 
 
 ## Appendix A: CLI Reference
