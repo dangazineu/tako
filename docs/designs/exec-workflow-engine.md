@@ -68,15 +68,13 @@ workflows:
       mem_limit: "512Mi" # 512 Megabytes
     steps:
       - id: get_version
+        if: .inputs.version-bump != "none"
         run: ./scripts/get-version.sh --bump {{ .inputs.version-bump }}
         # This step's output is explicitly associated with the 'tako-lib' artifact.
         produces:
           artifact: tako-lib
           outputs:
             version: from_stdout
-        <!-- SUGGESTION: Consider adding an example of step-level `if` conditions here since this feature is mentioned in section 3 but not demonstrated in the schema examples. For example:
-        if: .inputs.version-bump != "none"
-        -->
 
   downstream-test:
     # This workflow is triggered automatically by an update to an artifact
