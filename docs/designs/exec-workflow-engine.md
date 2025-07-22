@@ -257,3 +257,109 @@ The implementation plan is very detailed, but it could be improved by adding mor
 - CEL expression evaluation should be sandboxed
 - Large repository cache key computation could cause DoS
 - Secret scrubbing should handle encoded values
+
+## 10. Additional Review Feedback and Questions
+
+### 10.1. Migration Strategy and Backward Compatibility
+
+**❓ Schema versioning and rollback**
+- The design proposes a breaking change from v0.1.0 to v0.2.0, but what happens to repositories that need to support both versions during a transition period?
+- Should the engine support reading both v0.1.0 and v0.2.0 schemas simultaneously?
+- What's the rollback strategy if critical issues are discovered in v0.2.0?
+
+**❓ Migration validation**
+- The `tako migrate --dry-run` is mentioned, but should there also be a `--validate-only` mode that checks migrated configs without executing workflows?
+- How will users know if their v0.1.0 features have no direct v0.2.0 equivalent?
+
+### 10.2. Execution Model and State Management
+
+**❓ Concurrent workflow execution boundaries**
+- Line 105: `--max-concurrent-repos` limits repository parallelism, but what about step-level concurrency within a repository?
+- Should there be limits on concurrent steps within a single workflow to prevent resource exhaustion?
+- How are dependencies between steps within the same workflow handled?
+
+**❓ State corruption and recovery**
+- Line 110: State corruption detection via checksums is good, but what recovery options exist beyond failing the run?
+- Should there be automatic state backup/versioning to enable partial recovery?
+- How are partially completed steps handled during resume (idempotency concerns)?
+
+**❓ Cross-repository state consistency**
+- In multi-repo workflows, what happens if one repository's state becomes corrupted while others continue?
+- Should there be transaction-like semantics for multi-repo state changes?
+
+### 10.3. Performance and Scalability
+
+**❓ Large-scale deployment considerations**
+- The design doesn't address how this scales to organizations with hundreds of repositories
+- What are the memory/CPU implications of holding state for many concurrent workflows?
+- Should there be cluster/distributed execution capabilities for large organizations?
+
+**❓ Repository cache scaling**
+- Line 123: Cache key computation includes "file contents of the repository" - this could be expensive for repositories with thousands of files
+- Should there be options for selective file hashing (e.g., only tracking specific directories)?
+- What about Git LFS files or other large binary assets?
+
+### 10.4. Developer Experience and Debugging
+
+**❓ Workflow debugging and introspection**
+- How do developers debug failing workflows beyond logs?
+- Should there be a `tako exec --debug` mode with step-by-step execution?
+- What tooling exists for inspecting workflow state and execution history?
+
+**❓ Testing workflow definitions**
+- How do developers test their workflow definitions before committing them?
+- Should there be a local-only execution mode that doesn't affect downstream repositories?
+- What about unit testing individual workflow steps?
+
+### 10.5. Integration and Ecosystem
+
+**❓ Integration with existing CI/CD systems**
+- How does this interact with existing GitHub Actions, Jenkins, or other CI systems?
+- Should workflows be able to trigger external CI/CD systems or vice versa?
+- What about authentication/authorization when integrating with external systems?
+
+**❓ Plugin/extension architecture**
+- The built-in steps (`tako/checkout@v1`) are versioned and bundled, but is there a plan for third-party or custom steps?
+- Should there be a plugin architecture for extending the engine's capabilities?
+- How would custom steps be distributed and versioned?
+
+### 10.6. Configuration and Schema Evolution
+
+**❓ Schema extensibility**
+- The v0.2.0 schema is comprehensive, but how will future evolution be handled?
+- Should there be reserved/experimental fields for forward compatibility?
+- What about organization-specific extensions to the schema?
+
+**❓ Configuration validation and linting**
+- Beyond basic YAML validation, should there be semantic validation of workflow definitions?
+- What about catching common mistakes like circular dependencies or unreachable steps?
+- Should there be a `tako lint` command for configuration files?
+
+### 10.7. Alternative Design Considerations
+
+**🤔 Event-driven architecture alternative**
+- The current design is primarily imperative (steps in sequence). Has an event-driven approach been considered?
+- Could workflows be defined as event handlers that react to repository changes, rather than explicit step sequences?
+- This might provide more flexibility for complex dependency patterns.
+
+**🤔 Workflow composition and reusability**
+- The design doesn't address workflow composition or inheritance
+- Should there be a way to compose workflows from smaller, reusable components?
+- What about parameterized workflow templates that can be instantiated with different configurations?
+
+**🤔 Declarative vs. imperative step definitions**
+- Current steps are imperative (run this command), but should there be declarative alternatives?
+- For example, "ensure version X of dependency Y" rather than "run update command Z"
+- This could enable the engine to determine the optimal steps to achieve the desired state.
+
+### 10.8. Recommendations for Implementation Prioritization
+
+Given the comprehensive nature of this design, consider these prioritization suggestions:
+
+1. **Phase 0 (MVP)**: Local-only, synchronous execution with `on: exec` triggers only
+2. **Phase 1**: Add containerization and basic security model
+3. **Phase 2**: Implement `on: artifact_update` and multi-repo orchestration
+4. **Phase 3**: Add advanced features like caching, resumption, and built-in steps
+5. **Phase 4**: Performance optimizations and enterprise features
+
+This phased approach would provide value incrementally while reducing implementation risk.
