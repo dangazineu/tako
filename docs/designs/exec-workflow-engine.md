@@ -518,7 +518,7 @@ workflows:
         run: ./scripts/publish.sh --dataset {{ .steps.prepare-data.outputs.dataset_id }}
 ```
 
-We will need to add a new built-in step `tako/poll@v1` to support this functionality.
+The `tako/poll@v1` built-in step is documented in Appendix B.
 
 
 ## Appendix A: CLI Reference
