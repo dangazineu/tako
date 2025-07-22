@@ -89,6 +89,8 @@ workflows:
           # The trigger context is populated by the engine with the
           # outputs from the upstream 'produces' block.
           version: "{{ .trigger.artifact.outputs.version }}"
+
+**Note on Template Complexity**: The `text/template` syntax provides a powerful and flexible way to parameterize workflows. While it may be more verbose for simple cases, it provides a consistent and well-documented syntax for all use cases. A simpler variable substitution syntax is not planned for the initial release to avoid introducing multiple ways to achieve the same result.
 ```
 
 ### 2.4. `dependents`
@@ -331,11 +333,6 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 ### 10.3. Security and Template Safety
 
 ### 10.4. Usability and Developer Experience
-
-**❓ Template Complexity for Simple Cases**
-- The templating system (`{{ .inputs.version-bump }}`, `{{ .secrets.GITHUB_TOKEN }}`) adds complexity
-- Simple use cases might be over-engineered compared to shell variable substitution
-- **Question**: Should there be a simpler variable substitution syntax for basic cases?
 
 **❓ Inconsistent Flag Naming**
 - Line 215: `--workflow-from-command` flag is mentioned but not defined in the CLI specification
