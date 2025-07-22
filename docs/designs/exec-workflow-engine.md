@@ -990,3 +990,99 @@ Implement the status command to check workflow execution status and long-running
 - [ ] Orphaned containers are detected and cleaned up automatically
 - [ ] Status information is clear and actionable for users
 
+
+## Open Questions
+
+This section captures design questions and concerns that merit further consideration during implementation or future enhancements.
+
+### Container Resource Monitoring and Alerts
+
+**Question**: How should the system handle resource exhaustion scenarios beyond termination?
+
+**Current gap**: The design mentions that containers are terminated when they exceed resource limits, but doesn't address monitoring, alerting, or graceful degradation strategies.
+
+**Options under consideration**:
+1. **Resource Monitoring**: Implement monitoring that tracks resource usage trends and warns before limits are reached.
+2. **Graceful Degradation**: Allow containers to request additional resources or trigger workflow pause/resume cycles.
+3. **Resource Usage Reporting**: Provide post-execution resource usage reports to help users optimize their workflows.
+
+### Multi-Artifact Dependency Resolution
+
+**Question**: How should the system handle complex dependency scenarios with partial updates?
+
+**Current limitation**: The design assumes all upstream artifacts update together, but real scenarios may involve partial updates, conditional dependencies, or version compatibility constraints.
+
+**Scenarios to consider**:
+1. **Version Compatibility**: What if downstream repo depends on specific version ranges rather than "latest"?
+2. **Partial Updates**: What if only some artifacts in a multi-artifact dependency update in a given run?
+3. **Conditional Dependencies**: Should the system support dependencies that only trigger under certain conditions?
+
+### Workflow Execution Rollback and Compensation
+
+**Question**: Should the system provide built-in rollback capabilities beyond compensation patterns?
+
+**Current approach**: The design mentions compensation patterns as a user responsibility, but complex multi-repo workflows might benefit from automated rollback support.
+
+**Enhancement considerations**:
+1. **Automatic Rollback**: Built-in steps that can reverse previous operations (e.g., `tako/rollback-pr@v1`).
+2. **Rollback Policies**: Workflow-level configuration for automatic rollback triggers.
+3. **Checkpoint System**: Allow workflows to define rollback checkpoints for partial recovery.
+
+### Performance and Scalability Limits
+
+**Question**: What are the practical limits of the dependency graph and execution model?
+
+**Current status**: The design warns about performance issues beyond 50 repositories but doesn't define hard architectural limits.
+
+**Areas needing clarification**:
+1. **Memory Usage**: How does template caching and state management scale with very large workflows?
+2. **Network I/O**: What's the impact of fetching many `tako.yml` files across slow networks?
+3. **Disk Usage**: How does workspace isolation scale with dozens of concurrent long-running workflows?
+4. **State File Growth**: What happens when workflow state becomes very large due to extensive output capture?
+
+### Built-in Step Extension Mechanism
+
+**Question**: While custom steps aren't planned for initial release, how should the built-in step system be designed for future extensibility?
+
+**Current limitation**: The design focuses on bundled built-in steps but doesn't address how organizations might want to create domain-specific steps.
+
+**Future considerations**:
+1. **Step Plugin Interface**: Define the contract for future custom steps.
+2. **Step Distribution**: Consider how custom steps might be versioned and distributed.
+3. **Security Model**: How would custom steps integrate with the security sandbox?
+
+### Error Recovery and Debugging Experience
+
+**Question**: How can the system provide better debugging experience for complex multi-repo failures?
+
+**Current tools**: The design provides `--debug`, `tako state inspect`, and good error messages, but complex scenarios may need more.
+
+**Enhancement ideas**:
+1. **Execution Visualization**: Web UI or terminal visualization of dependency graph execution.
+2. **Failure Analysis**: Built-in analysis of common failure patterns with suggested fixes.
+3. **Workflow Replay**: Ability to replay failed workflows with different inputs or modified steps.
+4. **Step-by-Step Debugging**: More granular debugging that allows inspection of template variables and container state.
+
+### Template Security and Sandboxing
+
+**Question**: Are there additional security concerns with the template engine beyond CEL expression sandboxing?
+
+**Current coverage**: The design addresses CEL security but templates also process user-controlled data and file contents.
+
+**Security considerations**:
+1. **Template Injection**: How does the system prevent malicious template injection through artifact outputs or user inputs?
+2. **File System Access**: Should templates be restricted from reading sensitive files during resolution?
+3. **Information Disclosure**: How does the system prevent templates from accidentally exposing sensitive data in logs?
+
+### State Management and Corruption Recovery
+
+**Question**: How should the system handle state file corruption or inconsistency beyond simple detection?
+
+**Current approach**: State files use checksums for corruption detection but don't provide recovery mechanisms.
+
+**Recovery enhancements**:
+1. **State Backups**: Automatic backup of state files before each update.
+2. **Partial Recovery**: Ability to recover workflow execution from partial state.
+3. **State Validation**: Deep validation of state consistency beyond checksums.
+4. **Manual State Repair**: Tools for administrators to manually repair corrupted state files.
+
