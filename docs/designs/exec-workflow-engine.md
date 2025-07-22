@@ -118,6 +118,7 @@ dependents:
     - The `get_version` step runs and, because of its `produces` block, the engine associates its output (`version`) with the `tako-lib` artifact.
     - The engine then traverses the dependency graph. It finds downstream repos that depend on `tako-lib` and have workflows with `on: artifact_update`.
     - For each potential downstream workflow, it evaluates the `if` condition using the **Common Expression Language (CEL)**. If the expression evaluates to true, the workflow is added to the execution plan. The traversal has no fixed depth limit but is protected from infinite loops by the initial cycle detection.
+    - **Artifact Aggregation**: If a downstream repository depends on multiple artifacts that are updated within the same `tako exec` run, the engine will wait for all the corresponding upstream workflows to complete successfully. It will then trigger the downstream workflow only once, providing a list of all triggering artifacts in the `trigger` context.
 
 2.  **Input Validation**:
     - Before execution, the engine validates all workflow inputs against the `validation` rules defined in the schema.
@@ -125,7 +126,7 @@ dependents:
 
 3.  **Execution**:
     - **Repository Parallelism**: Repositories are processed in parallel, limited by `--max-concurrent-repos` (default: 4).
-    - **Step Execution**: Within a single repository's workflow, steps are executed sequentially in the order they are defined. Dependencies between steps are managed by this sequential execution. The initial design does not support step-level parallelism.
+    - **Step Execution**: Within a single repository's workflow, steps are executed sequentially. Each step can have an optional `if` condition (a CEL expression). The step is skipped if the condition evaluates to false.
     - **Resource Limits**: Each workflow runs in a container. The `resources` block and corresponding CLI flags define hard limits for CPU and memory. If a container exceeds these limits, it will be terminated by the container runtime.
     - **Workspace**: The workspace (`~/.tako/workspaces/<run-id>/...`) is mounted into the container.
     - **Template Caching**: To optimize performance, templates are parsed once per workflow execution and the parsed representation is cached in-memory for the duration of the run. The initial design does not include hard limits on the template cache size, as the memory footprint is expected to be minimal for typical workflows. No hard limit will be imposed.
@@ -470,17 +471,21 @@ workflows:
         # This new key indicates the engine should not wait for completion.
         long_running: true
         run: ./scripts/simulation.sh --dataset {{ .steps.prepare-data.outputs.dataset_id }}
+      - id: check-simulation
+        # This step polls for the result of the long-running step.
+        # The `tako/poll` built-in step would handle the logic of checking
+        # for a specific output (e.g., a file, a status in a database).
+        uses: tako/poll@v1
+        with:
+          target: file
+          path: ./results/{{ .steps.prepare-data.outputs.dataset_id }}.json
+          timeout: 60m
       - id: publish-results
         run: ./scripts/publish.sh --dataset {{ .steps.prepare-data.outputs.dataset_id }}
 ```
 
-## 10. Open Questions
+We will need to add a new built-in step `tako/poll@v1` to support this functionality.
 
-1.  **Conditional Step Execution**: The current design specifies an `if` condition on `workflows` to filter triggers. Should `steps` also support an `if` condition to allow for conditional execution within a single workflow? This would be powerful for creating workflows that can adapt to different inputs (e.g., `if: .inputs.is_hotfix == true`).
-
-2.  **Long-Running Step Completion**: For asynchronous workflows, how does the engine determine that a long-running, detached step has completed successfully? Is there a callback mechanism, or does a subsequent step in the resumed workflow need to poll for results (e.g., by checking for an output artifact)?
-
-3.  **Cross-Repository Artifact Aggregation**: In the fan-out/fan-in scenario, the `release-bom` repository depends on artifacts from multiple upstream repositories. How does its `on: artifact_update` workflow behave? Does it trigger once per upstream update, or does the engine intelligently aggregate all updates from a single `tako exec` run and trigger the `update-bom` workflow only once with a list of all triggering artifacts? The latter seems more desirable for this use case.
 
 ## Appendix A: CLI Reference
 
