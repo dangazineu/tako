@@ -100,11 +100,11 @@ workflows:
           # The trigger context is populated by the engine with the
           # outputs from the upstream 'produces' block.
           version: "{{ .trigger.artifact.outputs.version }}"
+```
 
 **Note on Template Complexity**: The `text/template` syntax provides a powerful and flexible way to parameterize workflows. While it may be more verbose for simple cases, it provides a consistent and well-documented syntax for all use cases. A simpler variable substitution syntax is not planned for the initial release to avoid introducing multiple ways to achieve the same result.
 
 **Note on Template Functions**: To simplify common patterns, especially iteration, the template engine will be augmented with a set of custom functions. For example, iterating over trigger artifacts can be done directly in the template, making scripts cleaner and more readable. This approach was chosen over environment variable injection or dedicated iteration steps as it integrates seamlessly with the existing template syntax and offers the most flexibility.
-```
 
 ### 2.4. `dependents`
 
@@ -166,7 +166,7 @@ dependents:
       - **Log Warnings**: Periodically monitor container resource usage and log a warning if it approaches the defined limits (e.g., >90% of memory or CPU). This helps diagnose terminations due to resource exhaustion.
       - **Post-Execution Reporting**: The `tako status <run-id>` command will include a summary of the peak resource usage for each step, allowing users to analyze and optimize their workflow's resource consumption.
     - **NOTE on Resource Exhaustion**: While resource limits are enforced, it is still possible for a long-running container to consume significant disk space in the workspace. The initial design does not include disk space quotas. Users should be mindful of this when designing workflows with long-running steps. Future versions may include configurable disk quotas and more advanced resource management features.
-    - **Workspace**: The workspace (`~/.tako/workspaces/<run-id>/...`) is mounted into the container.
+    - **Workspace**: The workspace (`~/.tako/workspaces/<run-id>/...`) is mounted into the container. All workflow steps execute with the repository's root directory as their working directory, ensuring consistent and predictable execution context.
     - **Template Caching**: To optimize performance, templates are parsed once per workflow execution and the parsed representation is cached in-memory for the duration of the run. The initial design does not include hard limits on the template cache size, as the memory footprint is expected to be minimal for typical workflows. No hard limit will be imposed.
 
 4.  **State & Resumption**:
@@ -737,25 +737,27 @@ All CEL functions are evaluated in a sandboxed environment with:
 - 64MB memory limit
 - No filesystem, network, or environment variable access
 
-## 10. Open Questions
+## 9. Future Considerations
 
-Based on the comprehensive design review, the following questions remain open and require resolution during implementation:
+Based on the design review, several features have been identified for future releases:
 
-### Remaining Open Questions
+### 9.1. Schema Design Decisions
 
-The design has addressed most reviewer concerns directly in the specification. The following items require implementation decisions or future consideration:
+-   **Schema Extensibility**: The design explicitly does not support organization-specific schema extensions. This decision maintains simplicity and ensures portability across different environments.
 
-1. **Schema Extensibility**: Should future versions support organization-specific schema extensions beyond the core specification?
+-   **CEL Function Library**: Only the functions specified in Appendix C will be implemented initially. Additional domain-specific functions will be considered based on user feedback and concrete use cases.
 
-2. **Distributed Execution**: While the current design focuses on single-machine execution, should the architecture be prepared for future distributed execution capabilities?
+### 9.2. Planned Future Enhancements
 
-3. **Workflow Version Pinning**: Should workflows be able to pin specific versions of built-in steps (e.g., `tako/checkout@v1.2.3`) for reproducibility?
+-   **Distributed Execution**: Architecture preparation for distributed execution capabilities is planned and tracked in issue #47. The current single-machine design provides a foundation that can be extended for distributed scenarios.
 
-4. **Advanced CEL Functions**: Beyond the specified function library, what domain-specific CEL functions would provide the most value for workflow authors?
+-   **Workflow Version Pinning**: Support for pinning specific versions of built-in steps will be added for reproducibility. This will use semantic versioning (e.g., `tako/checkout@v1.2.3`) and enable workflows to specify exact step versions for stability.
 
-5. **Integration Webhooks**: Should the engine support outbound webhooks for integration with external systems (monitoring, notifications, etc.)?
+-   **Integration Webhooks**: Outbound webhook support for external system integration (monitoring, notifications) is deferred to the distributed execution phase (issue #47) where it will be more comprehensively addressed.
 
-These questions will be revisited based on user feedback and implementation experience.
+### 9.3. Execution Context Clarification
+
+All workflow steps execute within the repository's root directory as their working directory. The only exception is when the workflow engine invokes downstream execution on dependent repositories (such as dependency updates), which execute in their respective repository contexts.
 
 ## 10. Implementation Strategy
 
