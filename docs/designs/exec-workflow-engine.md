@@ -96,6 +96,8 @@ workflows:
           version: "{{ .trigger.artifact.outputs.version }}"
 
 **Note on Template Complexity**: The `text/template` syntax provides a powerful and flexible way to parameterize workflows. While it may be more verbose for simple cases, it provides a consistent and well-documented syntax for all use cases. A simpler variable substitution syntax is not planned for the initial release to avoid introducing multiple ways to achieve the same result.
+
+**Note on Template Functions**: To simplify common patterns, especially iteration, the template engine will be augmented with a set of custom functions. For example, iterating over trigger artifacts can be done directly in the template, making scripts cleaner and more readable. This approach was chosen over environment variable injection or dedicated iteration steps as it integrates seamlessly with the existing template syntax and offers the most flexibility.
 ```
 
 ### 2.4. `dependents`
@@ -154,8 +156,9 @@ dependents:
 5.  **Long-Running Steps**:
     - Steps can be marked as `long_running: true`. When the engine encounters such a step, it will start the step's container and then immediately persist the workflow state and exit, returning the `<run-id>` to the user.
     - The container will continue to run in the background. The user can check its status with `tako status <run-id>` and resume the workflow with `tako exec --resume <run-id>` once the long-running step has completed.
-    - It is the responsibility of the workflow author to ensure that the long-running step will eventually complete and that there is a way to determine its completion (e.g., by writing a file, updating a status in a database). The `tako/poll@v1` built-in step is provided for this purpose.
-    - **Failure Detection**: The engine does not actively monitor long-running steps for crashes or system reboots. If a container crashes, it will simply exit. It is up to the workflow author to use the `tako/poll@v1` step with appropriate timeouts and checks to detect such failures. For example, a polling step could check for the existence of a "success" file, and if the file is not present after a certain amount of time, the workflow would fail.
+    - It is the responsibility of the workflow author to ensure that the long-running step will eventually complete and that there is a way to determine its completion. The `tako/poll@v1` built-in step is provided for this purpose, which can monitor for conditions like the completion of a container or the existence of a file.
+    - **Output Capture**: To capture outputs from a long-running step, the step must have a `produces` block. The long-running process is responsible for writing its outputs to a JSON file at the well-known path `.tako/outputs.json` within the step's workspace. When the workflow is resumed and a subsequent polling step confirms completion, the engine will read this file to populate the outputs into the workflow state, making them available to downstream steps.
+    - **Failure Detection**: The engine does not actively monitor long-running steps for crashes or system reboots. If a container crashes, it will simply exit. It is up to the workflow author to use the `tako/poll@v1` step with appropriate timeouts and checks to detect such failures. For example, a polling step can check the exit code of the long-running step's container.
     - **System Reboot Recovery**: When a system reboots while a long-running container is executing, the container will be lost. During workflow resumption, the engine will detect that the referenced container no longer exists and will restart the long-running step from the beginning. The engine accomplishes this by checking container existence before attempting to poll or resume from a long-running step. While this means some work may be repeated, it ensures consistent behavior and prevents the workflow from becoming permanently stuck.
     - **Orphaned Container Management**: To prevent resource leaks from long-running containers that become orphaned, the engine will implement automatic cleanup mechanisms:
       - **Container Labeling**: All `tako`-managed containers are labeled with metadata including the run ID and creation timestamp.
@@ -465,16 +468,11 @@ workflows:
     steps:
       - uses: tako/checkout@v1
       - id: update_json
-        # This script iterates through all triggering artifacts using templating.
-        # Note: Complex templating scenarios like this are addressed in the
-        # "Open Questions" section regarding template syntax simplification.
         run: |
           #!/bin/bash
-          for i in $(seq 0 $(({{ len .trigger.artifacts }} - 1))); do
-            NAME=$(echo '{{ index .trigger.artifacts "'$i'" "name" }}')
-            VERSION=$(echo '{{ index .trigger.artifacts "'$i'" "outputs" "version" }}')
-            ./scripts/update-bom.sh --name $NAME --version $VERSION
-          done
+          {{ range .trigger.artifacts }}
+          ./scripts/update-bom.sh --name {{ .name }} --version {{ .outputs.version }}
+          {{ end }}
 ```
 
 ### 9.2. Scenario 2: Asynchronous Workflow with Resume
@@ -508,55 +506,19 @@ workflows:
         # This new key indicates the engine should not wait for completion.
         long_running: true
         run: ./scripts/simulation.sh --dataset {{ .steps.prepare-data.outputs.dataset_id }}
-        # Note: Long-running step output capture is addressed in the "Open Questions" section
       - id: check-simulation
         # This step polls for the result of the long-running step.
-        # The `tako/poll` built-in step would handle the logic of checking
-        # for a specific output (e.g., a file, a status in a database).
         uses: tako/poll@v1
         with:
-          target: file
-          path: ./results/{{ .steps.prepare-data.outputs.dataset_id }}.json
+          target: step
+          step_id: run-simulation
           timeout: 60m
-          # Note: Polling validation depth is addressed in the "Open Questions" section
+          success_on_exit_code: 0
       - id: publish-results
         run: ./scripts/publish.sh --dataset {{ .steps.prepare-data.outputs.dataset_id }}
 ```
 
 We will need to add a new built-in step `tako/poll@v1` to support this functionality.
-
-
-## Open Questions
-
-This section captures unresolved design questions and concerns raised during the review process that require further consideration or future enhancement.
-
-### Template Syntax Complexity
-
-**Question**: The current `text/template` syntax can become complex and error-prone in scenarios like multi-artifact iteration. Should the engine provide simpler alternatives for common patterns?
-
-**Options under consideration**:
-1. **Environment Variable Injection**: The engine could expose trigger artifacts as structured environment variables (e.g., `TRIGGER_ARTIFACT_0_NAME`, `TRIGGER_ARTIFACT_0_VERSION`), allowing simpler shell scripts.
-2. **Built-in Iteration Step**: A `tako/for-each@v1` step that handles common iteration patterns declaratively.
-3. **Enhanced Template Functions**: Custom template functions specifically designed for artifact manipulation (e.g., `{{ range .trigger.artifacts }}{{ .name }}: {{ .outputs.version }}{{ end }}`).
-
-### Long-Running Step Output Capture
-
-**Question**: How should outputs be captured from long-running steps that complete asynchronously?
-
-**Current gap**: The design shows long-running steps without `produces` blocks, but subsequent steps may need their outputs.
-
-**Proposed solution**: Long-running steps with `produces` blocks should write their outputs to a well-known location (e.g., `.tako/outputs.json`) that the engine can read during resumption. The polling step would verify both completion and output availability.
-
-### Polling Step Validation Depth
-
-**Question**: Should polling steps validate file contents or just existence?
-
-**Current limitation**: The `tako/poll@v1` step only checks file existence, but files might contain error information.
-
-**Enhancement options**:
-1. **Content Validation**: Add optional `content_pattern` parameter to verify file contents match expected patterns.
-2. **Exit Code Validation**: Allow polling for container exit codes in addition to file existence.
-3. **JSON Schema Validation**: Support validating output files against predefined schemas.
 
 
 ## Appendix A: CLI Reference
@@ -602,14 +564,17 @@ Creates a pull request on the code hosting platform.
 
 ### `tako/poll@v1`
 
-Polls for a specific condition to be met.
+Polls for a specific condition to be met, typically used to check the status of a long-running step.
 
 **Parameters**:
 
--   `target` (string, required): The target to poll. Supported values: `file`.
--   `path` (string, required): The path to the file to check.
+-   `target` (string, required): The target to poll. Supported values: `file`, `step`.
+-   `path` (string, optional): The path to the file to check. Required if `target` is `file`.
+-   `step_id` (string, optional): The `id` of the long-running step to check. Required if `target` is `step`.
 -   `timeout` (duration, required): The maximum time to wait for the condition to be met.
 -   `interval` (duration, optional): The interval at which to poll. Defaults to `10s`. Future versions may include support for exponential backoff.
+-   `content_pattern` (string, optional): If `target` is `file`, this regex pattern must match the file's content for the poll to succeed.
+-   `success_on_exit_code` (int, optional): If `target` is `step`, the poll succeeds if the container for the specified step has exited with this code. Defaults to `0`.
 
 **Security Note**: The `tako/poll@v1` step executes within the step's container and is subject to the same security restrictions, including filesystem and network isolation. It can only access resources that are available to the container.
 
