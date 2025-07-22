@@ -236,6 +236,8 @@ To maintain the ease of use for simple, one-off tasks, the existing `tako run` c
 -   **`tako run <command>`**: This command is a convenience wrapper that dynamically constructs and executes a single-step workflow from the provided command. It is equivalent to creating a temporary `tako.yml` with a single `run` step and executing it with `tako exec`.
 -   **`tako lint`**: This command will perform a semantic validation of the `tako.yml` file. It will check for common errors such as circular dependencies, unreachable steps, and invalid syntax in CEL expressions.
 
+**Note on Script Migration**: A command to automatically import existing shell scripts into `tako.yml` (`tako import-script`) is not planned for the initial release but may be considered in the future. For now, users are encouraged to manually wrap their existing scripts in `run` steps.
+
 ### 7.2. Debugging and Introspection
 
 -   **Debug Mode**: A `--debug` flag on `tako exec` will enable step-by-step execution, pausing before each step and waiting for user confirmation to proceed.
@@ -333,11 +335,6 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 ### 10.3. Security and Template Safety
 
 ### 10.4. Usability and Developer Experience
-
-**❓ Migration Path for Existing Scripts**
-- Many organizations have existing shell scripts for multi-repo operations
-- The design doesn't address how to incrementally adopt tako workflows
-- **Suggestion**: Consider a `tako import-script` command that generates basic workflow definitions from existing shell scripts.
 
 ### 10.5. State Management and Consistency 
 
