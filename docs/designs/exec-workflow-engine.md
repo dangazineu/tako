@@ -110,10 +110,12 @@ dependents:
 ## 3. Workflow Execution Model
 
 1.  **Plan Generation**:
-    - When `tako exec release` is run, the engine executes the `release` workflow.
+    - The engine first builds a dependency graph of all repositories defined in the `dependents` sections of the `tako.yml` files.
+    - It performs a topological sort on the graph to determine the execution order. This process naturally detects circular dependencies; if a cycle is found, the execution fails with an error listing the repositories in the cycle.
+    - When `tako exec release` is run, the engine executes the `release` workflow in the root repository.
     - The `get_version` step runs and, because of its `produces` block, the engine associates its output (`version`) with the `tako-lib` artifact.
     - The engine then traverses the dependency graph. It finds downstream repos that depend on `tako-lib` and have workflows with `on: artifact_update`.
-    - For each potential downstream workflow, it evaluates the `if` condition using the **Common Expression Language (CEL)**. If the expression evaluates to true, the workflow is added to the execution plan.
+    - For each potential downstream workflow, it evaluates the `if` condition using the **Common Expression Language (CEL)**. If the expression evaluates to true, the workflow is added to the execution plan. The traversal has no fixed depth limit but is protected from infinite loops by the initial cycle detection.
 
 2.  **Input Validation**:
     - Before execution, the engine validates all workflow inputs against the `validation` rules defined in the schema.
@@ -311,13 +313,6 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 **✅ Precision Maintained**: The design has actually *gained* precision rather than losing it, with concrete examples, specific timeouts, and clear error handling policies.
 
 ### 10.2. Critical Implementation Questions
-
-**❓ Graph Traversal and Circular Dependencies**
-- Lines 115-116: Dependency graph traversal is mentioned but the algorithm is not specified
-- What happens when circular dependencies exist between repositories?
-- How deep does the traversal go (is there a maximum depth)?
-- Are there safeguards against infinite dependency chains?
-- **Critical**: This could cause infinite loops or performance issues in complex dependency graphs.
 
 **❓ Run ID Generation and Collision Handling**
 - Multiple references to `<run-id>` but no specification of how IDs are generated
