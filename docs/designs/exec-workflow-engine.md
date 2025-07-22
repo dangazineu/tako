@@ -136,7 +136,8 @@ dependents:
         -   `.inputs`: The workflow's input parameters.
         -   `.steps`: The outputs of all previously completed steps in the same workflow (e.g., `.steps.previous-step.outputs.version`).
         -   `.trigger`: For workflows with `on: artifact_update`, the trigger context containing information about the upstream artifact(s).
-    - **Resource Limits**: Each workflow runs in a container. The `resources` block and corresponding CLI flags define hard limits for CPU and memory. If a container exceeds these limits, it will be terminated by the container runtime.
+    - **Resource Limits**: Each workflow runs in a container. The `resources` block and corresponding CLI flags define hard limits for CPU and memory. If a container exceeds these limits, it will be terminated by the container runtime. For long-running steps, these resource limits continue to be enforced after the main `tako` process has exited.
+    - **NOTE on Resource Exhaustion**: While resource limits are enforced, it is still possible for a long-running container to consume significant disk space in the workspace. The initial design does not include disk space quotas. Users should be mindful of this when designing workflows with long-running steps. Future versions may include configurable disk quotas and more advanced resource management features.
     - **Workspace**: The workspace (`~/.tako/workspaces/<run-id>/...`) is mounted into the container.
     - **Template Caching**: To optimize performance, templates are parsed once per workflow execution and the parsed representation is cached in-memory for the duration of the run. The initial design does not include hard limits on the template cache size, as the memory footprint is expected to be minimal for typical workflows. No hard limit will be imposed.
 
@@ -470,7 +471,6 @@ This scenario tests the ability to persist the state of a long-running workflow 
 4.  The user can now close their terminal. The simulation continues to run in its container.
 5.  Later, the user checks the status of the simulation. Once it is complete, they resume the workflow with `tako exec --resume <run-id>`.
 
-<!-- RESOURCE MANAGEMENT QUESTION: Long-running containers could consume system resources indefinitely. Are there resource limits that persist after the main process exits? What happens if the system runs out of disk space or memory? -->
 6.  The engine loads the state, sees that the `run-simulation` step was the last one running, and proceeds to the next step, `publish-results`.
 
 **Configuration**:
