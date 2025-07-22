@@ -514,8 +514,6 @@ workflows:
 
 We will need to add a new built-in step `tako/poll@v1` to support this functionality.
 
-<!-- EFFICIENCY CONCERN: Continuous polling for 60 minutes could be resource-intensive. Should there be exponential backoff or configurable polling intervals? -->
-
 
 ## Appendix A: CLI Reference
 
@@ -567,7 +565,7 @@ Polls for a specific condition to be met.
 -   `target` (string, required): The target to poll. Supported values: `file`.
 -   `path` (string, required): The path to the file to check.
 -   `timeout` (duration, required): The maximum time to wait for the condition to be met.
--   `interval` (duration, optional): The interval at which to poll. Defaults to `10s`.
+-   `interval` (duration, optional): The interval at which to poll. Defaults to `10s`. Future versions may include support for exponential backoff.
 
 **Security Note**: The `tako/poll@v1` step executes within the step's container and is subject to the same security restrictions, including filesystem and network isolation. It can only access resources that are available to the container.
 
