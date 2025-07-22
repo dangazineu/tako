@@ -446,12 +446,14 @@ workflows:
     steps:
       - uses: tako/checkout@v1
       - id: update_json
-        # This script would need to handle multiple trigger artifacts
-        run: ./scripts/update-bom.sh --name {{ .trigger.artifact.name }} --version {{ .trigger.artifact.outputs.version }}
-        
-        <!-- PRECISION LOSS: This example shows the singular `.trigger.artifact.name` syntax, but according to the artifact aggregation feature described in section 3.1, this repository should receive multiple artifacts from both app-one and app-two. The template syntax doesn't match the described functionality. -->
-        
-        <!-- FUNCTIONALITY QUESTION: How does the script handle multiple trigger artifacts as mentioned in the comment? The template only shows accessing a single artifact. Should this be `.trigger.artifacts` (plural) with an array? -->
+        # This script iterates through all triggering artifacts.
+        run: |
+          #!/bin/bash
+          for i in $(seq 0 $(({{ len .trigger.artifacts }} - 1))); do
+            NAME=$(echo '{{ index .trigger.artifacts "'$i'" "name" }}')
+            VERSION=$(echo '{{ index .trigger.artifacts "'$i'" "outputs" "version" }}')
+            ./scripts/update-bom.sh --name $NAME --version $VERSION
+          done
 ```
 
 ### 9.2. Scenario 2: Asynchronous Workflow with Resume
