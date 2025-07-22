@@ -233,7 +233,7 @@ workflows:
 
 To maintain the ease of use for simple, one-off tasks, the existing `tako run` command will be retained as a simplified entrypoint to the workflow engine.
 
--   **`tako run <command>`**: This command will be a shortcut for `tako exec --workflow-from-command -- <command>`. The engine will dynamically construct a single-step workflow from the provided command, allowing users to execute simple commands across repositories without creating a formal `tako.yml` workflow definition.
+-   **`tako run <command>`**: This command is a convenience wrapper that dynamically constructs and executes a single-step workflow from the provided command. It is equivalent to creating a temporary `tako.yml` with a single `run` step and executing it with `tako exec`.
 -   **`tako lint`**: This command will perform a semantic validation of the `tako.yml` file. It will check for common errors such as circular dependencies, unreachable steps, and invalid syntax in CEL expressions.
 
 ### 7.2. Debugging and Introspection
@@ -333,11 +333,6 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 ### 10.3. Security and Template Safety
 
 ### 10.4. Usability and Developer Experience
-
-**❓ Inconsistent Flag Naming**
-- Line 215: `--workflow-from-command` flag is mentioned but not defined in the CLI specification
-- This flag doesn't appear elsewhere in the document
-- **Clarity Issue**: Either define this flag or use existing patterns.
 
 **❓ Migration Path for Existing Scripts**
 - Many organizations have existing shell scripts for multi-repo operations
