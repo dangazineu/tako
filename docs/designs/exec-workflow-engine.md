@@ -153,6 +153,7 @@ dependents:
     - Steps can be marked as `long_running: true`. When the engine encounters such a step, it will start the step's container and then immediately persist the workflow state and exit, returning the `<run-id>` to the user.
     - The container will continue to run in the background. The user can check its status with `tako status <run-id>` and resume the workflow with `tako exec --resume <run-id>` once the long-running step has completed.
     - It is the responsibility of the workflow author to ensure that the long-running step will eventually complete and that there is a way to determine its completion (e.g., by writing a file, updating a status in a database). The `tako/poll@v1` built-in step is provided for this purpose.
+    - **Failure Detection**: The engine does not actively monitor long-running steps for crashes or system reboots. If a container crashes, it will simply exit. It is up to the workflow author to use the `tako/poll@v1` step with appropriate timeouts and checks to detect such failures. For example, a polling step could check for the existence of a "success" file, and if the file is not present after a certain amount of time, the workflow would fail.
 
 ### 3.1. Workspace Management
 
@@ -498,8 +499,6 @@ workflows:
         # This new key indicates the engine should not wait for completion.
         long_running: true
         run: ./scripts/simulation.sh --dataset {{ .steps.prepare-data.outputs.dataset_id }}
-        
-        <!-- FUNCTIONALITY QUESTION: How does the engine track the status of long-running steps? What happens if the container crashes or the system reboots? Is there a mechanism to detect if the long-running step has actually completed successfully? -->
       - id: check-simulation
         # This step polls for the result of the long-running step.
         # The `tako/poll` built-in step would handle the logic of checking
