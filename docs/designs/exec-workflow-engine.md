@@ -230,6 +230,8 @@ workflows:
 -   **Scrubbing**: As mentioned in the `Security` section, the names of these secrets will be used to scrub their values from logs.
 -   **Error Handling**: If a required secret is not present in the environment when `tako exec` is run, the execution will fail before any steps are run.
 
+**Note on Syntax**: The distinction between the `env` mapping for secrets and the `{{ . }}` interpolation for other values is a deliberate security measure. This ensures that secret values are never processed by the templating engine, preventing accidental disclosure in logs or debug output.
+
 -   **Debug Mode**: A `--debug` flag on `tako exec` will enable step-by-step execution, pausing before each step and waiting for user confirmation to proceed. Secret values will be redacted from any debug output.
 -   **State Inspection**: A `tako state inspect <run-id>` command will be provided to print the persisted state of a workflow, which is useful for debugging. Secret values are never persisted to the state file.
 
@@ -337,12 +339,6 @@ This milestone introduces the core security and isolation features, and expands 
 **✅ Template Performance (Section 3)**: Caching strategy addresses performance concerns  
 
 ### 11.3. Minor Implementation Details Needing Clarification
-
-**❓ Secrets vs. Non-Secrets Template Inconsistency**
-- Line 222-223: Secrets use `GH_TOKEN: GITHUB_TOKEN` (env mapping)
-- Line 91: Non-secrets still use `{{ .trigger.artifact.outputs.version }}` (template interpolation)
-- This dual approach is actually **correct for security**, but should be explicitly documented
-- **Suggestion**: Add a note explaining why secrets and non-secrets use different syntaxes
 
 **❓ Container Capability Management**
 - Line 192: "All Linux capabilities will be dropped, and only the necessary capabilities will be added back"
