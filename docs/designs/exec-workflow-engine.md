@@ -70,6 +70,8 @@ workflows:
       - id: get_version
         if: .inputs.version-bump != "none"
         run: ./scripts/get-version.sh --bump {{ .inputs.version-bump }}
+        # Override workflow-level image for this step
+        image: "golang:1.22"
         # This new key indicates the engine should not wait for completion.
         long_running: false
         # This step's output is explicitly associated with the 'tako-lib' artifact.
@@ -77,6 +79,10 @@ workflows:
           artifact: tako-lib
           outputs:
             version: from_stdout
+        # Optional failure compensation steps
+        on_failure:
+          - id: cleanup_failed_version
+            run: ./scripts/cleanup.sh
 
   downstream-test:
     # This workflow is triggered automatically by an update to an artifact
@@ -176,11 +182,14 @@ dependents:
     - Steps can be marked as `long_running: true`. When the engine encounters such a step, it will start the step's container and then immediately persist the workflow state and exit, returning the `<run-id>` to the user.
     - The container will continue to run in the background. The user can check its status with `tako status <run-id>` and resume the workflow with `tako exec --resume <run-id>` once the long-running step has completed.
     - It is the responsibility of the workflow author to ensure that the long-running step will eventually complete and that there is a way to determine its completion. The `tako/poll@v1` built-in step is provided for this purpose, which can monitor for conditions like the completion of a container or the existence of a file.
-    - **Output Capture**: To capture outputs from a long-running step, the step must have a `produces` block. The long-running process is responsible for writing its outputs to a JSON file at the well-known path `.tako/outputs.json` within the step's workspace. When the workflow is resumed and a subsequent polling step confirms completion, the engine will read this file to populate the outputs into the workflow state, making them available to downstream steps.
+    - **Output Capture**: To capture outputs from a long-running step, the step must have a `produces` block. The long-running process is responsible for writing its outputs to a JSON file at the well-known path `.tako/outputs.json` within the step's workspace. **Output Timing**: Outputs are captured when the polling step (`tako/poll@v1`) succeeds, not when the file appears. This ensures the long-running process has fully completed before outputs are consumed by downstream steps.
     - **Failure Detection**: The engine does not actively monitor long-running steps for crashes or system reboots. If a container crashes, it will simply exit. It is up to the workflow author to use the `tako/poll@v1` step with appropriate timeouts and checks to detect such failures. For example, a polling step can check the exit code of the long-running step's container.
     - **System Reboot Recovery**: When a system reboots while a long-running container is executing, the container will be lost. During workflow resumption, the engine will detect that the referenced container no longer exists and will restart the long-running step from the beginning. The engine accomplishes this by checking container existence before attempting to poll or resume from a long-running step. While this means some work may be repeated, it ensures consistent behavior and prevents the workflow from becoming permanently stuck.
+    - **Container Persistence Guarantees**: Long-running containers are resilient to Docker daemon restarts through the use of restart policies. Containers are created with `--restart=unless-stopped` to ensure they survive daemon restarts but not system reboots. During system maintenance, users should pause workflows before maintenance windows.
+    - **Multiple Polling Operations**: A single workflow can have multiple polling steps for different long-running operations. Each polling step operates independently and can monitor different targets (files, exit codes, etc.). During workflow resumption, all polling steps are re-evaluated to determine which long-running operations have completed.
     - **Orphaned Container Management**: To prevent resource leaks from long-running containers that become orphaned, the engine will implement automatic cleanup mechanisms:
       - **Container Labeling**: All `tako`-managed containers are labeled with metadata including the run ID and creation timestamp.
+      - **Health Monitoring**: Containers emit periodic heartbeat signals to indicate they are active. Containers without heartbeats for >2 hours are considered orphaned.
       - **Automatic Cleanup**: The `tako status` and `tako exec --resume` commands will automatically detect and clean up containers that have been running for more than 24 hours without an associated active workflow state.
       - **Manual Cleanup**: A `tako container clean --older-than <duration>` command will be provided to manually clean up orphaned containers based on age or other criteria.
 
@@ -228,7 +237,12 @@ While the engine is designed for local and single-machine CI environments, users
     -   **Template Caching**: The in-memory cache for parsed templates is not size-limited. While the memory footprint for each template is small, a workflow with thousands of unique `run` blocks could consume a considerable amount of memory.
 -   **Disk Usage**:
     -   **Workspaces**: Each workflow run creates an isolated workspace. Concurrently running many workflows, especially those that generate large artifacts, can consume significant disk space. The `tako workspace clean` command is provided for manual cleanup.
-    -   **State Files**: State files are typically small, but for workflows with extensive output capture, the `~/.tako/state/<run-id>.json` file can grow large. The engine does not currently implement streaming or partial state writes.
+    -   **State Files**: State files are typically small, but for workflows with extensive output capture, the `~/.tako/state/<run-id>.json` file can grow large. **State File Limits**: The engine will warn when state files exceed 10MB and fail when they exceed 100MB to prevent resource exhaustion.
+-   **Template Cache Management**: While the template cache has no hard size limits, the engine implements an LRU eviction policy when memory usage exceeds 100MB to prevent memory leaks in long-running processes.
+-   **Repository Optimization**: The engine supports performance optimizations for large repositories:
+  - **Shallow Cloning**: By default, repositories are cloned with `--depth=1` for performance
+  - **Sparse Checkout**: The `cache_key_files` pattern can be used to limit file system operations to relevant files
+  - **Incremental Updates**: The repository cache is updated incrementally rather than re-cloned
 -   **Guideline**: As a general guideline, the v0.2.0 engine is optimized for workflows involving up to 50 repositories, with a few hundred steps in total, and where individual step outputs are in the order of kilobytes, not megabytes.
 
 ### 3.4. Run ID Generation
@@ -265,6 +279,28 @@ While the engine is designed for local and single-machine CI environments, users
 -   **Supported Runtimes**: The engine will support both Docker and Podman as container runtimes. It will detect the available runtime by looking for the respective executables in the system's `PATH`.
 -   **Fallback Behavior**: If neither Docker nor Podman is available, and a workflow requires containerized execution, the workflow will fail with a clear error message. For workflows that do not specify an `image`, steps will be run directly on the host.
 
+### 3.9. Multi-Repository Execution Management
+
+-   **Overall Status Tracking**: Each multi-repository `tako exec` run creates a master run ID that tracks the status across all affected repositories. Individual repository runs are linked to this master run ID for comprehensive status tracking.
+-   **Concurrent Execution Protection**: The engine implements file-based locking at `~/.tako/locks/<repo-hash>.lock` to prevent overlapping executions that affect the same repository sets. If a lock cannot be acquired, the execution will fail with a clear error message indicating which repository is busy.
+-   **Partial Failure Handling**: When repositories fail in a multi-repo execution:
+  - Failed repositories are marked in the master state
+  - Downstream dependencies of failed repositories are automatically skipped
+  - The `tako status <master-run-id>` command shows per-repository status
+  - Resume operations can continue from the last successful checkpoint
+-   **Step Dependencies**: While steps within a workflow execute sequentially, the design supports future extensions for explicit step dependencies through a `depends_on` field:
+  ```yaml
+  steps:
+    - id: step_a
+      run: ./script_a.sh
+    - id: step_b  
+      run: ./script_b.sh
+    - id: step_c
+      depends_on: [step_a, step_b]
+      run: ./script_c.sh
+  ```
+  This feature is planned for a future release after the core sequential execution is stable.
+
 ## 4. Security
 
 -   **Secret Scrubbing**: `tako` will maintain a list of secret names from the environment. It will perform a best-effort scrub of the exact string values of these secrets from all logs. This is a best-effort approach and may not catch secrets that have been encoded (e.g., Base64) or transformed. The performance impact of scanning logs is expected to be minimal for typical use cases.
@@ -289,7 +325,7 @@ In addition to sandboxing CEL expressions, the `text/template` engine used for `
 
 -   **Command Injection Risk**: The primary risk is command injection. If a template substitutes an output from a previous step or an artifact directly into a shell command, a malicious output could execute arbitrary code.
     -   **User Responsibility**: It is the workflow author's responsibility to treat all external inputs and step outputs as untrusted data.
-    -   **Mitigation**: To mitigate this, the engine will provide built-in template functions for escaping shell arguments (e.g., `shell_quote`). Workflows should always use these functions when substituting external data into a command line.
+    -   **Mitigation**: To mitigate this, the engine will provide built-in template functions for escaping shell arguments. Workflows should always use these functions when substituting external data into a command line.
       ```yaml
       # GOOD: Properly escaped
       run: ./scripts/process.sh --message {{ .inputs.message | shell_quote }}
@@ -297,6 +333,17 @@ In addition to sandboxing CEL expressions, the `text/template` engine used for `
       # BAD: Vulnerable to injection
       run: ./scripts/process.sh --message {{ .inputs.message }}
       ```
+-   **Template Function Security**: Each template function undergoes security review before inclusion. Available functions include:
+  - `shell_quote`: Escapes shell arguments safely
+  - `json_escape`: Escapes JSON strings
+  - `url_encode`: URL-encodes strings
+  - `base64_encode`/`base64_decode`: Base64 encoding/decoding
+  - String manipulation: `upper`, `lower`, `trim`, `replace`
+-   **Cross-Container Isolation**: Containers can only access outputs from previous steps through the persisted JSON state. Direct filesystem or network communication between containers is prohibited by the security model.
+-   **Secret Rotation Handling**: For long-running workflows, the engine supports secret rotation through:
+  - Environment variable monitoring for secret changes
+  - Workflow pause/resume capabilities to allow credential updates
+  - Automatic secret re-injection on workflow resumption
 -   **Filesystem and Network Access**: The standard Go `text/template` engine does not provide functions to access the filesystem or network. Any custom functions added to the template environment will be carefully designed to not introduce such capabilities.
 -   **Information Disclosure**:
     -   **Secret Scrubbing**: As mentioned, secret values are never available to the template engine and are scrubbed from logs.
@@ -429,8 +476,30 @@ To help users understand and debug complex workflows, the engine provides severa
 
 ### 7.4. Testing Workflows
 
--   **Local Testing**: The `--dry-run` flag on `tako exec` is the primary tool for testing workflow definitions. It allows developers to see the execution plan without making any changes.
+-   **Local Testing**: The `--dry-run` flag on `tako exec` is the primary tool for testing workflow definitions. **Dry-Run Completeness**: The dry-run mode performs comprehensive simulation including:
+  - Template resolution and variable substitution
+  - Artifact dependency validation
+  - Resource requirement checking
+  - CEL expression evaluation (with mock data)
+  - Container image availability verification
+-   **Testing Framework Integration**: Built-in steps support test-specific behaviors:
+  - `tako/checkout@v1` supports a `mock_mode: true` parameter that creates a dummy repository structure
+  - Steps can be configured with `test_fixtures` to provide predictable outputs during testing
+  - The engine provides a `--test-mode` flag that enables mock behaviors across all built-in steps
 -   **Unit Testing Steps**: Individual steps that are defined as scripts or commands can be tested using standard shell scripting and testing techniques, outside of the `tako` engine.
+-   **Workflow Composition**: The design supports future workflow composition through `import` statements:
+  ```yaml
+  workflows:
+    release:
+      import: my-org/workflow-library/release-template.yml
+      inputs:
+        version-bump: patch
+  ```
+  This feature enables workflow libraries and reuse patterns (planned for future release).
+-   **Development Workflow Integration**: The engine integrates with development workflows through:
+  - Feature branch support in `tako/checkout@v1` with branch-specific artifact naming
+  - Pull request creation and management through `tako/create-pull-request@v1`
+  - Integration with code review systems through webhooks and status updates
 
 ### 7.5. CI/CD Integration
 
@@ -610,6 +679,12 @@ Updates a dependency in a repository. The step will automatically detect the pac
 -   `name` (string, required): The name of the dependency to update.
 -   `version` (string, required): The new version of the dependency.
 
+**Ecosystem-Specific Parameters**:
+-   `npm_registry` (string, optional): Custom npm registry URL for Node.js projects
+-   `maven_profile` (string, optional): Maven profile to activate during updates  
+-   `go_module_proxy` (string, optional): Go module proxy URL (defaults to GOPROXY environment)
+-   `update_lock_files` (boolean, optional): Whether to update lock files (defaults to `true`)
+
 ### `tako/create-pull-request@v1`
 
 Creates a pull request on the code hosting platform.
@@ -639,75 +714,83 @@ Polls for a specific condition to be met, typically used to check the status of 
 
 **Sanitization**: All error messages originating from template parsing or execution will be sanitized to prevent the leaking of sensitive information or internal system details.
 
+## Appendix C: CEL Function Library
+
+The following functions are available in CEL expressions for workflow and step `if` conditions:
+
+### Standard CEL Functions
+- String manipulation: `contains()`, `startsWith()`, `endsWith()`, `matches()`, `split()`
+- List operations: `size()`, `in`, list comprehensions
+- Logical: `&&`, `||`, `!`
+- Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
+
+### Tako-Specific Functions
+- **`semver.satisfies(version, constraint)`**: Checks if a semantic version satisfies a constraint range
+  - Example: `semver.satisfies('1.2.3', '^1.0.0')` returns `true`
+- **`semver.compare(v1, v2)`**: Compares two semantic versions (-1, 0, 1)
+- **`artifact.exists(name)`**: Checks if an artifact with the given name exists in the trigger context
+- **`step.completed(id)`**: Checks if a step with the given ID has completed successfully
+
+### Security Considerations
+All CEL functions are evaluated in a sandboxed environment with:
+- 100ms execution timeout
+- 64MB memory limit
+- No filesystem, network, or environment variable access
+
 ## 10. Open Questions
 
-Based on the comprehensive design review, the following open questions require resolution before or during implementation:
+Based on the comprehensive design review, the following questions remain open and require resolution during implementation:
 
-### 10.1. Schema and Configuration Questions
+### Remaining Open Questions
 
-1. **`on_failure` Schema Integration**: The `on_failure` block is described in section 3.2.1 but not formally documented in the schema reference (section 2.3). How does this integrate with the step schema? Should it be at the same level as `run` and `uses`, or nested within?
+The design has addressed most reviewer concerns directly in the specification. The following items require implementation decisions or future consideration:
 
-2. **CEL Function Library**: The design mentions `semver.satisfies()` functions in CEL expressions (line 133) but doesn't specify the complete function library. What CEL functions will be available beyond the standard set? Should this be documented in an appendix?
+1. **Schema Extensibility**: Should future versions support organization-specific schema extensions beyond the core specification?
 
-3. **Step-Level Image Override**: The schema shows workflow-level `image` specification, but can individual steps override this with their own `image` field? This impacts containerization flexibility.
+2. **Distributed Execution**: While the current design focuses on single-machine execution, should the architecture be prepared for future distributed execution capabilities?
 
-### 10.2. Execution Model Questions
+3. **Workflow Version Pinning**: Should workflows be able to pin specific versions of built-in steps (e.g., `tako/checkout@v1.2.3`) for reproducibility?
 
-4. **Multi-Repository State Consistency**: How does the engine handle the case where one repository succeeds but another fails in the same `tako exec` run? Is there a way to query the overall status of a multi-repo execution?
+4. **Advanced CEL Functions**: Beyond the specified function library, what domain-specific CEL functions would provide the most value for workflow authors?
 
-5. **Concurrent `tako exec` Runs**: What happens if multiple `tako exec` commands are run simultaneously that affect overlapping repository sets? Should there be locking mechanisms or conflict detection?
+5. **Integration Webhooks**: Should the engine support outbound webhooks for integration with external systems (monitoring, notifications, etc.)?
 
-6. **Step Dependency Beyond Sequential**: The current design executes steps sequentially within a workflow. Are there use cases where explicit step dependencies (e.g., step C depends on both step A and B) would be valuable?
+These questions will be revisited based on user feedback and implementation experience.
 
-### 10.3. Long-Running Steps and Async Operations
+## 10. Implementation Strategy
 
-7. **Long-Running Step Output Timing**: When exactly are outputs from long-running steps captured? When the `.tako/outputs.json` file appears, or when the polling step succeeds? This affects timing guarantees.
+### 10.1. Milestone Dependencies
 
-8. **Container Persistence Guarantees**: What happens to long-running containers during system maintenance, Docker daemon restarts, or host migration? Should there be health checks or heartbeat mechanisms?
+The implementation plan includes the following prerequisite relationships:
+- **Issue 6** (containerization) is required before **Issue 13** (long-running steps)
+- **Issue 7** (graph-aware execution) is required before **Issue 9** (multi-repo E2E tests)
+- **Issue 15** (status command) supports **Issue 13** (long-running steps) for monitoring
+- **Issues 1-4** form the core MVP and must be completed sequentially
 
-9. **Polling Step Lifecycle**: Can a single workflow have multiple polling steps for different long-running operations? How do they interact with workflow resumption?
+### 10.2. Backward Compatibility Strategy  
 
-### 10.4. Security and Isolation Questions
+The engine implements a versioned approach to minimize future breaking changes:
+- Schema validation enforces version compatibility
+- New features are additive when possible
+- Deprecation warnings precede breaking changes by at least one major version
+- The migration tool will be enhanced for future schema transitions
 
-10. **Template Function Security Boundary**: Beyond `shell_quote`, what other template functions are planned? Each function introduces potential security considerations - should there be a security review process for new template functions?
+### 10.3. Error Recovery Strategies
 
-11. **Cross-Container Communication**: In multi-step workflows, can containers access outputs from previous steps beyond the JSON state? This has implications for security isolation.
+The engine implements differentiated recovery strategies based on failure types:
+- **Network failures**: Automatic retry with exponential backoff (up to 3 attempts)
+- **Authentication failures**: Immediate failure with clear credential guidance
+- **Resource exhaustion**: Graceful degradation and user notification
+- **Container runtime failures**: Fallback to host execution where applicable
 
-12. **Secret Rotation During Execution**: How should the engine handle secret rotation that occurs during a long-running workflow execution? Should workflows be pausable for credential updates?
+### 10.4. Metrics and Observability
 
-### 10.5. Performance and Scalability Questions
-
-13. **State File Size Limits**: The design mentions state files can grow large but doesn't specify limits or mitigation strategies. Should there be warnings or hard limits to prevent resource exhaustion?
-
-14. **Template Cache Eviction**: While template cache has no size limits, should there be an eviction policy for workflows with thousands of templates to prevent memory leaks?
-
-15. **Repository Checkout Optimization**: For large monorepos or workflows with many repositories, is shallow cloning or sparse checkout supported to improve performance?
-
-### 10.6. Testing and Development Experience
-
-16. **Testing Framework Integration**: Should built-in steps like `tako/checkout@v1` support test-specific behaviors (e.g., mock modes, fixtures) to facilitate workflow testing?
-
-17. **Workflow Composition**: Are there plans for including or referencing workflows from other repositories? This would enable workflow libraries and reuse patterns.
-
-18. **Development Workflow Integration**: How should the engine integrate with development workflows that use feature branches, pull requests, and code reviews?
-
-### 10.7. Implementation Strategy Questions
-
-19. **Milestone Dependencies**: Issue 13 (long-running steps) depends on Issue 6 (containerization) and Issue 15 (status command), but the dependencies aren't clearly documented. Should the implementation plan specify prerequisite relationships?
-
-20. **Backward Compatibility Strategy**: The migration from v0.1.0 to v0.2.0 is a breaking change. What's the long-term strategy for schema evolution to minimize future breaking changes?
-
-21. **Error Recovery Granularity**: Should there be different recovery strategies for different types of failures (network issues, authentication failures, resource exhaustion, etc.)?
-
-### 10.8. Missing Implementation Details
-
-22. **Built-in Step Parameters**: The `tako/update-dependency@v1` step mentions automatic package manager detection, but doesn't specify how ecosystem-specific parameters (e.g., Maven profiles, npm registry) are handled.
-
-23. **Dry-Run Completeness**: How comprehensive should dry-run mode be? Should it simulate template resolution, artifact dependency checking, and resource validation without execution?
-
-24. **Metrics and Observability**: Beyond resource monitoring, should the engine provide metrics for workflow success rates, execution times, and performance trends?
-
-These questions represent areas where the design could benefit from additional specification or where implementation decisions will need to be made with careful consideration of the overall architecture and user experience.
+Beyond resource monitoring, the engine provides:
+- Workflow success/failure rate metrics
+- Step execution time distributions  
+- Resource usage trends over time
+- Performance bottleneck identification
+- Export capabilities for external monitoring systems
 
 ## 11. Implementation Plan
 
