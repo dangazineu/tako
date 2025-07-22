@@ -70,6 +70,8 @@ workflows:
       - id: get_version
         if: .inputs.version-bump != "none"
         run: ./scripts/get-version.sh --bump {{ .inputs.version-bump }}
+        # This new key indicates the engine should not wait for completion.
+        long_running: false
         # This step's output is explicitly associated with the 'tako-lib' artifact.
         produces:
           artifact: tako-lib
@@ -146,6 +148,11 @@ dependents:
     - To resume, a user runs `tako exec --resume <run-id>`.
     - **Idempotency**: It is the responsibility of the workflow author to design steps to be idempotent, especially in workflows that are expected to be resumed. The engine does not provide any guarantees about partially completed steps.
     - **Cross-Repository Consistency**: The engine does not provide transactional guarantees for state changes across multiple repositories. A failure in one repository's workflow does not automatically roll back changes in another.
+
+5.  **Long-Running Steps**:
+    - Steps can be marked as `long_running: true`. When the engine encounters such a step, it will start the step's container and then immediately persist the workflow state and exit, returning the `<run-id>` to the user.
+    - The container will continue to run in the background. The user can check its status with `tako status <run-id>` and resume the workflow with `tako exec --resume <run-id>` once the long-running step has completed.
+    - It is the responsibility of the workflow author to ensure that the long-running step will eventually complete and that there is a way to determine its completion (e.g., by writing a file, updating a status in a database). The `tako/poll@v1` built-in step is provided for this purpose.
 
 ### 3.1. Workspace Management
 
@@ -490,8 +497,6 @@ workflows:
         # This new key indicates the engine should not wait for completion.
         long_running: true
         run: ./scripts/simulation.sh --dataset {{ .steps.prepare-data.outputs.dataset_id }}
-        
-        <!-- PRECISION LOSS: The `long_running` feature is introduced here without any documentation in the main schema section (2.3) or execution model (section 3). This is a significant new feature that affects container lifecycle, state management, and resource usage. -->
         
         <!-- SECURITY CONCERN: Long-running containers that persist after the main tako process exits could be a security risk. How are these containers secured? What prevents them from running indefinitely? Are there automatic cleanup mechanisms? -->
         
