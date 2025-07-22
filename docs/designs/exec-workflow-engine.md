@@ -139,7 +139,7 @@ dependents:
 ### 3.1. Workspace Management
 
 -   **Workspace Path**: Each workflow run is executed in an isolated workspace located at `~/.tako/workspaces/<run-id>`.
--   **Cleanup**: Workspaces are automatically cleaned up after a workflow completes successfully. For failed or persisted workflows, the workspace is retained to allow for debugging and resumption.
+-   **Cleanup**: Workspaces are automatically cleaned up after a workflow completes successfully. For failed or persisted workflows, the workspace is retained to allow for debugging and resumption. A `tako workspace clean --older-than <duration>` command will be provided to clean up old workspaces.
 -   **Storage Quotas**: The initial design does not include storage quotas for workspaces.
 
 ### 3.2. Error Handling
@@ -347,11 +347,6 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 ### 10.5. State Management and Consistency 
 
 ### 10.6. Performance and Resource Management
-
-**❓ Workspace Storage Growth**
-- Line 138: Workspaces retained for failed runs, but no cleanup strategy
-- Large repositories could consume significant disk space over time
-- **Suggestion**: Add automatic cleanup after N days or a `tako workspace clean --older-than` command.
 
 **❓ Container Image Management**
 - Line 48: `golang:1.21` image specified, but no guidance on image lifecycle
