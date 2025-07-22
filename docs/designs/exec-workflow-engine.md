@@ -347,6 +347,141 @@ This milestone introduces the core security and isolation features, and expands 
 14. **`feat(exec): Implement --dry-run mode`**.
 
 
+## 9. Testing Scenarios
+
+This section outlines several testing scenarios to validate the capabilities of the workflow engine and explore the flow of information between steps and repositories.
+
+### 9.1. Scenario 1: Fan-Out/Fan-In Release
+
+This scenario tests the core graph-aware execution model, where a change in a central library fans out to its dependents, which are then aggregated in a final "bill of materials" repository.
+
+-   **Repo A (`go-lib`)**: The core library.
+-   **Repo B (`app-one`)**: A downstream consumer of `go-lib`.
+-   **Repo C (`app-two`)**: Another downstream consumer of `go-lib`.
+-   **Repo D (`release-bom`)**: A repository that tracks the released versions of `app-one` and `app-two`.
+
+**Execution Flow**:
+
+1.  A user runs `tako exec release --inputs.version-bump=minor` in `go-lib`.
+2.  The `release` workflow in `go-lib` runs, builds the library, and `produces` the new version (e.g., `v1.2.0`) for the `go-lib` artifact.
+3.  The engine detects that `app-one` and `app-two` depend on `go-lib` and have workflows with `on: artifact_update`.
+4.  The engine triggers the `update-downstream` workflow in `app-one` and `app-two` in parallel. The `trigger` context contains the new version from `go-lib`.
+5.  Both `app-one` and `app-two` update their `go.mod` file, run tests, and `produce` their own new versions for their respective artifacts (`app-one-artifact` and `app-two-artifact`).
+6.  The engine then detects that `release-bom` depends on both of these artifacts. It waits for both `app-one` and `app-two` to complete their workflows.
+7.  Finally, the engine triggers the `update-bom` workflow in `release-bom`, which receives the new versions of both apps in its `trigger` context and updates a central `versions.json` file.
+
+**Configuration**:
+
+**Repo A: `go-lib/tako.yml`**
+```yaml
+version: 0.2.0
+artifacts:
+  go-lib:
+    path: ./go.mod
+    ecosystem: go
+dependents:
+  - repo: my-org/app-one
+    artifacts: [go-lib]
+  - repo: my-org/app-two
+    artifacts: [go-lib]
+workflows:
+  release:
+    on: exec
+    inputs:
+      version-bump:
+        type: string
+        default: "patch"
+    steps:
+      - id: build
+        run: ./scripts/get-version.sh --bump {{ .inputs.version-bump }}
+        produces:
+          artifact: go-lib
+          outputs:
+            version: from_stdout
+```
+
+**Repo B: `app-one/tako.yml`**
+```yaml
+version: 0.2.0
+artifacts:
+  app-one-artifact:
+    path: ./pom.xml
+    ecosystem: maven
+dependents:
+  - repo: my-org/release-bom
+    artifacts: [app-one-artifact]
+workflows:
+  update-downstream:
+    on: artifact_update
+    if: trigger.artifact.name == 'go-lib'
+    steps:
+      - uses: tako/checkout@v1
+      - uses: tako/update-dependency@v1
+        with:
+          version: "{{ .trigger.artifact.outputs.version }}"
+      - id: build
+        run: ./scripts/get-version.sh # Assumes this script calculates the next version
+        produces:
+          artifact: app-one-artifact
+          outputs:
+            version: from_stdout
+```
+
+**Repo D: `release-bom/tako.yml`**
+```yaml
+version: 0.2.0
+workflows:
+  update-bom:
+    on: artifact_update
+    steps:
+      - uses: tako/checkout@v1
+      - id: update_json
+        # This script would need to handle multiple trigger artifacts
+        run: ./scripts/update-bom.sh --name {{ .trigger.artifact.name }} --version {{ .trigger.artifact.outputs.version }}
+```
+
+### 9.2. Scenario 2: Asynchronous Workflow with Resume
+
+This scenario tests the ability to persist the state of a long-running workflow and resume it later.
+
+**Execution Flow**:
+
+1.  A user runs `tako exec process-data` in a repository with a long-running data processing job.
+2.  The `prepare-data` step runs successfully.
+3.  The `run-simulation` step begins. Because it is marked as `long_running`, the `tako` engine persists the workflow state to `~/.tako/state/<run-id>.json` and exits, returning the `<run-id>` to the user.
+4.  The user can now close their terminal. The simulation continues to run in its container.
+5.  Later, the user checks the status of the simulation. Once it is complete, they resume the workflow with `tako exec --resume <run-id>`.
+6.  The engine loads the state, sees that the `run-simulation` step was the last one running, and proceeds to the next step, `publish-results`.
+
+**Configuration**:
+
+```yaml
+version: 0.2.0
+workflows:
+  process-data:
+    on: exec
+    steps:
+      - id: prepare-data
+        run: ./scripts/prepare.sh
+        produces:
+          outputs:
+            dataset_id: from_stdout
+      - id: run-simulation
+        # This new key indicates the engine should not wait for completion.
+        long_running: true
+        run: ./scripts/simulation.sh --dataset {{ .steps.prepare-data.outputs.dataset_id }}
+      - id: publish-results
+        run: ./scripts/publish.sh --dataset {{ .steps.prepare-data.outputs.dataset_id }}
+```
+
+## 10. Open Questions
+
+1.  **Conditional Step Execution**: The current design specifies an `if` condition on `workflows` to filter triggers. Should `steps` also support an `if` condition to allow for conditional execution within a single workflow? This would be powerful for creating workflows that can adapt to different inputs (e.g., `if: .inputs.is_hotfix == true`).
+
+2.  **Long-Running Step Completion**: For asynchronous workflows, how does the engine determine that a long-running, detached step has completed successfully? Is there a callback mechanism, or does a subsequent step in the resumed workflow need to poll for results (e.g., by checking for an output artifact)?
+
+3.  **Cross-Repository Artifact Aggregation**: In the fan-out/fan-in scenario, the `release-bom` repository depends on artifacts from multiple upstream repositories. How does its `on: artifact_update` workflow behave? Does it trigger once per upstream update, or does the engine intelligently aggregate all updates from a single `tako exec` run and trigger the `update-bom` workflow only once with a list of all triggering artifacts? The latter seems more desirable for this use case.
+
 ## Appendix A: CLI Reference
 
 | Flag                     | Description                                                                                             | Default |
