@@ -371,19 +371,6 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 
 ### 10.7. Error Handling and Debugging
 
-### 10.8. Architectural Consistency
-
-**✅ Well-Designed Aspects:**
-- Sequential step execution within workflows (line 124) is clear and predictable
-- Fail-fast error handling (line 141) is appropriate for the use case
-- Workspace isolation (line 136) prevents cross-run interference
-- Schema versioning approach (line 107) follows best practices
-
-**⚠️ Consistency Issues:**
-- Secrets handling shows both template interpolation (`{{ .secrets.X }}`) and environment variable approaches - clarify which is primary
-- Resource limits specified in multiple places (schema, CLI flags) - clarify precedence order
-- Built-in steps use `uses:` syntax but custom commands use `run:` - document this distinction clearly
-
 ### 10.9. Implementation Feasibility Assessment
 
 **High Complexity Features** (consider deferring to later milestones):
