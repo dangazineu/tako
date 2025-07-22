@@ -191,7 +191,7 @@ dependents:
 -   **Container Security**: Containers are executed with a set of hardening measures to reduce the risk of container escape and privilege escalation:
     -   **Non-Root User**: Containers run as a fixed, non-root UID (`1001`). `tako` will `chown` the workspace directory to this UID before starting the container.
     -   **Read-Only Root Filesystem**: The container's root filesystem will be mounted as read-only.
-    -   **Dropped Capabilities**: All Linux capabilities will be dropped, and only the necessary capabilities will be added back.
+    -   **Dropped Capabilities**: By default, all Linux capabilities are dropped. A `capabilities` block can be added to a step to request specific capabilities.
     -   **Seccomp Profile**: A default seccomp profile will be applied to restrict the available syscalls.
 -   **Network**: By default, containers have network access. It can be disabled per-step with a `network: none` key in the step definition.
 
@@ -339,12 +339,6 @@ This milestone introduces the core security and isolation features, and expands 
 **✅ Template Performance (Section 3)**: Caching strategy addresses performance concerns  
 
 ### 11.3. Minor Implementation Details Needing Clarification
-
-**❓ Container Capability Management**
-- Line 192: "All Linux capabilities will be dropped, and only the necessary capabilities will be added back"
-- Which capabilities are considered "necessary" for typical workflows?
-- How are additional capabilities requested when needed?
-- **Suggestion**: Provide a default capability set and extension mechanism
 
 **❓ Large Repository Performance**
 - Line 113-114: Topological sort on "all repositories defined in dependents sections"
