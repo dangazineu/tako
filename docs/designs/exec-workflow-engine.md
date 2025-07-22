@@ -144,7 +144,10 @@ dependents:
 ### 3.3. Scalability
 
 -   **Local Execution**: The initial design is focused on providing a powerful and flexible workflow engine for local and single-machine CI environments.
--   **Large-Scale Deployments**: The design does not explicitly address distributed execution or scaling to hundreds of concurrent workflows. These capabilities could be explored in a future release if there is sufficient demand.
+### 3.4. Container Runtime
+
+-   **Supported Runtimes**: The engine will support both Docker and Podman as container runtimes. It will detect the available runtime by looking for the respective executables in the system's `PATH`.
+-   **Fallback Behavior**: If neither Docker nor Podman is available, and a workflow requires containerized execution, the workflow will fail with a clear error message. For workflows that do not specify an `image`, steps will be run directly on the host.
 
 ## 4. Security
 
@@ -298,3 +301,143 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 - CEL expression evaluation should be sandboxed
 - Large repository cache key computation could cause DoS
 - Secret scrubbing should handle encoded values
+
+## 10. Design Review: Precision, Clarity, and Implementation Concerns
+
+### 10.1. Overall Assessment
+
+**✅ Strong Improvements**: The updated design successfully addresses most previous questions with significantly enhanced precision and detail. The phased implementation approach (MVP → Containerization → Advanced Features) is excellent.
+
+**✅ Precision Maintained**: The design has actually *gained* precision rather than losing it, with concrete examples, specific timeouts, and clear error handling policies.
+
+### 10.2. Critical Implementation Questions
+
+**❓ Graph Traversal and Circular Dependencies**
+- Lines 115-116: Dependency graph traversal is mentioned but the algorithm is not specified
+- What happens when circular dependencies exist between repositories?
+- How deep does the traversal go (is there a maximum depth)?
+- Are there safeguards against infinite dependency chains?
+- **Critical**: This could cause infinite loops or performance issues in complex dependency graphs.
+
+**❓ Run ID Generation and Collision Handling**
+- Multiple references to `<run-id>` but no specification of how IDs are generated
+- What prevents collisions between concurrent executions?
+- What's the ID format and length?
+- **Suggestion**: Specify UUID4 or timestamp-based generation with collision detection.
+
+### 10.3. Security and Template Safety
+
+**🔒 Secrets Template Interpolation Risk**
+- Line 179-180: `{{ .secrets.GITHUB_TOKEN }}` in YAML could be logged during template parsing
+- Debug mode (line 220) could expose secrets through step-by-step output
+- Template parsing errors might include secret values in error messages
+- **Recommendation**: Implement secret-aware template parsing that redacts secret values from all outputs.
+
+**🔒 Container Escape and Privilege Escalation**
+- Line 152: Fixed UID 1001 is good, but what about container escape scenarios?
+- No mention of seccomp profiles, AppArmor, or SELinux policies
+- Container capabilities are not restricted
+- **Suggestion**: Specify additional container hardening measures (readonly root filesystem, dropped capabilities, etc.).
+
+**🔒 CEL Memory and CPU Limits**
+- Line 158: 100ms timeout specified, but no memory limits for CEL evaluation
+- Malicious expressions could consume excessive memory before timing out
+- **Recommendation**: Add explicit memory limits (e.g., 64MB) for CEL expression evaluation.
+
+### 10.4. Usability and Developer Experience
+
+**❓ Template Complexity for Simple Cases**
+- The templating system (`{{ .inputs.version-bump }}`, `{{ .secrets.GITHUB_TOKEN }}`) adds complexity
+- Simple use cases might be over-engineered compared to shell variable substitution
+- **Question**: Should there be a simpler variable substitution syntax for basic cases?
+
+**❓ Inconsistent Flag Naming**
+- Line 215: `--workflow-from-command` flag is mentioned but not defined in the CLI specification
+- This flag doesn't appear elsewhere in the document
+- **Clarity Issue**: Either define this flag or use existing patterns.
+
+**❓ Migration Path for Existing Scripts**
+- Many organizations have existing shell scripts for multi-repo operations
+- The design doesn't address how to incrementally adopt tako workflows
+- **Suggestion**: Consider a `tako import-script` command that generates basic workflow definitions from existing shell scripts.
+
+### 10.5. State Management and Consistency 
+
+**❓ State File Corruption Recovery**
+- Line 129: "no automatic recovery" from state corruption is harsh for production use
+- Large workflows could lose hours of progress due to disk corruption
+- **Suggestion**: Consider state file versioning or incremental backups during long-running workflows.
+
+**❓ Cross-Repository State Race Conditions**
+- Line 132: No transactional guarantees across repositories
+- What happens when repo A succeeds but repo B fails during parallel execution?
+- Could partial updates lead to inconsistent system state?
+- **Recommendation**: Add guidance for designing resilient workflows with compensation patterns.
+
+### 10.6. Performance and Resource Management
+
+**❓ Template Parsing Performance**
+- Templates are parsed for every step execution
+- Complex workflows with many steps could suffer from repeated parsing overhead
+- **Question**: Are parsed templates cached? Should there be template pre-compilation?
+
+**❓ Workspace Storage Growth**
+- Line 138: Workspaces retained for failed runs, but no cleanup strategy
+- Large repositories could consume significant disk space over time
+- **Suggestion**: Add automatic cleanup after N days or a `tako workspace clean --older-than` command.
+
+**❓ Container Image Management**
+- Line 48: `golang:1.21` image specified, but no guidance on image lifecycle
+- Should images be pulled on every execution or cached?
+- What about private registry authentication?
+- **Missing Detail**: Image pull policies and registry authentication strategies.
+
+### 10.7. Error Handling and Debugging
+
+**❓ Error Message Quality**
+- Line 120: "descriptive error message" mentioned but no examples or standards
+- Poor error messages could significantly impact developer productivity
+- **Suggestion**: Include examples of good vs. bad error messages in the design.
+
+**❓ Debug Mode Implementation Details**
+- Line 220: Debug mode "pauses before each step" - but how is user input handled?
+- What if debug mode is used in CI environments without interactive shells?
+- **Missing Detail**: Specify interactive vs. non-interactive debug behaviors.
+
+### 10.8. Architectural Consistency
+
+**✅ Well-Designed Aspects:**
+- Sequential step execution within workflows (line 124) is clear and predictable
+- Fail-fast error handling (line 141) is appropriate for the use case
+- Workspace isolation (line 136) prevents cross-run interference
+- Schema versioning approach (line 107) follows best practices
+
+**⚠️ Consistency Issues:**
+- Secrets handling shows both template interpolation (`{{ .secrets.X }}`) and environment variable approaches - clarify which is primary
+- Resource limits specified in multiple places (schema, CLI flags) - clarify precedence order
+- Built-in steps use `uses:` syntax but custom commands use `run:` - document this distinction clearly
+
+### 10.9. Implementation Feasibility Assessment
+
+**High Complexity Features** (consider deferring to later milestones):
+- Container orchestration with resource limits
+- CEL expression evaluation with sandboxing
+- Cross-repository state management and consistency
+- Template parsing with secret redaction
+
+**Recommend for MVP Simplification:**
+- Start with host-based execution, add containerization in Milestone 2
+- Use simple variable substitution before full template engine
+- Implement single-repo workflows before cross-repo orchestration
+
+### 10.10. Final Recommendations
+
+1. **Add container runtime specification** and fallback behavior
+2. **Define graph traversal algorithm** with cycle detection
+3. **Specify run ID generation** mechanism
+4. **Enhance security measures** for template parsing and container isolation
+5. **Clarify CLI flag specifications** and resolve naming inconsistencies
+6. **Add error message examples** and debugging scenarios
+7. **Consider MVP simplification** to reduce initial implementation risk
+
+**Overall**: This is a well-evolved design that successfully addresses previous concerns while maintaining strong architectural principles. The main risks are implementation complexity and some missing low-level specifications that could lead to ambiguity during development.
