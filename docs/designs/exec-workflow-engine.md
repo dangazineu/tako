@@ -514,8 +514,6 @@ workflows:
 
 We will need to add a new built-in step `tako/poll@v1` to support this functionality.
 
-<!-- PRECISION LOSS: The `tako/poll@v1` built-in step is used in the example above but not documented in Appendix B: Built-in Steps. This reduces implementation precision. -->
-
 <!-- SECURITY CONCERN: A polling mechanism that can check files, databases, or external systems could be a security risk if not properly sandboxed. How does polling interact with the container's network isolation and filesystem restrictions? -->
 
 <!-- EFFICIENCY CONCERN: Continuous polling for 60 minutes could be resource-intensive. Should there be exponential backoff or configurable polling intervals? -->
@@ -561,6 +559,17 @@ Creates a pull request on the code hosting platform.
 -   `body` (string, required): The body of the pull request.
 -   `base` (string, required): The base branch for the pull request.
 -   `head` (string, required): The head branch for the pull request.
+
+### `tako/poll@v1`
+
+Polls for a specific condition to be met.
+
+**Parameters**:
+
+-   `target` (string, required): The target to poll. Supported values: `file`.
+-   `path` (string, required): The path to the file to check.
+-   `timeout` (duration, required): The maximum time to wait for the condition to be met.
+-   `interval` (duration, optional): The interval at which to poll. Defaults to `10s`.
 
 **Sanitization**: All error messages originating from template parsing or execution will be sanitized to prevent the leaking of sensitive information or internal system details.
 
