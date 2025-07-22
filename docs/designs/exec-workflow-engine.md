@@ -155,6 +155,11 @@ dependents:
 -   **Format**: The `<run-id>` is a UUIDv4 string.
 -   **Collision Avoidance**: The use of UUIDv4 provides a high degree of confidence that each run will have a unique ID, preventing collisions between concurrent executions.
 
+### 3.6. Designing for Resilience
+
+-   **Compensation Patterns**: Given the lack of transactional guarantees, workflows that perform mutating operations across multiple repositories should be designed with resilience in mind. This can be achieved by using compensation patterns, where a failure in one part of the workflow triggers a compensating action to revert changes in another part.
+-   **Idempotency**: As mentioned in the `State & Resumption` section, designing steps to be idempotent is crucial for ensuring that they can be safely retried after a failure.
+
 ### 3.5. Container Runtime
 
 -   **Supported Runtimes**: The engine will support both Docker and Podman as container runtimes. It will detect the available runtime by looking for the respective executables in the system's `PATH`.
@@ -339,12 +344,6 @@ The implementation plan is very detailed, and the inclusion of E2E tests in each
 ### 10.4. Usability and Developer Experience
 
 ### 10.5. State Management and Consistency 
-
-**❓ Cross-Repository State Race Conditions**
-- Line 132: No transactional guarantees across repositories
-- What happens when repo A succeeds but repo B fails during parallel execution?
-- Could partial updates lead to inconsistent system state?
-- **Recommendation**: Add guidance for designing resilient workflows with compensation patterns.
 
 ### 10.6. Performance and Resource Management
 
