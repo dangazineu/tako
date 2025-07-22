@@ -143,6 +143,9 @@ dependents:
         -   `.steps`: The outputs of all previously completed steps in the same workflow (e.g., `.steps.previous-step.outputs.version`).
         -   `.trigger`: For workflows with `on: artifact_update`, the trigger context containing information about the upstream artifact(s).
     - **Resource Limits**: Each workflow runs in a container. The `resources` block and corresponding CLI flags define hard limits for CPU and memory. If a container exceeds these limits, it will be terminated by the container runtime. For long-running steps, these resource limits continue to be enforced after the main `tako` process has exited.
+    - **Resource Monitoring and Reporting**: To provide better visibility into resource usage, the engine will:
+      - **Log Warnings**: Periodically monitor container resource usage and log a warning if it approaches the defined limits (e.g., >90% of memory or CPU). This helps diagnose terminations due to resource exhaustion.
+      - **Post-Execution Reporting**: The `tako status <run-id>` command will include a summary of the peak resource usage for each step, allowing users to analyze and optimize their workflow's resource consumption.
     - **NOTE on Resource Exhaustion**: While resource limits are enforced, it is still possible for a long-running container to consume significant disk space in the workspace. The initial design does not include disk space quotas. Users should be mindful of this when designing workflows with long-running steps. Future versions may include configurable disk quotas and more advanced resource management features.
     - **Workspace**: The workspace (`~/.tako/workspaces/<run-id>/...`) is mounted into the container.
     - **Template Caching**: To optimize performance, templates are parsed once per workflow execution and the parsed representation is cached in-memory for the duration of the run. The initial design does not include hard limits on the template cache size, as the memory footprint is expected to be minimal for typical workflows. No hard limit will be imposed.
@@ -190,7 +193,7 @@ dependents:
 -   **Format**: The `<run-id>` is a UUIDv4 string.
 -   **Collision Avoidance**: The use of UUIDv4 provides a high degree of confidence that each run will have a unique ID, preventing collisions between concurrent executions.
 
-### 3.8. Error Message Quality
+### 3.5. Error Message Quality
 
 -   **Standard**: Error messages should be clear, concise, and actionable. They should provide context, explain the error, and suggest a solution.
 -   **Example of a Good Error Message**:
@@ -204,17 +207,17 @@ dependents:
     Error: Step failed.
     ```
 
-### 3.7. Container Image Management
+### 3.6. Container Image Management
 
 -   **Image Pull Policy**: By default, `tako` will use the `pull-if-not-present` policy for container images. This can be overridden with an `image_pull_policy` key in the step definition (`always`, `never`, `if-not-present`).
 -   **Private Registries**: Authentication with private container registries is handled by the underlying container runtime (Docker, Podman). Users should configure their registry credentials in the standard location for their chosen runtime (e.g., `~/.docker/config.json`).
 
-### 3.6. Designing for Resilience
+### 3.7. Designing for Resilience
 
 -   **Compensation Patterns**: Given the lack of transactional guarantees, workflows that perform mutating operations across multiple repositories should be designed with resilience in mind. This can be achieved by using compensation patterns, where a failure in one part of the workflow triggers a compensating action to revert changes in another part.
 -   **Idempotency**: As mentioned in the `State & Resumption` section, designing steps to be idempotent is crucial for ensuring that they can be safely retried after a failure.
 
-### 3.5. Container Runtime
+### 3.8. Container Runtime
 
 -   **Supported Runtimes**: The engine will support both Docker and Podman as container runtimes. It will detect the available runtime by looking for the respective executables in the system's `PATH`.
 -   **Fallback Behavior**: If neither Docker nor Podman is available, and a workflow requires containerized execution, the workflow will fail with a clear error message. For workflows that do not specify an `image`, steps will be run directly on the host.
@@ -995,16 +998,7 @@ Implement the status command to check workflow execution status and long-running
 
 This section captures design questions and concerns that merit further consideration during implementation or future enhancements.
 
-### Container Resource Monitoring and Alerts
 
-**Question**: How should the system handle resource exhaustion scenarios beyond termination?
-
-**Current gap**: The design mentions that containers are terminated when they exceed resource limits, but doesn't address monitoring, alerting, or graceful degradation strategies.
-
-**Options under consideration**:
-1. **Resource Monitoring**: Implement monitoring that tracks resource usage trends and warns before limits are reached.
-2. **Graceful Degradation**: Allow containers to request additional resources or trigger workflow pause/resume cycles.
-3. **Resource Usage Reporting**: Provide post-execution resource usage reports to help users optimize their workflows.
 
 ### Multi-Artifact Dependency Resolution
 
