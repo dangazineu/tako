@@ -125,10 +125,23 @@ dependents:
     - The `get_version` step runs and, because of its `produces` block, the engine associates its output (`version`) with the `tako-lib` artifact.
     - The engine then traverses the dependency graph. It finds downstream repos that depend on `tako-lib` and have workflows with `on: artifact_update`.
     - For each potential downstream workflow, it evaluates the `if` condition using the **Common Expression Language (CEL)**. If the expression evaluates to true, the workflow is added to the execution plan. The traversal has no fixed depth limit but is protected from infinite loops by the initial cycle detection.
-    - **Artifact Aggregation**: If a downstream repository depends on multiple artifacts that are updated within the same `tako exec` run, the engine will wait for all the corresponding upstream workflows to complete successfully. It will then trigger the downstream workflow only once.
-      - **Trigger Context**: The `trigger` context will contain a list of artifacts, accessible via `.trigger.artifacts`. Each element in the list will have the same structure as a single artifact trigger (e.g., `.trigger.artifacts[0].name`, `.trigger.artifacts[0].outputs.version`).
-      - **Failure Policy**: If any of the upstream workflows fail, the downstream workflow will not be triggered. The initial design does not support partial success or failure policies for aggregation.
-      - **Timeout**: A configurable `aggregation_timeout` (default: `1h`) can be set on the downstream workflow to prevent indefinite waiting. If the timeout is reached before all upstream workflows complete, the workflow will fail.
+    - **Artifact Aggregation and Triggering**: The engine's behavior for `on: artifact_update` workflows is governed by the `dependents` section of the upstream repository and the `if` condition in the downstream workflow.
+      - **Trigger Evaluation**: When an artifact is produced by an upstream repository, the engine identifies all downstream repositories that declare a dependency on that artifact. For each of these downstream repositories, it evaluates all workflows with an `on: artifact_update` trigger.
+      - **`if` Condition for Filtering**: The workflow's `if` condition is the primary mechanism for controlling execution. It is a CEL expression that receives the trigger context. For a single artifact update, the context is `.trigger.artifact`. This allows for fine-grained control. For example, a workflow can check the artifact name, version, or other outputs to decide if it should run.
+        ```yaml
+        # Example: Trigger only for a specific artifact and version range
+        if: trigger.artifact.name == 'go-lib' && semver.satisfies(trigger.artifact.outputs.version, '^1.2.0')
+        ```
+        *(Note: This assumes `semver` functions will be added to the CEL environment.)*
+      - **Aggregation for Multiple Updates**: If multiple artifacts that a single downstream repository depends on are updated within the same `tako exec` run, the engine aggregates these triggers. It will wait for all the corresponding upstream workflows to complete successfully. It will then trigger the downstream workflow only once.
+        - **Trigger Context**: In an aggregation scenario, the `trigger` context will contain a list of artifacts, accessible via `.trigger.artifacts`. The workflow's `if` condition can then iterate over this list or check its contents.
+          ```yaml
+          # Example: Trigger only if both 'go-lib' and 'java-lib' are present
+          if: "'go-lib' in [a.name for a in trigger.artifacts] && 'java-lib' in [a.name for a in trigger.artifacts]"
+          ```
+        - **Partial Updates**: The default behavior is to trigger only when *all* upstream dependencies that were part of the initial `tako exec` run have completed. The initial design does not support triggering on a subset of dependencies (an "any" or "N-of-M" strategy). This keeps the execution model predictable.
+        - **Failure Policy**: If any of the upstream workflows that are part of the aggregation fail, the downstream workflow will not be triggered. The initial design does not support partial success or failure policies for aggregation.
+        - **Timeout**: A configurable `aggregation_timeout` (default: `1h`) can be set on the downstream workflow to prevent indefinite waiting. If the timeout is reached before all required upstream workflows complete, the workflow will fail.
 
 2.  **Input Validation**:
     - Before execution, the engine validates all workflow inputs against the `validation` rules defined in the schema.
@@ -151,10 +164,13 @@ dependents:
     - **Template Caching**: To optimize performance, templates are parsed once per workflow execution and the parsed representation is cached in-memory for the duration of the run. The initial design does not include hard limits on the template cache size, as the memory footprint is expected to be minimal for typical workflows. No hard limit will be imposed.
 
 4.  **State & Resumption**:
-    - State is saved to `~/.tako/state/<run-id>.json` after each step. The file is checksummed to detect corruption. If the state file is found to be corrupt, the run fails. While there is no automatic recovery in the initial version, state file versioning and incremental backups are being considered for future releases to improve resilience.
-    - To resume, a user runs `tako exec --resume <run-id>`.
+    - **State Persistence**: State is saved to `~/.tako/state/<run-id>.json` after each step completes successfully. This ensures that the state file always represents a consistent, completed step.
+    - **Corruption Detection**: The state file is checksummed to detect corruption. If the state file is found to be corrupt during a resume operation, the run fails with a clear error.
+    - **State Backups**: To improve resilience against corruption, before writing a new state file, the engine will create a backup of the previous state file (e.g., `<run-id>.json.bak`). If the primary state file is found to be corrupt, the engine will automatically attempt to fall back to the backup file.
+    - **Resumption**: To resume, a user runs `tako exec --resume <run-id>`. The engine will load the state and continue execution from the next step.
     - **Idempotency**: It is the responsibility of the workflow author to design steps to be idempotent, especially in workflows that are expected to be resumed. The engine does not provide any guarantees about partially completed steps.
     - **Cross-Repository Consistency**: The engine does not provide transactional guarantees for state changes across multiple repositories. A failure in one repository's workflow does not automatically roll back changes in another.
+    - **Future Enhancements**: For future releases, more advanced recovery mechanisms are being considered, such as deeper state validation against the workflow schema and tools for manual state inspection and repair.
 
 5.  **Long-Running Steps**:
     - Steps can be marked as `long_running: true`. When the engine encounters such a step, it will start the step's container and then immediately persist the workflow state and exit, returning the `<run-id>` to the user.
@@ -178,15 +194,42 @@ dependents:
 
 -   **Fail-Fast**: The engine follows a strict fail-fast policy. If any step in the workflow fails, the entire `tako exec` run will halt immediately. The initial design does not include configurable failure policies (e.g., `continue-on-error`), though this could be considered for a future release.
 
+### 3.2.1. Failure and Compensation
+
+While the engine follows a fail-fast policy for the main workflow, it provides a mechanism for running compensating actions upon failure.
+
+-   **`on_failure` block**: A step can have an `on_failure` block that defines a sequence of steps to run if the primary `run` or `uses` block fails.
+
+    ```yaml
+    steps:
+      - id: publish_package
+        run: ./scripts/publish.sh
+        on_failure:
+          - id: rollback_publish
+            run: ./scripts/rollback.sh --version {{ .steps.publish_package.outputs.version }}
+    ```
+
+-   **Execution Context**: The `on_failure` steps are executed in the same context as the failed step and have access to the same `.inputs`, `.steps`, and `.trigger` variables.
+-   **Failure in Compensation**: If a step within the `on_failure` block fails, the entire workflow run halts immediately. There is no compensation for compensation.
+-   **User Responsibility**: This mechanism provides a hook for rollbacks, but it is still the workflow author's responsibility to implement the compensation logic and ensure that compensating actions are idempotent. The engine does not provide transactional guarantees.
+
 ### 3.3. Scalability
 
 -   **Local Execution**: The initial design is focused on providing a powerful and flexible workflow engine for local and single-machine CI environments.
 -   **Large-Scale Deployments**: The design does not explicitly address distributed execution or scaling to hundreds of concurrent workflows. These capabilities could be explored in a future release if there is sufficient demand.
 
-#### 3.3.1. Performance Considerations
+#### 3.3.1. Performance and Scalability Considerations
 
--   **Graph Parsing**: The performance of a topological sort on the dependency graph is negligible. However, the I/O required to fetch and parse the `tako.yml` file for each repository can introduce a noticeable delay in workflows with a large number of repositories (e.g., >50).
--   **Warning**: The engine will issue a warning if a dependency graph exceeds 50 repositories to alert the user to potential performance degradation. No hard limit will be imposed.
+While the engine is designed for local and single-machine CI environments, users should be aware of the following practical limits.
+
+-   **Dependency Graph Size**: The performance of a topological sort on the dependency graph is negligible. However, the network I/O required to fetch and parse the `tako.yml` file for each repository can introduce a noticeable delay in workflows with a large number of repositories (e.g., >50). The engine will issue a warning if a dependency graph exceeds 50 repositories to alert the user to potential performance degradation. No hard limit will be imposed.
+-   **Memory Usage**:
+    -   **State Management**: The full workflow state is held in memory during execution. For workflows with a very large number of steps or steps that produce very large outputs, this can lead to significant memory consumption.
+    -   **Template Caching**: The in-memory cache for parsed templates is not size-limited. While the memory footprint for each template is small, a workflow with thousands of unique `run` blocks could consume a considerable amount of memory.
+-   **Disk Usage**:
+    -   **Workspaces**: Each workflow run creates an isolated workspace. Concurrently running many workflows, especially those that generate large artifacts, can consume significant disk space. The `tako workspace clean` command is provided for manual cleanup.
+    -   **State Files**: State files are typically small, but for workflows with extensive output capture, the `~/.tako/state/<run-id>.json` file can grow large. The engine does not currently implement streaming or partial state writes.
+-   **Guideline**: As a general guideline, the v0.2.0 engine is optimized for workflows involving up to 50 repositories, with a few hundred steps in total, and where individual step outputs are in the order of kilobytes, not megabytes.
 
 ### 3.4. Run ID Generation
 
@@ -214,7 +257,7 @@ dependents:
 
 ### 3.7. Designing for Resilience
 
--   **Compensation Patterns**: Given the lack of transactional guarantees, workflows that perform mutating operations across multiple repositories should be designed with resilience in mind. This can be achieved by using compensation patterns, where a failure in one part of the workflow triggers a compensating action to revert changes in another part.
+-   **Compensation**: The engine provides a direct mechanism for compensation via the `on_failure` block within a step (see `Error Handling`). For workflows that perform mutating operations across multiple repositories, this should be used to design resilient workflows. For example, if a downstream workflow fails after an upstream workflow created a pull request, a compensating action could be to close that pull request.
 -   **Idempotency**: As mentioned in the `State & Resumption` section, designing steps to be idempotent is crucial for ensuring that they can be safely retried after a failure.
 
 ### 3.8. Container Runtime
@@ -239,6 +282,25 @@ dependents:
 -   **Sandboxing**: CEL expressions are evaluated in a sandboxed environment with a restricted set of functions. The sandbox will not have access to the filesystem, network, or environment variables.
 -   **Resource Limits**: The execution of CEL expressions will be limited by a strict timeout (e.g., 100ms) and a memory limit (e.g., 64MB) to prevent denial-of-service attacks.
 -   **Error Handling**: If a CEL expression fails to evaluate due to a syntax or runtime error, the workflow will fail with a descriptive error message.
+
+### 4.1.1. Template Engine Security
+
+In addition to sandboxing CEL expressions, the `text/template` engine used for `run` blocks has its own security considerations.
+
+-   **Command Injection Risk**: The primary risk is command injection. If a template substitutes an output from a previous step or an artifact directly into a shell command, a malicious output could execute arbitrary code.
+    -   **User Responsibility**: It is the workflow author's responsibility to treat all external inputs and step outputs as untrusted data.
+    -   **Mitigation**: To mitigate this, the engine will provide built-in template functions for escaping shell arguments (e.g., `shell_quote`). Workflows should always use these functions when substituting external data into a command line.
+      ```yaml
+      # GOOD: Properly escaped
+      run: ./scripts/process.sh --message {{ .inputs.message | shell_quote }}
+
+      # BAD: Vulnerable to injection
+      run: ./scripts/process.sh --message {{ .inputs.message }}
+      ```
+-   **Filesystem and Network Access**: The standard Go `text/template` engine does not provide functions to access the filesystem or network. Any custom functions added to the template environment will be carefully designed to not introduce such capabilities.
+-   **Information Disclosure**:
+    -   **Secret Scrubbing**: As mentioned, secret values are never available to the template engine and are scrubbed from logs.
+    -   **Debug Mode**: The `--debug` mode will print resolved template variables. Users should be aware that this could expose non-secret sensitive data in logs if the workflow handles such data.
 
 ### 4.2. Secrets Management
 
@@ -321,7 +383,28 @@ workflows:
 -   Built-in semantic steps (e.g., `tako/checkout@v1`) are versioned and bundled with the `tako` binary. A `tako steps list` command will be available to show available steps and their parameters.
 -   **Custom Steps**: The initial design does not include a plugin architecture for creating and distributing custom steps. This could be considered for a future release.
 
-### 7.1. Convenience Commands
+### 7.1. Future Extensibility for Custom Steps
+
+While the initial release will not support a public plugin architecture for custom steps, the internal design of the built-in step system will be guided by the following principles to facilitate future extensibility.
+
+-   **Step Interface**: All built-in steps will implement a common Go interface. This interface will define how a step is initialized with parameters, how it's executed, and how it returns outputs.
+
+    ```go
+    // A simplified example of the potential interface
+    type Step interface {
+        Init(params map[string]interface{}) error
+        Run(ctx context.Context, workspace string) (map[string]string, error)
+    }
+    ```
+
+-   **Self-Contained Logic**: Each built-in step will be a self-contained package, minimizing dependencies on the core engine. This will make it easier to eventually source steps from external plugins.
+-   **Future Distribution Models**: Several models for distributing custom steps could be considered in the future:
+    -   **Compiled Plugins**: Using Go's plugin package to load shared object files (`.so`). This is powerful but has limitations regarding version skew and platform compatibility.
+    -   **Interpreted Scripts**: Allowing steps to be defined as scripts in a language like Lua or JavaScript, executed in an embedded interpreter. This is more portable but may be slower.
+    -   **Remote Steps**: Fetching step definitions from a central registry, similar to GitHub Actions. This would require a well-defined, serializable format for step definitions.
+-   **Security**: Any future plugin system will need a robust security model, likely extending the container and CEL sandboxing concepts to custom step code. Untrusted steps would need to run with even stricter limitations than built-in ones.
+
+### 7.2. Convenience Commands
 
 To maintain the ease of use for simple, one-off tasks, the existing `tako run` command will be retained as a simplified entrypoint to the workflow engine.
 
@@ -330,20 +413,26 @@ To maintain the ease of use for simple, one-off tasks, the existing `tako run` c
 
 **Note on Script Migration**: A command to automatically import existing shell scripts into `tako.yml` (`tako import-script`) is not planned for the initial release but may be considered in the future. For now, users are encouraged to manually wrap their existing scripts in `run` steps.
 
-### 7.2. Debugging and Introspection
+### 7.3. Debugging and Introspection
 
--   **Debug Mode**: A `--debug` flag on `tako exec` will enable step-by-step execution.
-    -   **Interactive Mode**: In an interactive shell, the engine will pause before each step and wait for user confirmation to proceed.
+To help users understand and debug complex workflows, the engine provides several tools.
+
+-   **Debug Mode**: A `--debug` flag on `tako exec` enables step-by-step execution.
+    -   **Interactive Mode**: In an interactive shell, the engine will pause before each step, print the step's definition and resolved template variables, and wait for user confirmation to proceed. This allows for close inspection of the execution flow.
     -   **Non-Interactive Mode**: In a non-interactive environment (e.g., CI), the engine will log the step information and continue without pausing.
--   **State Inspection**: A `tako state inspect <run-id>` command will be provided to print the persisted state of a workflow, which is useful for debugging.
+-   **State Inspection**: A `tako state inspect <run-id>` command will be provided to print the persisted state of a workflow, which is useful for debugging. Secret values are never persisted to the state file and will not be displayed.
 -   **Status Check**: A `tako status <run-id>` command will be provided to check the status of a running or completed workflow. For long-running steps, this command will show the status of the detached container.
+-   **Workflow Replay**: The engine will support replaying a failed workflow from the point of failure. The `tako exec --resume <run-id>` command will be enhanced to detect a failed state and allow the user to retry the failed step. For more complex scenarios, a future `--replay-from <step-id>` flag could allow re-running a workflow from an arbitrary step.
+-   **Future Enhancements**: While not planned for the initial release, the following features are being considered for improving the debugging experience in the future:
+    -   **Execution Visualization**: A command to generate a DOT file or a terminal-based visualization of the dependency graph and execution plan.
+    -   **Failure Analysis**: A tool that analyzes a failed run's state and logs to suggest common causes for the failure.
 
-### 7.3. Testing Workflows
+### 7.4. Testing Workflows
 
 -   **Local Testing**: The `--dry-run` flag on `tako exec` is the primary tool for testing workflow definitions. It allows developers to see the execution plan without making any changes.
 -   **Unit Testing Steps**: Individual steps that are defined as scripts or commands can be tested using standard shell scripting and testing techniques, outside of the `tako` engine.
 
-### 7.4. CI/CD Integration
+### 7.5. CI/CD Integration
 
 -   **Self-Contained System**: `tako` is designed to be a self-contained workflow engine. It can be run in any environment, including local machines and existing CI/CD systems like GitHub Actions or Jenkins.
 -   **Triggering from CI/CD**: A common pattern is to have an existing CI/CD pipeline call `tako exec` to orchestrate a multi-repo workflow.
@@ -992,91 +1081,4 @@ Implement the status command to check workflow execution status and long-running
 - [ ] Long-running container status is displayed correctly
 - [ ] Orphaned containers are detected and cleaned up automatically
 - [ ] Status information is clear and actionable for users
-
-
-## Open Questions
-
-This section captures design questions and concerns that merit further consideration during implementation or future enhancements.
-
-
-
-### Multi-Artifact Dependency Resolution
-
-**Question**: How should the system handle complex dependency scenarios with partial updates?
-
-**Current limitation**: The design assumes all upstream artifacts update together, but real scenarios may involve partial updates, conditional dependencies, or version compatibility constraints.
-
-**Scenarios to consider**:
-1. **Version Compatibility**: What if downstream repo depends on specific version ranges rather than "latest"?
-2. **Partial Updates**: What if only some artifacts in a multi-artifact dependency update in a given run?
-3. **Conditional Dependencies**: Should the system support dependencies that only trigger under certain conditions?
-
-### Workflow Execution Rollback and Compensation
-
-**Question**: Should the system provide built-in rollback capabilities beyond compensation patterns?
-
-**Current approach**: The design mentions compensation patterns as a user responsibility, but complex multi-repo workflows might benefit from automated rollback support.
-
-**Enhancement considerations**:
-1. **Automatic Rollback**: Built-in steps that can reverse previous operations (e.g., `tako/rollback-pr@v1`).
-2. **Rollback Policies**: Workflow-level configuration for automatic rollback triggers.
-3. **Checkpoint System**: Allow workflows to define rollback checkpoints for partial recovery.
-
-### Performance and Scalability Limits
-
-**Question**: What are the practical limits of the dependency graph and execution model?
-
-**Current status**: The design warns about performance issues beyond 50 repositories but doesn't define hard architectural limits.
-
-**Areas needing clarification**:
-1. **Memory Usage**: How does template caching and state management scale with very large workflows?
-2. **Network I/O**: What's the impact of fetching many `tako.yml` files across slow networks?
-3. **Disk Usage**: How does workspace isolation scale with dozens of concurrent long-running workflows?
-4. **State File Growth**: What happens when workflow state becomes very large due to extensive output capture?
-
-### Built-in Step Extension Mechanism
-
-**Question**: While custom steps aren't planned for initial release, how should the built-in step system be designed for future extensibility?
-
-**Current limitation**: The design focuses on bundled built-in steps but doesn't address how organizations might want to create domain-specific steps.
-
-**Future considerations**:
-1. **Step Plugin Interface**: Define the contract for future custom steps.
-2. **Step Distribution**: Consider how custom steps might be versioned and distributed.
-3. **Security Model**: How would custom steps integrate with the security sandbox?
-
-### Error Recovery and Debugging Experience
-
-**Question**: How can the system provide better debugging experience for complex multi-repo failures?
-
-**Current tools**: The design provides `--debug`, `tako state inspect`, and good error messages, but complex scenarios may need more.
-
-**Enhancement ideas**:
-1. **Execution Visualization**: Web UI or terminal visualization of dependency graph execution.
-2. **Failure Analysis**: Built-in analysis of common failure patterns with suggested fixes.
-3. **Workflow Replay**: Ability to replay failed workflows with different inputs or modified steps.
-4. **Step-by-Step Debugging**: More granular debugging that allows inspection of template variables and container state.
-
-### Template Security and Sandboxing
-
-**Question**: Are there additional security concerns with the template engine beyond CEL expression sandboxing?
-
-**Current coverage**: The design addresses CEL security but templates also process user-controlled data and file contents.
-
-**Security considerations**:
-1. **Template Injection**: How does the system prevent malicious template injection through artifact outputs or user inputs?
-2. **File System Access**: Should templates be restricted from reading sensitive files during resolution?
-3. **Information Disclosure**: How does the system prevent templates from accidentally exposing sensitive data in logs?
-
-### State Management and Corruption Recovery
-
-**Question**: How should the system handle state file corruption or inconsistency beyond simple detection?
-
-**Current approach**: State files use checksums for corruption detection but don't provide recovery mechanisms.
-
-**Recovery enhancements**:
-1. **State Backups**: Automatic backup of state files before each update.
-2. **Partial Recovery**: Ability to recover workflow execution from partial state.
-3. **State Validation**: Deep validation of state consistency beyond checksums.
-4. **Manual State Repair**: Tools for administrators to manually repair corrupted state files.
 
