@@ -425,6 +425,68 @@ dependents: []
 `,
 			expectedError: "built-in step 'tako/checkout' must include version",
 		},
+		{
+			name: "unknown built-in step",
+			yamlContent: `
+version: "0.1.0"
+workflows:
+  test:
+    steps:
+      - uses: "tako/unknown@v1"
+dependents: []
+`,
+			expectedError: "unknown built-in step 'tako/unknown'",
+		},
+		{
+			name: "invalid CEL expression in subscription filter",
+			yamlContent: `
+version: "0.1.0"
+workflows:
+  test:
+    steps:
+      - "echo test"
+subscriptions:
+  - artifact: "org/repo:artifact"
+    events: ["test_event"]
+    filters: ["invalid((((expression"]
+    workflow: "test"
+`,
+			expectedError: "unbalanced parentheses in CEL expression",
+		},
+		{
+			name: "invalid template expression in event payload",
+			yamlContent: `
+version: "0.1.0"
+workflows:
+  test:
+    steps:
+      - id: "test"
+        run: "echo test"
+        produces:
+          events:
+            - type: "test_event"
+              payload:
+                version: "{{ .invalid"
+dependents: []
+`,
+			expectedError: "unbalanced template braces",
+		},
+		{
+			name: "invalid semver range in subscription",
+			yamlContent: `
+version: "0.1.0"
+workflows:
+  test:
+    steps:
+      - "echo test"
+subscriptions:
+  - artifact: "org/repo:artifact"
+    events: ["test_event"]
+    schema_version: "invalid.version.format"
+    workflow: "test"
+`,
+			expectedError: "invalid version range format",
+		},
 	}
 
 	for _, tc := range testCases {

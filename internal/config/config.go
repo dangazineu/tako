@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
@@ -272,10 +273,10 @@ func validateWorkflowStep(index int, step *WorkflowStep) error {
 		return fmt.Errorf("step cannot specify both 'run' and 'uses'")
 	}
 
-	// Validate built-in step format
+	// Validate built-in step format and known steps
 	if step.Uses != "" {
-		if !strings.Contains(step.Uses, "@") {
-			return fmt.Errorf("built-in step '%s' must include version (e.g., 'tako/checkout@v1')", step.Uses)
+		if err := validateBuiltinStep(step.Uses); err != nil {
+			return err
 		}
 	}
 
@@ -324,6 +325,126 @@ func validateWorkflowStepProduces(produces *WorkflowStepProduces) error {
 		if err := eventProduction.ValidateEvents(); err != nil {
 			return fmt.Errorf("invalid events: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// Known built-in steps with their supported versions
+var knownBuiltinSteps = map[string][]string{
+	"tako/checkout":             {"v1"},
+	"tako/fan-out":             {"v1"},
+	"tako/update-dependency":   {"v1"},
+	"tako/create-pull-request": {"v1"},
+	"tako/poll":                {"v1"},
+}
+
+// validateBuiltinStep validates that a built-in step is known and uses a supported version
+func validateBuiltinStep(uses string) error {
+	parts := strings.Split(uses, "@")
+	if len(parts) != 2 {
+		return fmt.Errorf("built-in step '%s' must include version (e.g., 'tako/checkout@v1')", uses)
+	}
+
+	stepName := parts[0]
+	version := parts[1]
+
+	supportedVersions, exists := knownBuiltinSteps[stepName]
+	if !exists {
+		return fmt.Errorf("unknown built-in step '%s'", stepName)
+	}
+
+	for _, supportedVersion := range supportedVersions {
+		if version == supportedVersion {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("built-in step '%s' version '%s' is not supported. Supported versions: %v", stepName, version, supportedVersions)
+}
+
+// validateCELExpression validates CEL expression syntax (basic validation)
+func validateCELExpression(expression string) error {
+	// Basic validation for common CEL patterns
+	// This is a simplified validation - in production, you'd use the actual CEL library
+	if strings.TrimSpace(expression) == "" {
+		return fmt.Errorf("CEL expression cannot be empty")
+	}
+
+	// Check for balanced parentheses
+	parenCount := 0
+	for _, char := range expression {
+		if char == '(' {
+			parenCount++
+		} else if char == ')' {
+			parenCount--
+			if parenCount < 0 {
+				return fmt.Errorf("unbalanced parentheses in CEL expression: %s", expression)
+			}
+		}
+	}
+	if parenCount != 0 {
+		return fmt.Errorf("unbalanced parentheses in CEL expression: %s", expression)
+	}
+
+	// Basic syntax validation for common patterns
+	invalidPatterns := []string{
+		"&&&&", "||||", "...", "!!!",
+	}
+	for _, pattern := range invalidPatterns {
+		if strings.Contains(expression, pattern) {
+			return fmt.Errorf("invalid pattern '%s' in CEL expression: %s", pattern, expression)
+		}
+	}
+
+	return nil
+}
+
+// validateSemverRange validates semantic version range syntax
+func validateSemverRange(versionRange string) error {
+	if versionRange == "" {
+		return nil // Empty version range is valid
+	}
+
+	// Patterns for semantic version ranges
+	patterns := []string{
+		`^\^\d+\.\d+\.\d+$`,                    // ^1.0.0
+		`^~\d+\.\d+\.\d+$`,                    // ~1.0.0
+		`^\d+\.\d+\.\d+$`,                     // 1.0.0
+		`^\(\d+\.\d+\.\d+\.\.\.(\d+\.\d+\.\d+)?\]$`, // (1.0.0...2.0.0]
+		`^\[\d+\.\d+\.\d+\.\.\.(\d+\.\d+\.\d+)?\)$`, // [1.0.0...2.0.0)
+	}
+
+	for _, pattern := range patterns {
+		matched, err := regexp.MatchString(pattern, versionRange)
+		if err != nil {
+			return fmt.Errorf("error validating version range pattern: %w", err)
+		}
+		if matched {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("invalid version range format '%s'. Supported formats: ^1.0.0, ~1.0.0, 1.0.0, (1.0.0...2.0.0], [1.0.0...2.0.0)", versionRange)
+}
+
+// validateTemplateExpression validates template expressions in payload fields
+func validateTemplateExpression(expression string) error {
+	if !strings.Contains(expression, "{{") {
+		return nil // Not a template expression
+	}
+
+	// Count opening and closing braces
+	openCount := strings.Count(expression, "{{")
+	closeCount := strings.Count(expression, "}}")
+
+	if openCount != closeCount {
+		return fmt.Errorf("unbalanced template braces in expression: %s", expression)
+	}
+
+	// Basic validation for template content
+	if strings.Contains(expression, "{{}}") {
+		return fmt.Errorf("empty template expression in: %s", expression)
 	}
 
 	return nil

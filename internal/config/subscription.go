@@ -58,38 +58,6 @@ func validateArtifactReference(artifact string) error {
 	return nil
 }
 
-// validateSchemaVersionRange validates semantic version range format if provided
-func validateSchemaVersionRange(version string) error {
-	if version == "" {
-		return nil // Schema version is optional
-	}
-	
-	// Support different version range formats:
-	// - "1.2.3" (exact version)
-	// - "^1.2.3" (compatible with 1.x.x)
-	// - "~1.2.3" (compatible with 1.2.x)
-	// - "(1.1.0...2.0.0]" (range notation)
-	
-	// Basic validation - check for common patterns
-	patterns := []string{
-		`^\d+\.\d+\.\d+$`,                    // exact: 1.2.3
-		`^\^\d+\.\d+\.\d+$`,                  // caret: ^1.2.3
-		`^~\d+\.\d+\.\d+$`,                   // tilde: ~1.2.3
-		`^\(\d+\.\d+\.\d+\.\.\.\d+\.\d+\.\d+\]$`, // range: (1.1.0...2.0.0]
-	}
-	
-	for _, pattern := range patterns {
-		matched, err := regexp.MatchString(pattern, version)
-		if err != nil {
-			return fmt.Errorf("error validating schema version range: %w", err)
-		}
-		if matched {
-			return nil // Valid format found
-		}
-	}
-	
-	return fmt.Errorf("schema version range '%s' must be in format: 'x.y.z', '^x.y.z', '~x.y.z', or '(x.y.z...x.y.z]'", version)
-}
 
 // ValidateSubscription validates a single subscription
 func (s *Subscription) ValidateSubscription() error {
@@ -109,9 +77,16 @@ func (s *Subscription) ValidateSubscription() error {
 		}
 	}
 	
-	// Validate schema version range
-	if err := validateSchemaVersionRange(s.SchemaVersion); err != nil {
+	// Validate schema version range using improved validation
+	if err := validateSemverRange(s.SchemaVersion); err != nil {
 		return fmt.Errorf("invalid schema version: %w", err)
+	}
+	
+	// Validate CEL filters
+	for i, filter := range s.Filters {
+		if err := validateCELExpression(filter); err != nil {
+			return fmt.Errorf("filter %d: %w", i, err)
+		}
 	}
 	
 	// Validate workflow name
@@ -126,6 +101,13 @@ func (s *Subscription) ValidateSubscription() error {
 	}
 	if !matched {
 		return fmt.Errorf("workflow name '%s' must start with a letter and contain only letters, numbers, underscores, and hyphens", s.Workflow)
+	}
+	
+	// Validate template expressions in input mappings
+	for inputName, inputValue := range s.Inputs {
+		if err := validateTemplateExpression(inputValue); err != nil {
+			return fmt.Errorf("input '%s': %w", inputName, err)
+		}
 	}
 	
 	return nil

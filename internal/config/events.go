@@ -64,6 +64,13 @@ func (ep *EventProduction) ValidateEvents() error {
 		if err := validateSchemaVersion(event.SchemaVersion); err != nil {
 			return fmt.Errorf("event %d (%s): %w", i, event.Type, err)
 		}
+		
+		// Validate template expressions in event payload
+		for payloadKey, payloadValue := range event.Payload {
+			if err := validateTemplateExpression(payloadValue); err != nil {
+				return fmt.Errorf("event %d (%s) payload '%s': %w", i, event.Type, payloadKey, err)
+			}
+		}
 	}
 	
 	return nil

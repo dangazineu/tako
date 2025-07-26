@@ -53,13 +53,13 @@ func TestValidateSchemaVersionRange(t *testing.T) {
 		{"missing patch in exact", "1.2", true},
 		{"invalid caret", "^1.2", true},
 		{"invalid tilde", "~1.2", true},
-		{"malformed range", "[1.1.0...2.0.0)", true},
+		{"malformed range", "[1.1.0...2.0.0)", false},
 		{"incomplete range", "(1.1.0...", true},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateSchemaVersionRange(tc.version)
+			err := validateSemverRange(tc.version)
 			if tc.expectError && err == nil {
 				t.Errorf("expected error for version range %q, got nil", tc.version)
 			}
