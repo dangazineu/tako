@@ -1,6 +1,6 @@
-# Design: The `tako exec` Workflow Engine v0.2.0
+# Design: The `tako exec` Workflow Engine
 
-This document provides the complete technical design for the `tako exec` workflow engine. It is a **breaking change** from the v0.1.0 schema.
+This document provides the complete technical design for the `tako exec` workflow engine.
 
 ## 1. Core Concepts & Principles
 
@@ -10,12 +10,12 @@ This document provides the complete technical design for the `tako exec` workflo
 -   **Security**: Workflows run in unprivileged containers; secrets are managed via environment variables and are never persisted.
 -   **Clarity & Precision**: The schema and execution model are designed to be unambiguous and directly implementable. While alternative designs (e.g., event-driven, fully declarative) were considered, the imperative, step-based approach was chosen for its simplicity, predictability, and ease of debugging.
 
-## 2. `tako.yml` Schema Reference (`v0.2.0`)
+## 2. `tako.yml` Schema Reference
 
 ### 2.1. Top-Level Structure
 
 ```yaml
-version: 0.2.0
+version: 0.1.0
 artifacts: { ... }
 workflows: { ... }
 dependents: { ... }
@@ -391,39 +391,9 @@ workflows:
 -   **Cache Invalidation**: The cache for a workflow run can be manually invalidated using the `--no-cache` flag on the `tako exec` command. Additionally, the entire cache can be cleared using the `tako cache clean` command.
 -   **Cache Management**: The initial design does not include cache size management or eviction policies. The cache is stored at `~/.tako/cache`.
 
-## 6. Migration (`tako migrate`)
+## 6. Schema Evolution
 
--   The `tako migrate` command will be provided to assist users in updating from `v0.1.0`. It will perform a best-effort conversion and add comments to areas that require manual intervention, such as defining `on: artifact_update` triggers. A `--dry-run` flag will be available to show the proposed changes without writing them to disk. A `--validate` flag will also be available to check the migrated configuration for schema errors without running any workflows.
-
-    **Example Output of `tako migrate --dry-run`**:
-
-    ```diff
-    --- a/tako.yml
-    +++ b/tako.yml
-    @@ -1,5 +1,15 @@
-    -version: 0.1.0
-    -command:
-    -  release:
-    -    run: ./scripts/release.sh
-    +version: 0.2.0
-    +workflows:
-    +  release:
-    +    on: exec
-    +    steps:
-    +      - id: release
-    +        run: ./scripts/release.sh
-    +        # TODO: Define the artifacts produced by this step.
-    +        # produces:
-    +        #   artifact: <artifact-name>
-    +        #   outputs:
-    +        #     version: from_stdout
-    ```
-
-### 6.1. Schema Versioning and Compatibility
-
--   **Breaking Change**: The `v0.2.0` schema is a breaking change. The `tako` binary at this version will only support `v0.2.0` and later schemas.
--   **Transition Period**: For projects that need to support both `v0.1.0` and `v0.2.0` schemas during a transition, it is recommended to use different versions of the `tako` binary.
--   **Rollback**: If critical issues are discovered in `v0.2.0`, the recommended rollback strategy is to revert to a previous version of the `tako` binary and the `tako.yml` configuration.
+The workflow engine extends the existing `tako.yml` schema by adding new sections (`workflows`, `artifacts`) while maintaining compatibility with existing configurations. The `version: 0.1.0` field remains unchanged to ensure seamless adoption.
 
 ## 7. Built-in Steps (`uses:`)
 
@@ -771,11 +741,10 @@ The implementation plan includes the following prerequisite relationships:
 
 ### 10.2. Backward Compatibility Strategy  
 
-The engine implements a versioned approach to minimize future breaking changes:
-- Schema validation enforces version compatibility
-- New features are additive when possible
-- Deprecation warnings precede breaking changes by at least one major version
-- The migration tool will be enhanced for future schema transitions
+The engine implements a versioned approach for built-in steps:
+- Semantic versions for built-in steps (e.g., `tako/checkout@v1`, `tako/checkout@v2`)
+- Schema extensions follow additive patterns to maintain compatibility
+- Deprecation warnings for step versions that will be removed
 
 ### 10.3. Error Recovery Strategies
 
@@ -796,24 +765,24 @@ Beyond resource monitoring, the engine provides:
 
 ## 11. Implementation Plan
 
-The implementation will be broken down into the following GitHub issues, organized by milestones. Each issue is linked to the original design issue (#98) and parent epic (#21).
+The implementation will be broken down into the following GitHub issues, organized by milestones. Each issue is linked to the original design issue (#98) and parent epic (#21). Since there are no existing clients to migrate, the implementation can proceed without breaking change considerations or migration tooling.
 
 ### Assessment of Existing Issues
 
 **Current Issues Linked to #21:**
-- **Issue #93** - `feat(config): Add workflow schema to tako.yml` → **SUPERSEDED** by our Issue 1 (v0.2.0 schema is more comprehensive)
+- **Issue #93** - `feat(config): Add workflow schema to tako.yml` → **SUPERSEDED** by our Issue 1 (workflow schema is more comprehensive)
 - **Issue #94** - `feat(cmd): Add exec command for multi-step workflows` → **SUPERSEDED** by our Issue 2 (includes input validation, CEL, etc.)
 - **Issue #95** - `feat(exec): Implement workflow execution logic` → **PARTIALLY SUPERSEDED** by our Issues 3-4 (lacks state management, templates)
 - **Issue #96** - `feat(exec): Add --dry-run support to exec command` → **SUPERSEDED** by our Issue 14 (more comprehensive dry-run)
 - **Issue #97** - `test(exec): Add E2E tests for multi-step workflows` → **SUPERSEDED** by our Issues 5 & 9 (more comprehensive testing)
 
-**Recommendation:** Close issues #93-#97 as superseded by the comprehensive design. The new issues provide significantly more detail and cover the full v0.2.0 scope.
+**Recommendation:** Close issues #93-#97 as superseded by the comprehensive design. The new issues provide significantly more detail and cover the full workflow engine scope.
 
 ### Milestone 1: MVP - Local, Synchronous Execution
 
 This milestone focuses on delivering the core, single-repository `on: exec` functionality without containerization. This provides immediate value and a solid foundation for more advanced features.
 
-### Issue 1: `feat(config): Implement v0.2.0 schema & migrate command`
+### Issue 1: `feat(config): Implement workflow schema support`
 
 **Related Issues:** 
 - Parent Epic: #21 - Execute multi-step workflows
@@ -821,10 +790,10 @@ This milestone focuses on delivering the core, single-repository `on: exec` func
 - Supersedes: #93 - feat(config): Add workflow schema to tako.yml
 
 **Description:**
-Update the configuration system to support the new v0.2.0 schema with workflows, step definitions, and input validation. Implement the `tako migrate` command to convert v0.1.0 configurations to v0.2.0. This issue implements the foundation for the multi-repository workflow engine designed in #98.
+Update the configuration system to support the new workflow schema with workflows, step definitions, and input validation. This issue implements the foundation for the multi-repository workflow engine designed in #98.
 
 **Background:**
-The v0.2.0 schema represents a significant evolution from v0.1.0, adding support for:
+The workflow schema extends the existing tako.yml configuration, adding support for:
 - Named workflows with `on: exec` and `on: artifact_update` triggers
 - Step definitions with inputs, outputs, conditions, and failure handling
 - Artifact-based dependency relationships
@@ -836,13 +805,10 @@ The v0.2.0 schema represents a significant evolution from v0.1.0, adding support
 - Extend `Workflow` struct to include `On`, `If`, `AggregationTimeout`, `Inputs`, `Resources`, `Steps` fields
 - Implement step schema with `ID`, `If`, `Run`, `Uses`, `With`, `Produces`, `LongRunning` fields
 - Add input validation types (string, boolean, number) with enum and regex validation
-- Create `cmd/tako/internal/migrate.go` command
-- Support `--dry-run` and `--validate` flags for migration command
-- Implement schema version validation to reject unsupported versions
-- Update existing tests to use v0.2.0 schema
-- Add comprehensive migration test coverage
 - Implement `on_failure` step schema for failure compensation
 - Add support for step-level `image` overrides and `long_running` flags
+- Update existing tests to use new workflow schema
+- Add comprehensive test coverage for new schema elements
 
 **Schema Reference:**
 ```yaml
@@ -876,17 +842,15 @@ workflows:
 ```
 
 **Acceptance Criteria:**
-- [ ] v0.2.0 schema fully supported in config loading
-- [ ] `tako migrate` converts v0.1.0 to v0.2.0 with comments for manual steps
-- [ ] `tako migrate --dry-run` shows proposed changes without modification
-- [ ] `tako migrate --validate` checks migrated config for errors
-- [ ] Backward compatibility: v0.2.0+ schemas load correctly
-- [ ] Breaking change: v0.1.0 schemas are rejected with clear error message
+- [ ] Workflow schema fully supported in config loading
+- [ ] New workflow sections (`workflows`, `artifacts`) parse correctly
+- [ ] Input validation types (string, boolean, number) work with enum and regex validation
+- [ ] Step schema supports all defined fields (ID, If, Run, Uses, With, Produces, etc.)
+- [ ] Configuration loading maintains compatibility with existing tako.yml files
 - [ ] All existing tests pass with updated configuration
 
 **Files to Modify:**
 - `internal/config/config.go`
-- `cmd/tako/internal/migrate.go` (new)
 - Test files throughout the codebase
 - Example `tako.yml` files in tests
 
@@ -898,7 +862,7 @@ workflows:
 - Parent Epic: #21 - Execute multi-step workflows
 - Design: #98 - Design(exec): A General-Purpose Workflow Engine for Multi-Repo Automation
 - Supersedes: #94 - feat(cmd): Add exec command for multi-step workflows
-- Depends On: Issue 1 (v0.2.0 schema support required)
+- Depends On: Issue 1 (workflow schema support required)
 
 **Description:**
 Implement the `tako exec` command to execute workflows defined in `tako.yml`. This command supports workflow input validation, type conversion, CEL expression evaluation, and template-based step execution. This issue implements the core command interface for the workflow engine designed in #98.
@@ -1070,7 +1034,7 @@ steps:
 - Depends On: Issues 1-4 (schema, inputs, engine, outputs required)
 
 **Description:**
-Create comprehensive end-to-end tests for single-repository workflow execution to validate the MVP functionality defined in the v0.2.0 schema design from #98.
+Create comprehensive end-to-end tests for single-repository workflow execution to validate the MVP functionality defined in the workflow schema design from #98.
 
 **Background:**
 This E2E test suite validates the core single-repository workflow functionality before expanding to multi-repository scenarios. It ensures that the basic building blocks work correctly within the existing Tako test framework structure (`test/e2e/testcase.go`) and provides confidence for Milestone 1 completion.
@@ -1117,7 +1081,7 @@ This milestone introduces the core security and isolation features, and expands 
 Modify the execution engine to run steps in secure, isolated containers with proper resource limits and security hardening as designed in #98.
 
 **Background:**
-Containerized execution provides security isolation and consistent environments for workflow steps. This builds on Tako's existing container concepts (Section 2.5 in README.md) and implements the security hardening specified in the v0.2.0 design: non-root execution, read-only filesystem, dropped capabilities, and network isolation.
+Containerized execution provides security isolation and consistent environments for workflow steps. This builds on Tako's existing container concepts (Section 2.5 in README.md) and implements the security hardening specified in the design: non-root execution, read-only filesystem, dropped capabilities, and network isolation.
 
 **Implementation Details:**
 - Add container runtime detection (Docker/Podman)
@@ -1163,7 +1127,7 @@ Containerized execution provides security isolation and consistent environments 
 Extend the execution engine to support multi-repository workflows with artifact-based dependency management and parallel execution as designed in #98.
 
 **Background:**
-This implements the core multi-repository orchestration functionality that differentiates v0.2.0 from v0.1.0. It builds on Tako's existing dependency graph concepts (Section 2.2 in README.md) and adds artifact-based triggering and aggregation for sophisticated automation workflows.
+This implements the core multi-repository orchestration functionality for the workflow engine. It builds on Tako's existing dependency graph concepts (Section 2.2 in README.md) and adds artifact-based triggering and aggregation for sophisticated automation workflows.
 
 **Implementation Details:**
 - Extend existing graph building logic for artifact dependencies

@@ -334,7 +334,7 @@ This model implements a pub-sub pattern where downstream repositories subscribe 
 
 #### Pros
 -   **Maximum Flexibility**: Complex filtering and routing logic using CEL expressions.
--   **Event-Driven Architecture**: Natural fit for asynchronous, loosely-coupled systems.
+-   **Event-Driven Architecture**: Natural fit for asynchronous, loosely coupled systems.
 -   **Rich Context**: Events can carry arbitrary payload data beyond simple version numbers.
 -   **Scalable**: Publishers don't need to know about subscribers.
 
@@ -605,7 +605,7 @@ For open source ecosystems where contributor autonomy is paramount:
 
 ### Final Recommendation
 
-**For Tako v0.2.0 Implementation:**
+**For Tako Implementation:**
 
 1. **Primary**: Implement Model C (Directed-Discovery) as designed
 2. **Secondary**: Plan Model A (Downstream-Driven) for v0.3.0
