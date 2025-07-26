@@ -302,7 +302,7 @@ Create comprehensive E2E tests for single-repository workflows that validate the
 
 This milestone introduces the core event-driven multi-repository functionality with containerization and advanced orchestration features.
 
-### Issue 6: `feat(engine): Implement containerized execution with security hardening`
+### Issue 6: `feat(engine): Implement containerized execution with security hardening` → **#104**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
@@ -340,7 +340,7 @@ Implement secure containerized step execution with comprehensive security harden
 
 ---
 
-### Issue 7: `feat(engine): Implement 'tako/fan-out@v1' semantic step`
+### Issue 7: `feat(engine): Implement 'tako/fan-out@v1' semantic step` → **#105**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
@@ -387,12 +387,12 @@ Implement the `tako/fan-out@v1` built-in step that enables event-driven multi-re
 
 ---
 
-### Issue 8: `feat(engine): Implement subscription-based workflow triggering`
+### Issue 8: `feat(engine): Implement subscription-based workflow triggering` → **#106**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
 - Design: #98 - Event-driven workflow engine design
-- Depends On: Issue 7 (fan-out implementation)
+- Depends On: #105 (fan-out implementation)
 
 **Description:**
 Implement the subscription-based workflow triggering system that evaluates event filters and maps events to workflows in child repositories.
@@ -438,7 +438,7 @@ subscriptions:
 
 ---
 
-### Issue 9: `feat(steps): Implement semantic steps framework`
+### Issue 9: `feat(steps): Implement semantic steps framework` → **#107**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
@@ -484,12 +484,12 @@ Create the semantic steps framework and implement core built-in steps for workfl
 
 ---
 
-### Issue 10: `test(e2e): Implement multi-repository event-driven testing`
+### Issue 10: `test(e2e): Implement multi-repository event-driven testing` → **#108**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
 - Design: #98 - Event-driven workflow engine design
-- Depends On: Issues 6-9 (complete event-driven implementation)
+- Depends On: #104-#107 (complete event-driven implementation)
 
 **Description:**
 Create comprehensive E2E tests for multi-repository event-driven workflows, validating the complete orchestration system.
