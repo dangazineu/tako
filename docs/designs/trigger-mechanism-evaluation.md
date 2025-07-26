@@ -1,620 +1,319 @@
 # Design Evaluation: Workflow Triggering Mechanisms
 
-This document evaluates three different approaches for triggering workflows in a multi-repository environment within `tako`.
+This document evaluates different approaches for triggering workflows in a multi-repository environment within `tako`.
 
-1.  **Model A: Downstream-Driven Triggers (`on: artifact_update`)**: A fully declarative, event-driven model. Downstream repositories subscribe to artifact updates and decide for themselves whether to trigger a workflow.
-2.  **Model B: Imperative Triggers (`uses: tako/trigger-workflow@v1`)**: A fully imperative model. An upstream workflow explicitly calls and triggers a specific workflow in a specific downstream repository.
-3.  **Model C: Directed-Discovery Triggers**: A hybrid model. An upstream workflow uses a "smart" trigger step that discovers which repositories to run against based on produced artifacts and the `dependents` list, and then calls a conventionally-named workflow in each.
+## Model 0: Centralized Orchestration with Distributed Subscriptions (Recommended)
 
----
+This model combines centralized orchestration control with distributed subscription criteria, providing the best of both worlds: 
+global workflow coordination from the parent perspective while allowing children to define their own triggering logic.
 
-## Model A: Downstream-Driven Triggers (`on: artifact_update`)
+### Core Principles
 
-In this model, the connection between repositories is declared, but the action is initiated by the downstream consumer.
+1. **Centralized Execution**: All multi-repository workflows are initiated from the parent repository using `tako exec --repo=parent` (or without the --repo flag, if running from a clone of the parent's repo)
+2. **Distributed Configuration**: Parent defines artifacts/events it publishes; children define subscription criteria for when they should respond
+3. **Global Dependency Tree**: Parent execution discovers and manages the entire dependency tree across all repositories
+4. **Explicit Fan-out**: Parent workflows contain explicit fan-out steps that trigger subscribed children  
+5. **Deep Synchronization**: Fan-out steps wait for all children AND their children to complete (DFS traversal)
+6. **Persistence & Resume**: Long-running workflows persist state and can be resumed from parent perspective
 
--   **Upstream (`go-lib/tako.yml`)**: Declares its artifacts and lists potential dependents. It has no knowledge of what workflows the downstream repositories will run.
-    ```yaml
-    artifacts:
-      go-lib:
-        path: ./go.mod
-    dependents:
-      - repo: my-org/app-one
-        artifacts: [go-lib]
-    ```
--   **Downstream (`app-one/tako.yml`)**: Listens for updates to artifacts it cares about and triggers its own workflow.
-    ```yaml
-    workflows:
-      test-integration:
-        on: artifact_update
-        if: trigger.artifact.name == 'go-lib'
-        steps:
-          - run: ./scripts/run-tests.sh --version {{ .trigger.artifact.outputs.version }}
-    ```
+### Configuration Model
+
+**Parent Repository (`go-lib/tako.yml`)**: Defines artifacts, events, and orchestrates fan-out
+```yaml
+artifacts:
+  go-lib:
+    path: ./go.mod
+    
+workflows:
+  release:
+    inputs:
+      version-bump:
+        type: string
+        default: "patch"
+    steps:
+      - id: build_library
+        run: ./scripts/build.sh --bump {{ .inputs.version-bump }}
+        produces:
+          artifact: go-lib
+          outputs:
+            version: from_stdout
+          events:
+            - type: library_built
+              schema_version: "1.2.0"  # Optional, defaults to "1.0.0"
+              payload:
+                version: "{{ .outputs.version }}"
+                commit_sha: "{{ .env.GITHUB_SHA }}"
+                breaking_changes: "{{ .outputs.breaking_changes }}"
+                
+      - id: fan_out_to_dependents
+        uses: tako/fan-out@v1
+        with:
+          # Triggers all repositories with matching subscriptions in parallel
+          # respecting global concurrency limits from ~/.tako config
+          event_type: library_built
+          # This step waits for ALL triggered workflows to complete,
+          # including any child workflows they trigger (DFS)
+          wait_for_children: true
+          timeout: "2h"
+          
+      - id: create_final_release
+        run: ./scripts/publish-release.sh
+        # This only runs after ALL dependents (and their dependents) complete
+```
+
+**Child Repository (`app-one/tako.yml`)**: Defines subscription criteria and workflows
+```yaml
+subscriptions:
+  - artifact: my-org/go-lib:go-lib
+    events: [library_built]
+    schema_version: "(1.1.0...2.0.0]"  # Optional, defaults to unbounded
+    # CEL expressions to determine if this repo should be triggered
+    filters:
+      # Only trigger for non-patch releases
+      - semver.major(event.payload.version) > 0 || semver.minor(event.payload.version) > 0
+      # Only if we're on a supported branch  
+      - has(event.payload.commit_sha)
+    # Which workflow to trigger when criteria are met
+    workflow: integration_test
+    # Map event payload to workflow inputs
+    inputs:
+      version: "{{ .event.payload.version }}"
+      commit_sha: "{{ .event.payload.commit_sha }}"
+      has_breaking_changes: "{{ .event.payload.breaking_changes == 'true' }}"
+
+workflows:
+  integration_test:
+    inputs:
+      version:
+        type: string
+        required: true
+      commit_sha:
+        type: string
+        required: true
+      has_breaking_changes:
+        type: boolean
+        default: false
+    steps:
+      - uses: tako/checkout@v1
+      - uses: tako/update-dependency@v1
+        with:
+          name: go-lib
+          version: "{{ .inputs.version }}"
+      - id: run_tests
+        run: ./scripts/integration-test.sh
+        if: "!.inputs.has_breaking_changes"
+      - id: run_breaking_change_tests
+        run: ./scripts/breaking-change-test.sh
+        if: .inputs.has_breaking_changes
+        long_running: true  # This step might take 30+ minutes
+        
+      # This child can also fan out to its own children
+      - id: notify_my_dependents
+        uses: tako/fan-out@v1
+        with:
+          event_type: integration_complete
+          wait_for_children: true
+        produces:
+          events:
+            - type: integration_complete
+              payload:
+                upstream_version: "{{ .inputs.version }}"
+                test_results: "{{ .steps.run_tests.outputs.results }}"
+```
+
+### Execution Model
+
+**Initiation**: Always from parent repository perspective
+```bash
+# Start a new release workflow
+tako exec release --repo=my-org/go-lib --inputs.version-bump=minor
+
+# Resume a paused workflow (works regardless of where it's waiting)
+tako exec --resume 123 --repo=my-org/go-lib
+```
+
+**Execution Flow**:
+1. **Discovery Phase**: Tako analyzes the entire dependency tree using existing `graph.BuildGraph()`, starting from the specified repository (ignoring any subscriptions in the root repo)
+2. **Schema Validation**: Validates that all child subscription schema versions are compatible with parent event schemas, exiting with error if incompatible
+3. **Parent Execution**: Runs parent workflow steps until hitting `fan_out_to_dependents` 
+4. **Subscription Evaluation**: For each repository in the dependency tree, evaluates their subscription filters against the emitted event (using namespaced event names like `my-org/go-lib/library_built`)
+5. **Child Triggering**: Triggers workflows in all repositories where subscription criteria are met, executing in parallel respecting global concurrency limits
+6. **Multi-Parent Handling**: Each matching event from each parent triggers the subscribed workflow independently (multiple runs if multiple parents emit matching events)
+7. **Deep Waiting**: The fan-out step waits for ALL triggered workflows to complete, including any workflows they trigger (DFS traversal)
+8. **Persistence**: If all steps actively running are `long_running`, the entire execution tree state is persisted and Tako exits
+9. **Resumption**: Resume from parent perspective with `tako exec --resume <id> --repo=<parent>`, continuing from where execution left off across all repositories
+
+**State Management**:
+- Execution tree-level state persistence (entire multi-repo execution state saved)
+- Resume commands always run against parent repo, regardless of where work is actually happening
+- Tako tracks the complete execution tree and can resume any paused workflows
+- Multiple subscriptions in same repo: first matching subscription triggers, others are logged but not executed
+
+### Key Design Decisions
+
+- **Repository Discovery**: Uses existing `graph.BuildGraph()` functionality, repositories cached under `$cacheDir/repos`
+- **Event Namespacing**: Events automatically namespaced by source repo (e.g., `my-org/go-lib/library_built`)
+- **Schema Versioning**: Optional schema versions (default "1.0.0"), optional version ranges in subscriptions (default unbounded)
+- **Concurrency**: Fan-out executes children in parallel respecting global concurrency limits from `~/.tako` config
+- **Event Payload**: No size limits, simple filter evaluation for all events
+- **Multi-Parent Events**: Each matching event triggers workflow independently (multiple sequential runs)
+- **Subscription Priority**: First matching subscription in config order triggers, others logged but ignored
+
+### Monitoring & Observability
+
+**Status Monitoring**:
+```bash
+# Quick snapshot of current execution state (reads from persisted state)
+tako status exec-123
+
+# Live execution with status updates (waits for completion or long-running persistence)
+tako exec release --repo=my-org/go-lib
+
+# Resume from where left off (advances any completed long-running steps)
+tako exec --resume 123 --repo=my-org/go-lib
+```
+
+**Status Output Format**:
+```
+# Tree view showing current execution state across all repositories
+├── my-org/go-lib [COMPLETED]
+├── my-org/app-one [RUNNING] - step: run_tests (2m30s)
+└── my-org/app-two [PENDING] - waiting for: app-one
+```
 
 ### Pros
 
--   **Loose Coupling**: The upstream repository is completely decoupled from the downstream implementation.
--   **High Scalability**: Adding a new consumer requires zero changes to the upstream repository.
--   **Owner Autonomy**: Downstream owners have full control over how they react to an update.
+- **Centralized Control**: Parent maintains full visibility and control over entire workflow
+- **Distributed Logic**: Children define their own subscription criteria without coupling to parent
+- **Global Orchestration**: Single command manages complex multi-repository workflows
+- **Deep Synchronization**: Fan-out steps naturally handle transitive dependencies
+- **Resumable**: Long-running workflows can be paused and resumed from parent perspective
+- **Flexible Filtering**: Rich subscription criteria using CEL expressions
+- **Event-Driven**: Clean separation between artifact publishing and consumption logic
+- **Leverages Existing Code**: Builds on current Tako dependency discovery and caching systems
 
 ### Cons
 
--   **"Silent Failure" Risk**: If a downstream owner forgets to add an `on: artifact_update` workflow, their integration tests are silently skipped. The upstream has no way to enforce this critical step. This can be perceived as "brittle" because the contract is implicit.
--   **Indirect Control**: The upstream `release` workflow cannot force a specific behavior on its consumers.
+- **Complexity**: Requires sophisticated orchestration engine with global state management
+- **Single Point of Control**: All execution must flow through parent repository
+- **Resource Requirements**: Parent process must coordinate potentially hundreds of repositories
+- **Debugging Challenges**: Complex execution trees may be difficult to debug
+- **State Persistence**: Requires robust state management and recovery mechanisms
 
----
+## Outstanding Questions
 
-## Model B: Imperative Triggers (`uses: tako/trigger-workflow@v1`)
+### My Questions
 
-In this model, the upstream workflow is responsible for explicitly triggering a specific workflow in a specific repository.
+**Q25: Workflow ID Generation - How should execution IDs be generated and managed?**
 
--   **Upstream (`go-lib/tako.yml`)**: The `release` workflow contains an explicit step to trigger a workflow in a single, hardcoded repository.
-    ```yaml
-    workflows:
-      release:
-        on: exec
-        steps:
-          - id: create_release
-            run: ./scripts/release.sh
-            produces:
-              outputs:
-                version: from_stdout
-          - id: trigger_downstream_test
-            uses: tako/trigger-workflow@v1
-            with:
-              repo: my-org/app-one # Explicit repo
-              workflow: test-integration # Explicit workflow name
-              inputs:
-                version: {{ .steps.create_release.outputs.version }}
-    ```
+When running `tako exec release --repo=my-org/go-lib`, how should the workflow ID (e.g., `exec-123`) be generated?
+- **Option A**: Sequential numbering (exec-1, exec-2, exec-3)
+- **Option B**: Timestamp-based (exec-20240726-143022)
+- **Option C**: UUID-based (exec-a1b2c3d4-e5f6-7890)
+- **Option D**: Content-addressable based on inputs and repo state
 
-### Pros
+**Q26: Subscription Syntax - How should artifact references work in subscriptions?**
 
--   **Maximum Control**: The upstream author has precise, explicit control over every action.
+In the current examples, subscriptions reference artifacts as `artifact: my-org/go-lib:go-lib`. Should this syntax be:
+- **Option A**: `repo:artifact` format as shown (e.g., `my-org/go-lib:go-lib`)
+- **Option B**: Full artifact path (e.g., `my-org/go-lib/artifacts/go-lib`)
+- **Option C**: Just artifact name with implicit parent resolution (e.g., `go-lib`)
+- **Option D**: Something else?
 
-### Cons
+### Gemini's Questions
 
--   **Tightest Coupling**: The upstream is hardcoded to the downstream repo name, workflow name, and input schema.
--   **Lowest Scalability**: The upstream `tako.yml` must be modified for every new consumer, creating a significant bottleneck.
--   **Prevents Graph Optimization**: The engine cannot see the full dependency graph until execution time.
+**Q27: State Consistency - How should the system handle distributed state synchronization during execution?**
 
----
+In the centralized orchestration model, the parent maintains global execution state while children execute workflows. How should state consistency be maintained when child workflows fail or succeed?
+- **Option A**: Parent polls children periodically and updates master state
+- **Option B**: Children push state updates to parent via callbacks/webhooks  
+- **Option C**: Eventual consistency model with reconciliation at completion
+- **Option D**: Pessimistic locking with distributed coordination
 
-## Model C: Directed-Discovery Triggers (Hybrid)
+**Q28: Subscription Evaluation Timing - When should subscription filters be evaluated during execution?**
 
-In this model, the upstream workflow directs downstream repositories to run a specific, conventionally-named workflow, but it discovers *which* repositories to trigger based on dependencies.
+With CEL expressions and complex filters, subscription evaluation could be expensive. When should this evaluation occur?
+- **Option A**: Pre-execution during dependency discovery phase (static evaluation)
+- **Option B**: Just-in-time when each event is published (dynamic evaluation)
+- **Option C**: Cached evaluation with invalidation on configuration changes
+- **Option D**: Lazy evaluation only for repositories that could be triggered
 
--   **Upstream (`go-lib/tako.yml`)**: It defines the artifacts it produces and what other repos depend on them. Its workflow then has a "smart" trigger step.
-    ```yaml
-    artifacts:
-      go-lib:
-        path: ./go.mod
-    dependents:
-      - repo: my-org/app-one
-        artifacts: [go-lib]
-      - repo: my-org/app-two
-        artifacts: [go-lib]
-    workflows:
-      release:
-        # 'on: exec' is implicit for all workflows in this model.
-        steps:
-          - id: build_lib
-            run: ./scripts/build.sh
-            produces:
-              artifact: go-lib # This step produces the 'go-lib' artifact
-              outputs:
-                version: from_stdout
-          - id: trigger_downstream_tests
-            # This "smart" step triggers the 'test-integration' workflow
-            # in all repos that depend on artifacts produced in this run.
-            uses: tako/trigger-workflow@v1
-            with:
-              # It triggers a CONVENTION-BASED workflow name
-              workflow: test-integration
-              # Inputs are implicitly passed from the artifact context.
-              # The trigger step would map 'version' from the artifact
-              # to the 'version' input in the downstream workflow.
-    ```
--   **Downstream (`app-one/tako.yml`)**: It must provide a workflow with the conventionally-agreed-upon name.
-    ```yaml
-    workflows:
-      test-integration: # Must match the name from the upstream 'with.workflow'
-        # The 'on:' key is omitted; this workflow is executable by default.
-        inputs:
-          version:
-            type: string
-            required: true
-        steps:
-          - run: ./scripts/run-tests.sh --version {{ .inputs.version }}
-    ```
+**Q29: Event Schema Evolution - How should breaking changes to event schemas be handled?**
 
-**A Note on the `on:` Key:**
-In this model, since all workflows are triggered directly (either by a user or the `tako/trigger-workflow@v1` step), they are all conceptually `on: exec`. Per our discussion, the `on:` key will be omitted from the schema for the initial implementation to reduce verbosity. All workflows will be considered executable by default. If future trigger types (e.g., `on: schedule`) are added, the `on:` key will be reintroduced at that time, with workflows lacking the key defaulting to `on: exec`.
+When a parent repository changes its event schema (adds/removes/modifies payload fields), how should backward compatibility be maintained?
+- **Option A**: Strict semver for event schemas with breaking change detection
+- **Option B**: Additive-only changes with field deprecation warnings
+- **Option C**: Schema migration tools with automatic conversion
+- **Option D**: Multiple schema versions supported simultaneously
 
-### Pros
+**Q30: Execution Tree Depth Limits - Should there be limits on workflow execution tree depth?**
 
--   **Centralized Control**: The upstream workflow author can enforce that all dependents run a specific action (e.g., `test-integration`), preventing the "silent failure" scenario from Model A.
--   **Automated Dispatch**: The `dependents` list is used to automatically discover and loop over the correct repositories. The upstream author doesn't need to add a new step for each new consumer.
--   **Declarative Dependencies**: The `dependents` block still serves as a clear, machine-readable declaration of the repository graph, which the engine can use for planning and visualization.
+The design mentions DFS traversal for deep synchronization, but deeply nested dependencies could cause performance or resource issues.
+- **Option A**: No limits, trust users to design reasonable dependency chains
+- **Option B**: Configurable depth limit with warning at threshold
+- **Option C**: Hard limit with graceful degradation (breadth-first instead of depth-first)
+- **Option D**: Adaptive limits based on system resources and execution history
 
-### Cons
+**Q31: Partial Failure Recovery - How should the system handle partial execution tree failures?**
 
--   **Convention over Configuration**: This model's biggest drawback is that it imposes a strict naming convention on all consumers. Every downstream repository *must* have a workflow named `test-integration` that accepts a specific set of inputs. This creates a form of coupling at the convention level.
--   **Reduced Flexibility for Consumers**: A downstream owner can't easily rename their workflow or change its input schema without coordinating with all upstream callers. They lose autonomy.
--   **"Magic" Behavior**: The `trigger-workflow` step has a lot of implicit behavior. It automatically finds artifacts, looks up dependents, and maps inputs. This can be less transparent than the fully declarative `on: artifact_update` trigger.
+When some children succeed and others fail in a fan-out scenario, how should resumption work?
+- **Option A**: Resume only failed branches, skip successful ones
+- **Option B**: Restart entire execution tree from last consistent checkpoint
+- **Option C**: User choice between partial resume or full restart
+- **Option D**: Automatic retry with exponential backoff for failed branches only
 
-## Comparative Analysis
+**Q32: Cross-Repository Resource Limits - How should resource consumption be managed across the entire execution tree?**
 
-| Criterion | Model A (Downstream-Driven) | Model B (Imperative) | Model C (Directed-Discovery) |
-| :--- | :--- | :--- | :--- |
-| **Coupling** | **Loose**. Upstream is unaware of downstream implementation. | **Very Tight**. Upstream knows repo, workflow, and inputs. | **Medium**. Coupled by workflow name convention. |
-| **Scalability** | **High**. New consumers require no upstream changes. | **Very Low**. Upstream must be changed for every new consumer. | **High**. New consumers only need to be added to `dependents` list. |
-| **Control** | **Decentralized**. Downstream has full control. | **Centralized**. Upstream has full, explicit control. | **Centralized**. Upstream directs the action to be taken. |
-| **Brittleness** | Brittle to **inaction** (silent skips). | Brittle to **any change** (renaming, etc.). | Brittle to **convention breaks**. |
-| **Winner** | | | |
+The design mentions global concurrency limits, but what about CPU, memory, and disk usage across all executing repositories?
+- **Option A**: Repository-level limits only, no global coordination
+- **Option B**: Global resource pool shared across all executing workflows
+- **Option C**: Hierarchical limits (global -> per-repo -> per-step)
+- **Option D**: Dynamic resource allocation based on execution priority
 
-## Recommendation
+**Q33: Event Delivery Guarantees - What delivery semantics should events have in the distributed system?**
 
-This analysis reveals a fundamental trade-off between **autonomy (Model A)** and **control (Model C)**.
+When the parent publishes events to children, what guarantees should be provided?
+- **Option A**: At-least-once delivery with idempotency handling in children
+- **Option B**: Exactly-once delivery with distributed transaction semantics
+- **Option C**: At-most-once delivery with retry logic for failures
+- **Option D**: Best-effort delivery with eventual consistency reconciliation
 
--   **Model A (`on: artifact_update`)** is the most scalable and flexible. It treats repositories as independent services in an event-driven architecture. Its weakness is that the "contract" between services is implicit, and it cannot enforce behavior.
+**Q34: Repository Authentication Propagation - How should authentication credentials be handled across repositories?**
 
--   **Model C (Directed-Discovery)** provides a powerful way for an upstream "owner" to enforce a consistent process across all of its dependents. It solves the "silent failure" problem of Model A. Its weakness is that it imposes a rigid convention on all consumers, reducing their autonomy and creating coupling at the workflow-name level.
+When executing across multiple repositories that may require different credentials, how should authentication be managed?
+- **Option A**: Parent credentials used for all repositories (single identity)
+- **Option B**: Per-repository credential configuration in parent
+- **Option C**: Children authenticate independently using local credentials
+- **Option D**: Credential delegation with scoped permissions per repository
 
--   **Model B (Imperative)** is the least desirable, as it combines the tightest coupling with the lowest scalability.
+**Q35: Execution Context Isolation - How should execution contexts be isolated between concurrent workflow trees?**
 
-**Conclusion:** The choice between Model A and Model C depends on the desired governance model for the ecosystem.
+When multiple `tako exec` commands run concurrently with overlapping repository sets, how should isolation be maintained?
+- **Option A**: Lock entire repository set during execution (strict isolation)
+- **Option B**: Fine-grained locking per repository with deadlock detection
+- **Option C**: Copy-on-write workspaces with eventual merge
+- **Option D**: Execution queuing with repository-level serialization
 
--   If the goal is to foster a loosely-coupled ecosystem where teams have high autonomy, **Model A** is superior.
--   If the goal is to have a centrally-managed process where an upstream repository can enforce standards and actions on its dependents, **Model C** is the better choice.
-
-Given that `tako` is a tool for orchestration, providing the *option* for centralized control is a powerful feature. The "brittleness" of silent failures in Model A is a significant practical risk in many organizations.
-
-Therefore, the **Directed-Discovery model (Model C) is a strong candidate for the primary mechanism.** It offers a pragmatic balance of automation and control. The design should proceed with this hybrid model. We can re-evaluate adding Model A's `on: artifact_update` as a secondary, opt-in mechanism in the future if a more event-driven approach is also required.
-
----
-
-## Additional Alternative Approaches
-
-Beyond the three core models evaluated above, several additional approaches warrant consideration for downstream workflow invocation. These alternatives address specific limitations of the primary models and offer different trade-offs in terms of flexibility, control, and complexity.
-
-### Model D: Policy-Based Triggers (`policies` + `on: artifact_update`)
-
-This model extends Model A by adding a centralized policy layer that can enforce organizational standards while maintaining downstream autonomy.
-
--   **Upstream (`go-lib/tako.yml`)**: Declares its artifacts and policies that downstream repositories must adhere to.
-    ```yaml
-    artifacts:
-      go-lib:
-        path: ./go.mod
-    dependents:
-      - repo: my-org/app-one
-        artifacts: [go-lib]
-    policies:
-      required_workflows:
-        - name: test-integration
-          inputs: [version]
-          timeout: "30m"
-        - name: security-scan
-          inputs: [version]
-          required: false
-    ```
--   **Downstream (`app-one/tako.yml`)**: Must implement required workflows but has flexibility in implementation.
-    ```yaml
-    workflows:
-      test-integration:
-        on: artifact_update
-        if: trigger.artifact.name == 'go-lib'
-        inputs:
-          version:
-            type: string
-            required: true
-        steps:
-          - run: ./scripts/run-tests.sh --version {{ .inputs.version }}
-      security-scan:
-        on: artifact_update
-        if: trigger.artifact.name == 'go-lib'
-        inputs:
-          version:
-            type: string
-            required: true
-        steps:
-          - run: ./scripts/security-scan.sh --version {{ .inputs.version }}
-    ```
-
-#### Pros
--   **Enforced Standards**: The upstream can require specific workflows to exist, preventing silent failures.
--   **Implementation Flexibility**: Downstream teams retain control over how they implement required workflows.
--   **Gradual Adoption**: Policies can be marked as optional and made required over time.
--   **Audit Capability**: The engine can verify compliance with required policies.
-
-#### Cons
--   **Increased Complexity**: Requires policy validation and compliance checking.
--   **Partial Coupling**: Creates coupling through policy names and input schemas.
--   **Enforcement Burden**: Requires tooling to monitor and enforce policy compliance.
-
-### Model E: Manifest-Driven Triggers (`manifest.yml` + Discovery)
-
-This model uses a separate manifest file to describe cross-repository dependencies and trigger behaviors, decoupling orchestration concerns from individual repository configurations.
-
--   **Central Manifest (`org-workflows/tako-manifest.yml`)**: Maintained separately from individual repositories.
-    ```yaml
-    version: 0.2.0
-    repositories:
-      - name: my-org/go-lib
-        artifacts:
-          go-lib:
-            path: ./go.mod
-        workflows:
-          release:
-            triggers:
-              - repos: [my-org/app-one, my-org/app-two]
-                workflow: test-integration
-                inputs:
-                  version: "{{ .artifacts.go-lib.outputs.version }}"
-              - repos: [my-org/release-bom]
-                workflow: update-bom
-                depends_on: [my-org/app-one, my-org/app-two]
-                inputs:
-                  versions: "{{ .collect_outputs('version') }}"
-    ```
--   **Individual Repositories**: Contain only their local workflow definitions without cross-repository concerns.
-    ```yaml
-    # app-one/tako.yml - No cross-repo dependencies declared
-    workflows:
-      test-integration:
-        inputs:
-          version:
-            type: string
-            required: true
-        steps:
-          - run: ./scripts/run-tests.sh --version {{ .inputs.version }}
-    ```
-
-#### Pros
--   **Centralized Orchestration**: All cross-repository logic lives in one place, making it easier to understand and maintain.
--   **Clean Separation**: Individual repositories focus only on their own workflows.
--   **Flexible Routing**: Complex trigger patterns can be expressed without modifying individual repositories.
--   **Version Control**: The manifest can be versioned independently and reviewed by platform teams.
-
-#### Cons
--   **Central Bottleneck**: All cross-repository changes require manifest updates.
--   **Discovery Complexity**: Requires mechanism to discover and load the manifest.
--   **Synchronization**: Risk of manifest and repository definitions getting out of sync.
--   **Ownership Model**: Unclear who owns and maintains the central manifest.
-
-### Model F: Subscription-Based Triggers (`subscriptions` + Events)
-
-This model implements a pub-sub pattern where downstream repositories subscribe to specific artifact events with filtering criteria.
-
--   **Upstream (`go-lib/tako.yml`)**: Simply declares its artifacts without knowledge of consumers.
-    ```yaml
-    artifacts:
-      go-lib:
-        path: ./go.mod
-    workflows:
-      release:
-        steps:
-          - id: build
-            run: ./scripts/release.sh
-            produces:
-              artifact: go-lib
-              outputs:
-                version: from_stdout
-              events:
-                - type: artifact_published
-                  payload:
-                    version: "{{ .outputs.version }}"
-                    commit_sha: "{{ .env.GITHUB_SHA }}"
-    ```
--   **Downstream (`app-one/tako.yml`)**: Subscribes to specific events with complex filtering.
-    ```yaml
-    subscriptions:
-      - artifact: my-org/go-lib:go-lib
-        events: [artifact_published]
-        filters:
-          - semver.major(payload.version) >= 1
-          - payload.commit_sha != ""
-        workflow: test-integration
-        inputs:
-          version: "{{ .event.payload.version }}"
-          commit_sha: "{{ .event.payload.commit_sha }}"
-    workflows:
-      test-integration:
-        inputs:
-          version:
-            type: string
-            required: true
-          commit_sha:
-            type: string
-            required: true
-        steps:
-          - run: ./scripts/test.sh --version {{ .inputs.version }} --sha {{ .inputs.commit_sha }}
-    ```
-
-#### Pros
--   **Maximum Flexibility**: Complex filtering and routing logic using CEL expressions.
--   **Event-Driven Architecture**: Natural fit for asynchronous, loosely coupled systems.
--   **Rich Context**: Events can carry arbitrary payload data beyond simple version numbers.
--   **Scalable**: Publishers don't need to know about subscribers.
-
-#### Cons
--   **High Complexity**: Requires event system, filtering engine, and subscription management.
--   **Debugging Difficulty**: Event flows can be hard to trace and debug.
--   **Schema Evolution**: Event payload changes require careful versioning.
--   **Delivery Guarantees**: Need to handle event delivery failures and retries.
-
-### Model G: Template-Based Triggers (`templates` + Code Generation)
-
-This model uses template-driven code generation to create workflow definitions based on organizational patterns and repository metadata.
-
--   **Template Definition (`org-templates/dependency-update.yml.tmpl`)**: Organizational template for dependency update workflows.
-    ```yaml
-    # Template generates workflow based on repository metadata
-    {{- $repo := .repository }}
-    {{- $deps := .dependencies }}
-    workflows:
-      {{- range $deps }}
-      test-after-{{ .name | kebab_case }}:
-        on: artifact_update  
-        if: trigger.artifact.name == '{{ .artifact_name }}'
-        steps:
-          - uses: tako/checkout@v1
-          - uses: tako/update-dependency@v1
-            with:
-              name: {{ .name }}
-              version: "{{ "{{ .trigger.artifact.outputs.version }}" }}"
-          {{- if $repo.has_tests }}
-          - run: {{ $repo.test_command }}
-          {{- end }}
-          {{- if $repo.has_security_scan }}
-          - run: ./scripts/security-scan.sh
-          {{- end }}
-      {{- end }}
-    ```
--   **Repository Metadata (`app-one/.tako/metadata.yml`)**: Describes repository capabilities and preferences.
-    ```yaml
-    repository:
-      name: my-org/app-one
-      has_tests: true
-      has_security_scan: true
-      test_command: "npm test"
-    dependencies:
-      - name: go-lib
-        artifact_name: go-lib
-        ecosystem: go
-        update_strategy: auto
-    ```
-
-#### Pros
--   **Organization Standards**: Templates enforce consistent patterns across repositories.
--   **Customization**: Templates can adapt based on repository-specific metadata.
--   **DRY Principle**: Reduces duplication of common workflow patterns.
--   **Evolution**: Templates can be updated to roll out changes across all repositories.
-
-#### Cons
--   **Template Complexity**: Complex template logic can be hard to understand and maintain.
--   **Generation Overhead**: Requires code generation step and tooling.
--   **Debugging**: Generated workflows may be hard to debug and understand.
--   **Metadata Maintenance**: Repository metadata must be kept accurate and up-to-date.
-
-### Model H: Micro-Orchestration (`atomic` + Composition)
-
-This model breaks workflows into atomic, composable units that can be dynamically orchestrated based on runtime conditions.
-
--   **Atomic Units (`go-lib/tako.yml`)**: Defines small, reusable workflow units.
-    ```yaml
-    atomic_units:
-      build_library:
-        inputs:
-          version_bump:
-            type: string
-            default: patch
-        steps:
-          - run: ./scripts/build.sh --bump {{ .inputs.version_bump }}
-            produces:
-              artifact: go-lib
-              outputs:
-                version: from_stdout
-      notify_downstream:
-        inputs:
-          version:
-            type: string
-            required: true
-        steps:
-          - uses: tako/trigger-units@v1
-            with:
-              repos: [my-org/app-one, my-org/app-two]
-              units: [test_with_new_version]
-              inputs:
-                version: "{{ .inputs.version }}"
-    compositions:
-      release:
-        sequence:
-          - unit: build_library
-            inputs:
-              version_bump: "{{ .inputs.version_bump }}"
-          - unit: notify_downstream
-            inputs:
-              version: "{{ .units.build_library.outputs.version }}"
-    ```
--   **Downstream Units (`app-one/tako.yml`)**: Implements corresponding atomic units.
-    ```yaml
-    atomic_units:
-      test_with_new_version:
-        inputs:
-          version:
-            type: string
-            required: true
-        steps:
-          - uses: tako/checkout@v1
-          - uses: tako/update-dependency@v1
-            with:
-              version: "{{ .inputs.version }}"
-          - run: ./scripts/test.sh
-    ```
-
-#### Pros
--   **Composability**: Small units can be combined in different ways for different use cases.
--   **Reusability**: Atomic units can be shared and reused across workflows.
--   **Dynamic Orchestration**: Compositions can be modified without changing atomic units.
--   **Testing**: Individual units are easier to test in isolation.
-
-#### Cons
--   **Complexity**: Requires understanding of both atomic units and composition patterns.
--   **Indirection**: Multiple layers of abstraction can make workflows hard to follow.
--   **Coordination Overhead**: Managing dependencies between atomic units adds complexity.
--   **Versioning**: Atomic unit interfaces require careful versioning and compatibility management.
-
----
-
-## Comprehensive Analysis & Recommendations
-
-### Extended Comparative Matrix
-
-| Criterion | Model A<br/>(Downstream-Driven) | Model B<br/>(Imperative) | Model C<br/>(Directed-Discovery) | Model D<br/>(Policy-Based) | Model E<br/>(Manifest-Driven) | Model F<br/>(Subscription-Based) | Model G<br/>(Template-Based) | Model H<br/>(Micro-Orchestration) |
-|:---|:---|:---|:---|:---|:---|:---|:---|:---|
-| **Coupling** | **Loose** | Very Tight | Medium | Medium | Medium-Loose | **Loose** | Medium | Medium |
-| **Scalability** | **High** | Very Low | **High** | **High** | Medium | **High** | **High** | Medium |
-| **Control** | Decentralized | **Centralized** | **Centralized** | Balanced | **Centralized** | Decentralized | **Centralized** | Balanced |
-| **Complexity** | **Low** | **Low** | Medium | High | High | **Very High** | High | **Very High** |
-| **Debugging** | **Easy** | **Easy** | Medium | Hard | Hard | **Very Hard** | Hard | **Very Hard** |
-| **Standards Enforcement** | **Poor** | Good | **Excellent** | **Excellent** | **Excellent** | Poor | **Excellent** | Good |
-| **Implementation Flexibility** | **Excellent** | Poor | Poor | **Excellent** | Good | **Excellent** | Good | Good |
-| **Operational Overhead** | **Low** | **Low** | **Low** | High | Medium | High | Medium | High |
-| **Evolution Support** | **Excellent** | Poor | Good | **Excellent** | Good | **Excellent** | **Excellent** | Good |
-
-### Detailed Analysis by Use Case
-
-#### Use Case 1: Small to Medium Organizations (< 50 repositories)
-
-**Recommended Approach: Model C (Directed-Discovery) with Model A fallback**
-
-For organizations with 10-50 repositories and moderate complexity, the hybrid approach provides the best balance:
-
-- **Primary**: Model C for critical workflows where standards enforcement is essential
-- **Fallback**: Model A for experimental or low-risk workflows where teams need maximum flexibility
-
-**Rationale**:
-- Model C prevents silent failures while maintaining reasonable complexity
-- Convention-based workflow naming is manageable at this scale
-- Teams can still customize implementation within established conventions
-- Clear upgrade path to more sophisticated models as the organization grows
-
-#### Use Case 2: Large Organizations (> 100 repositories)
-
-**Recommended Approach: Model D (Policy-Based) with Model E (Manifest-Driven) for complex scenarios**
-
-For large organizations with diverse teams and complex dependency graphs:
-
-- **Primary**: Model D for enforcing organization-wide standards while preserving team autonomy
-- **Complex Workflows**: Model E for sophisticated multi-repository orchestration patterns
-- **Migration Path**: Start with Model C, evolve to Model D as organizational maturity increases
-
-**Rationale**:
-- Policy-based approach scales to large numbers of repositories
-- Maintains team autonomy while ensuring compliance
-- Manifest-driven approach handles complex, organization-specific workflow patterns
-- Gradual adoption path reduces organizational risk
-
-#### Use Case 3: Microservices Architecture
-
-**Recommended Approach: Model F (Subscription-Based) with Model H (Micro-Orchestration) for complex workflows**
-
-For organizations with event-driven architectures and sophisticated microservices patterns:
-
-- **Event Integration**: Model F naturally aligns with existing pub-sub infrastructure
-- **Complex Orchestration**: Model H for workflows that need dynamic composition
-- **Infrastructure Investment**: Requires significant tooling and operational investment
-
-**Rationale**:
-- Aligns with existing microservices patterns and event-driven architecture
-- Provides maximum flexibility for complex routing and filtering
-- Enables sophisticated workflow composition patterns
-- Requires mature DevOps/platform engineering capabilities
-
-#### Use Case 4: Open Source Projects
-
-**Recommended Approach: Model A (Downstream-Driven) with Model G (Template-Based) for consistency**
-
-For open source ecosystems where contributor autonomy is paramount:
-
-- **Primary**: Model A for maximum contributor freedom and low barriers to entry
-- **Consistency**: Model G for providing recommended patterns without enforcement
-- **Community Standards**: Templates maintained by core maintainers, adopted voluntarily
-
-**Rationale**:
-- Preserves the autonomy that open source contributors expect
-- Templates provide consistency without mandatory enforcement
-- Low operational overhead for maintainer teams
-- Easy for new contributors to understand and adopt
-
-### Strategic Implementation Recommendations
-
-#### Phase 1: Foundation (Months 1-3)
-**Implement Model C (Directed-Discovery)**
-- Provides immediate value with reasonable complexity
-- Establishes core workflow engine capabilities
-- Creates foundation for more advanced models
-- Validates core assumptions with real usage
-
-#### Phase 2: Enhancement (Months 4-6)
-**Add Model A (Downstream-Driven) as optional mode**
-- Provide `on: artifact_update` as alternative to directed triggers
-- Allow mixed usage patterns within same organization
-- Gather feedback on which approach works better for different teams
-- Refine tooling based on production usage
-
-#### Phase 3: Scale & Sophistication (Months 7-12)
-**Based on adoption feedback, implement one advanced model**
-- **If enforcement is key concern**: Implement Model D (Policy-Based)
-- **If complexity management is key**: Implement Model E (Manifest-Driven)
-- **If event-driven architecture is mature**: Implement Model F (Subscription-Based)
-
-### Implementation Complexity Assessment
-
-#### Low Complexity (Suitable for MVP)
-- **Model A**: Requires only event system and CEL evaluation
-- **Model B**: Simple imperative calling, but limited scalability
-- **Model C**: Moderate complexity, good MVP candidate
-
-#### Medium Complexity (Second iteration)
-- **Model D**: Requires policy validation and compliance checking
-- **Model E**: Needs manifest discovery and synchronization
-- **Model G**: Requires template engine and code generation
-
-#### High Complexity (Future iterations)
-- **Model F**: Full event/subscription system with delivery guarantees
-- **Model H**: Complex orchestration engine with atomic unit management
-
-### Risk Assessment & Mitigation
-
-#### Model C Risks (Primary Recommendation)
-**Risk**: Convention lock-in reduces future flexibility
-**Mitigation**: Design conventions to be extensible, provide escape hatches to Model A
-
-**Risk**: Debugging "magic" behavior in directed discovery
-**Mitigation**: Excellent observability, clear logging, dry-run mode
-
-#### Model A Risks (Fallback Recommendation)
-**Risk**: Silent failures due to missing downstream workflows
-**Mitigation**: Validation tooling, organizational monitoring, clear documentation
-
-**Risk**: Inconsistent implementation across teams
-**Mitigation**: Templates, best practices documentation, periodic audits
-
-### Final Recommendation
-
-**For Tako Implementation:**
-
-1. **Primary**: Implement Model C (Directed-Discovery) as designed
-2. **Secondary**: Plan Model A (Downstream-Driven) for v0.3.0
-3. **Future**: Evaluate advanced models (D, E, F) based on user feedback and organizational needs
-
-This approach provides:
-- **Immediate value** with reasonable implementation complexity
-- **Clear upgrade path** to more sophisticated approaches
-- **Validation opportunity** for core assumptions before adding complexity
-- **Flexibility** to adapt based on real-world usage patterns
-
-The key insight is that different organizations will need different approaches, and Tako should evolve to support multiple models rather than forcing a single approach on all users.
+**Q36: Network Partition Handling - How should the system behave during network partitions between parent and children?**
+
+In distributed environments, network partitions between parent and child repositories could occur.
+- **Option A**: Fail fast on network issues, require manual intervention
+- **Option B**: Continue execution with last known state, reconcile on reconnection
+- **Option C**: Timeout-based failure detection with automatic retry
+- **Option D**: Split-brain prevention with distributed consensus algorithms
+
+**Q37: Multi-Parent Conflict Resolution - How should conflicting events from multiple parents be resolved?**
+
+When a child repository subscribes to events from multiple parents that could trigger simultaneously, how should conflicts be handled?
+- **Option A**: Execute workflows sequentially in parent precedence order
+- **Option B**: Merge/aggregate conflicting events into single workflow execution
+- **Option C**: Execute workflows in parallel with separate execution contexts
+- **Option D**: User-defined conflict resolution strategies per subscription
+
+**Q38: Workspace Sharing Strategy - How should workspace data be shared between parent and child executions?**
+
+In the centralized model, workspaces are created per execution, but artifacts need to flow between repositories.
+- **Option A**: Copy artifacts between separate workspaces for each repository
+- **Option B**: Shared workspace mounted across all repositories in execution tree
+- **Option C**: Artifact registry pattern with push/pull semantics
+- **Option D**: Content-addressable storage with workspace references
