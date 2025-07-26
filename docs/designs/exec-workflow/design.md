@@ -5,12 +5,12 @@ This document provides the complete technical design for the `tako exec` workflo
 ## Glossary
 
 - **Artifact**: A tangible, versionable output of a repository (e.g., a library, binary, or package) that serves as a dependency for other repositories
-- **Event**: A structured message emitted by a parent workflow when an artifact is produced or updated, containing metadata and payload data
-- **Subscription**: A child repository's declaration of interest in specific events from parent repositories, with filtering criteria
-- **Fan-Out**: The process of triggering multiple child workflows in parallel when a parent workflow emits events
-- **Parent Workflow**: A workflow that orchestrates multi-repository operations by emitting events and triggering child workflows
-- **Child Workflow**: A workflow that responds to events from parent repositories through subscription criteria
-- **Execution Tree**: The complete hierarchy of parent and child workflow executions triggered by a single `tako exec` command
+- **Event**: A structured message emitted by a workflow when an artifact is produced or updated, containing metadata and payload data
+- **Subscription**: A repository's declaration of interest in specific events from other repositories, with filtering criteria that map events to local workflows
+- **Fan-Out**: The process of triggering multiple workflows across repositories in parallel when a workflow emits events
+- **Parent Repository**: A repository that orchestrates multi-repository operations by emitting events through `tako/fan-out@v1` steps
+- **Child Repository**: A repository that participates in orchestration by defining subscriptions to events from other repositories
+- **Execution Tree**: The complete hierarchy of workflow executions across repositories triggered by a single `tako exec` command
 
 ## 1. Core Concepts & Architecture
 
@@ -36,13 +36,13 @@ These choices prioritize clarity, predictability, and debugging ease over fully 
 
 ### 1.3. Core Execution Model
 
-The workflow engine implements a **centralized orchestration with distributed subscriptions** pattern. The `tako/fan-out@v1` step is the cornerstone of this architecture, enabling parent workflows to trigger child workflows through structured events.
+The workflow engine implements a **centralized orchestration with distributed subscriptions** pattern. The `tako/fan-out@v1` step is the cornerstone of this architecture, enabling workflows in parent repositories to trigger workflows in child repositories through structured events.
 
 ```
 ┌─────────────────┐    Event     ┌─────────────────┐
-│ Parent Workflow │  ─────────►  │ Child Workflow  │
-│                 │ (fan-out     │ (subscription   │
-│ tako/fan-out@v1 │  step)       │  filters)       │
+│ Parent Repo     │  ─────────►  │ Child Repo      │
+│ Workflow with   │ (fan-out     │ Subscription    │
+│ tako/fan-out@v1 │  step)       │ → Workflow      │
 └─────────────────┘              └─────────────────┘
 ```
 
@@ -77,11 +77,11 @@ artifacts:
 
 ### 2.3. Workflows
 
-Workflows are defined differently depending on whether the repository serves as a parent (orchestrator) or child (subscriber) in the execution model.
+The workflow configuration varies depending on whether the repository serves as a parent (orchestrator) or child (subscriber) in the execution model.
 
-#### 2.3.1. Parent Repository Workflows
+#### 2.3.1. Workflows in Parent Repositories
 
-Parent repositories orchestrate multi-repository workflows using explicit fan-out steps. These workflows emit events that child repositories can subscribe to:
+Parent repositories orchestrate multi-repository workflows using explicit fan-out steps. These workflows emit events that other repositories can subscribe to:
 
 ```yaml
 workflows:
@@ -123,9 +123,9 @@ workflows:
         run: ./scripts/publish-release.sh
 ```
 
-#### 2.3.2. Child Repository Workflows
+#### 2.3.2. Workflows in Child Repositories
 
-Child repositories define subscription criteria and workflows that respond to events. The subscription model replaces the earlier `dependents` configuration pattern:
+Child repositories define subscription criteria that map events to local workflows. Note that these are regular workflows that can also be invoked directly (e.g., `tako exec integration_test --inputs.version=1.2.3`). The subscription model replaces the earlier `dependents` configuration pattern:
 
 ```yaml
 subscriptions:
@@ -313,7 +313,7 @@ Lib B       Lib C (both depend on A)
     App D (depends on both B and C)
 ```
 
-**Resolution Strategy**: Each matching event triggers the child workflow independently (multiple sequential runs). The first matching subscription in configuration order triggers; others are logged but ignored.
+**Resolution Strategy**: Each matching event triggers the subscribed workflow independently (multiple sequential runs). The first matching subscription in configuration order triggers; others are logged but ignored.
 
 ```yaml
 subscriptions:
@@ -484,7 +484,7 @@ Debugging distributed, asynchronous workflows across multiple repositories requi
 # View execution tree status across all repositories
 tako status exec-20240726-143022-a7b3c1d2
 
-# Inspect specific child workflow state
+# Inspect specific repository's workflow state
 tako status exec-20240726-143022-a7b3c1d2 --repo=my-org/app-one
 ```
 
@@ -499,10 +499,10 @@ tako exec --dry-run release --debug-subscriptions
 
 **Manual Re-triggering**:
 ```bash
-# Resume only failed child workflows without re-running parent
+# Resume only failed workflows in child repositories without re-running parent
 tako exec --resume exec-20240726-143022-a7b3c1d2 --failed-only
 
-# Manually trigger specific child workflow with custom event payload
+# Manually trigger specific workflow with custom event payload
 tako exec integration_test --repo=my-org/app-one --simulate-event=library_built
 ```
 
