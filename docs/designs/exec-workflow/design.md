@@ -628,9 +628,188 @@ The following areas require further exploration and decision-making:
 5. **Performance Scaling**: At what dependency graph sizes should distributed execution be recommended?
 6. **Enterprise Features**: What additional audit, compliance, and governance features are needed?
 
-## 15. Implementation Plan
+## 15. Design Decisions and Rationale
 
-### 15.1. Milestone Dependencies
+This section documents key design decisions made during the evaluation process, including the rationale for chosen approaches and alternatives that were considered but rejected.
+
+### 15.1. Workflow ID Generation
+
+**Decision**: Timestamp-based with collision avoidance  
+**Format**: `exec-YYYYMMDD-HHMMSS-<8-char-hash>` (e.g., `exec-20240726-143022-a7b3c1d2`)
+
+**Rationale**: Timestamp-based IDs provide several critical benefits for Tako's distributed multi-repository orchestration:
+- **Human readability**: Immediate temporal context aids debugging complex execution trees
+- **Natural ordering**: Workflows sort chronologically for easier management and cleanup
+- **Distribution-friendly**: No coordination required between Tako instances
+- **Debugging support**: Time context correlates with commits, incidents, and logs
+- **Collision resistance**: 8-character hash from hostname+PID+random+microseconds prevents conflicts
+- **Resume experience**: Users can easily identify relevant workflows to resume
+
+**Alternatives considered**: UUIDs were considered but lack human readability and temporal context.
+
+### 15.2. Subscription Syntax
+
+**Decision**: `repo:artifact` format  
+**Example**: `my-org/go-lib:go-lib` (repository:artifact)
+
+**Rationale**: This format was chosen for several key reasons:
+- **Consistency**: Maintains Tako's existing `owner/repo:branch` format patterns
+- **Clarity**: Unambiguous artifact resolution across repositories
+- **Familiar**: Developers already understand `repo:branch` syntax from Git
+- **Collision avoidance**: Different repositories can have same artifact names without conflicts
+- **Tooling friendly**: Easy to parse and validate programmatically
+- **Future-proof**: Can extend to `repo:branch:artifact` if needed
+
+**Alternatives considered**: Hierarchical paths and simple names were considered but lacked clarity or collision resistance.
+
+### 15.3. State Consistency Management
+
+**Decision**: Parent polls children periodically with smart intervals  
+**Implementation**: 30s base, exponential backoff to 5m max during network issues, 30m timeout threshold
+
+**Rationale**: Polling was chosen over push-based callbacks for operational reliability:
+- **Operational simplicity**: Consistent with Tako's existing long-running step polling patterns
+- **Network resilience**: Continues working through partitions, no lost state updates
+- **Fault tolerance**: Gradual degradation vs catastrophic failure on network issues
+- **Infrastructure minimal**: No webhook endpoints or complex callback handling needed
+- **Debuggable**: Clear polling logs provide audit trail of state changes
+- **Consistent control**: Maintains centralized decision-making model
+
+**Alternatives considered**: Push-based callbacks would provide real-time updates but introduce complexity and failure modes.
+
+### 15.4. Subscription Evaluation Timing
+
+**Decision**: Lazy evaluation only for repositories that could be triggered  
+**Implementation**: Evaluate CEL expressions only for repositories in the discovered dependency tree when events are published
+
+**Rationale**: This approach balances performance with complexity:
+- **Performance efficiency**: Only evaluates filters for repositories that could actually be triggered
+- **Memory efficiency**: Avoids pre-computing evaluations for irrelevant repositories
+- **Complexity balance**: Simpler than cache invalidation logic while still being efficient
+- **Architecture fit**: Leverages existing `graph.BuildGraph()` discovery phase naturally
+- **Scalability**: O(dependency_tree_size) instead of O(all_repositories)
+
+**Alternatives considered**: Cached evaluation provides better performance but adds complexity; eager evaluation is simpler but inefficient.
+
+### 15.5. Event Schema Evolution
+
+**Decision**: Additive-only changes with field deprecation warnings, with multi-version fallback  
+**Primary strategy**: Only allow adding optional fields, deprecate old fields with warnings
+
+**Rationale**: This approach balances operational simplicity with evolution needs:
+- **Operational simplicity**: Additive-only changes avoid complex deployment coordination across repositories
+- **Gradual rollouts**: New fields added first, consumers updated incrementally on their timeline
+- **Graceful degradation**: CEL `has()` function handles missing fields safely
+- **Clear migration path**: Deprecation warnings guide users toward new fields before removal
+- **Breaking change fallback**: Multi-version support for rare cases requiring true breaking changes
+- **Fail-fast validation**: Schema compatibility checked during discovery phase
+
+**Alternatives considered**: Multi-version support was considered primary but adds operational complexity.
+
+### 15.6. Execution Tree Depth Limits
+
+**Decision**: Configurable depth limit with warning at threshold  
+**Configuration**: Default limit of 10 levels, warning at 7 levels, configurable per-workflow and globally
+
+**Rationale**: This approach balances flexibility with safety:
+- **Balances flexibility and safety**: Allows legitimate deep chains while preventing runaway executions
+- **Fits Tako's design philosophy**: Consistent with existing configurable limits (concurrency, timeouts)
+- **Operational practicality**: Most real dependency chains rarely exceed 7-10 levels deep
+- **Early warning system**: Threshold provides feedback to encourage better architectural practices
+- **Implementation simplicity**: Easy to add to existing `buildGraphRecursive()` function
+- **Enterprise readiness**: Helps with compliance, audit trails, and resource planning
+
+**Alternatives considered**: No limits (risk of runaway execution) and fixed limits (inflexible for different use cases).
+
+### 15.7. Partial Failure Recovery
+
+**Decision**: Smart Partial Resume - Resume only failed branches while preserving successful work  
+**Implementation**: Automatic retry for transient failures with exponential backoff, partial resume when retry limits reached
+
+**Rationale**: This combines efficiency with intelligent automation:
+- **Resource efficiency**: Preserves expensive multi-repository work that succeeded, critical for build/test/deployment operations
+- **Operational simplicity**: Builds on existing `--resume` command pattern, no complex user decisions required
+- **Intelligent automation**: Automatic retry with exponential backoff for transient failures (network issues, API rate limits)
+- **Persistent failure handling**: Falls back to partial resume when automatic retry reaches limits
+- **Architecture consistency**: Extends existing execution tree state management and centralized control model
+- **Debugging support**: Failed branches retain workspace state, clear logging of success/failure status per branch
+
+**Alternatives considered**: Full restart (wastes work) and manual intervention only (requires user expertise).
+
+### 15.8. Cross-Repository Resource Limits
+
+**Decision**: Hierarchical limits (global → per-repo → per-step)  
+**Implementation**: Three-tier resource management with global pools, per-repository quotas, and per-step limits
+
+**Rationale**: This multi-tier approach provides comprehensive resource control:
+- **Consistency with existing design**: Aligns perfectly with Tako's configurable limits philosophy
+- **Prevents resource exhaustion**: Global limits protect the orchestrating machine from being overwhelmed
+- **Fair resource sharing**: Multiple concurrent workflow trees don't starve each other of resources
+- **Granular control**: Repository-level quotas allow tuning for different repository sizes and build complexity
+- **Step-level safety**: Individual step limits prevent runaway processes within repositories
+- **Operational flexibility**: Different execution contexts (CI vs local development) can have different resource profiles
+
+**Alternatives considered**: Global-only limits (not granular enough) and per-step-only limits (no global protection).
+
+### 15.9. Event Delivery Guarantees
+
+**Decision**: At-least-once delivery with idempotency handling in children  
+**Implementation**: Robust idempotency handling in child repository event processors
+
+**Rationale**: This provides the highest reliability guarantees:
+- **Consistency with Tako's design philosophy**: Aligns perfectly with the "Persist Every Step" approach
+- **Network resilience**: Critical for distributed multi-repository operations where network partitions are expected
+- **Resume compatibility**: At-least-once delivery naturally supports Tako's resume functionality
+- **Operational reliability**: Provides highest reliability guarantees while maintaining reasonable implementation complexity
+- **State persistence integration**: Leverages existing state tracking mechanisms for workflow resume capabilities
+- **Debugging support**: Event redelivery provides clear audit trails for troubleshooting
+
+**Alternatives considered**: Exactly-once (complex to implement correctly) and at-most-once (risks data loss).
+
+### 15.10. Execution Context Isolation
+
+**Decision**: Fine-grained locking per repository with deadlock detection  
+**Implementation**: Hierarchical fine-grained locking with dependency-aware lock ordering and workspace isolation
+
+**Rationale**: This maximizes concurrency while ensuring safety:
+- **Performance optimization**: Multiple workflows can run simultaneously on non-overlapping repository sets
+- **Data consistency**: Repository-level locks with read/write semantics ensure workspace isolation
+- **Deadlock prevention**: Dependency-aware lock ordering using topological sort with timeout-based acquisition
+- **Tako integration**: Builds naturally on existing graph building, repository caching, and state persistence
+- **Workspace isolation**: Extends existing repository caching structure with execution-specific overlays
+- **Resume compatibility**: Lock acquisition state persisted with execution tree for Smart Partial Resume operations
+
+**Alternatives considered**: Global locking (poor concurrency) and no locking (data races).
+
+### 15.11. Why Event-Driven Over Implicit Discovery
+
+**Decision**: Explicit `tako/fan-out@v1` steps with event subscriptions instead of automatic `on: artifact_update` triggers
+
+**Rationale**: Explicit fan-out provides better operational characteristics:
+- **Visibility**: Clear indication in parent workflows of when multi-repository orchestration occurs
+- **Control**: Parents can decide when and how to trigger dependent repositories
+- **Debugging**: Easier to trace execution flow and understand why certain repositories were triggered
+- **Flexibility**: Parents can customize event payloads and trigger conditions
+- **Testability**: Fan-out steps can be tested in isolation with dry-run mode
+
+**Alternatives rejected**: Implicit discovery based on artifact dependencies was simpler but lacked visibility and control.
+
+### 15.12. Why Subscriptions Over Dependents
+
+**Decision**: Child repositories declare subscription criteria instead of parents maintaining `dependents` blocks
+
+**Rationale**: Distributed configuration responsibility reduces coupling:
+- **Reduced coupling**: Children decide their own trigger criteria without parent coordination
+- **Autonomy**: Child repositories can evolve their subscription logic independently
+- **Clarity**: Subscription criteria are co-located with the workflows they trigger
+- **Maintainability**: Parents don't need to maintain knowledge of all downstream consumers
+- **Scalability**: Distribution scales better than centralized dependency management
+
+**Alternatives rejected**: Parent-maintained dependents blocks create tight coupling and maintenance burden.
+
+## 16. Implementation Plan
+
+### 16.1. Milestone Dependencies
 
 The implementation follows a structured approach with clear prerequisite relationships:
 
@@ -652,11 +831,11 @@ The implementation follows a structured approach with clear prerequisite relatio
 - Issue 15: Status command → depends on Issue 13
 - Issues 10-12, 14: Additional features → depends on earlier milestones
 
-### 15.2. Assessment of Existing Issues
+### 16.2. Assessment of Existing Issues
 
 **Current Issues #93-#97**: These existing issues are superseded by the comprehensive design and should be closed in favor of the new implementation plan, which provides significantly more detail and covers the full workflow engine scope.
 
-### 15.3. Backward Compatibility Strategy
+### 16.3. Backward Compatibility Strategy
 
 - **Schema Versioning**: The engine implements versioned built-in steps (e.g., `tako/checkout@v1`, `tako/checkout@v2`)
 - **Deprecation Process**: Clear deprecation warnings for step versions before removal
