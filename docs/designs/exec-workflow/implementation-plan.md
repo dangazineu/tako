@@ -6,9 +6,9 @@ This document outlines the detailed implementation plan for the Tako exec workfl
 
 The implementation is structured into three major milestones:
 
-1. **MVP - Local, Synchronous Execution**: Core single-repository functionality
-2. **Event-Driven Multi-Repository Orchestration**: Fan-out, subscriptions, and containerization
-3. **Advanced Features & Production Readiness**: Caching, long-running steps, and observability
+1. **Milestone 3: MVP - Local, Synchronous Execution** (GitHub Milestone 9): Core single-repository functionality
+2. **Milestone 4: Event-Driven Multi-Repository Orchestration** (GitHub Milestone 10): Fan-out, subscriptions, and containerization
+3. **Milestone 5: Advanced Features & Production Readiness** (GitHub Milestone 11): Caching, long-running steps, and observability
 
 Each issue is linked to the parent epic (#21) and design issue (#98). The plan assumes no existing clients need migration, allowing implementation without breaking change considerations.
 
@@ -25,7 +25,7 @@ Each issue is linked to the parent epic (#21) and design issue (#98). The plan a
 
 **Recommendation**: Close issues #93-#97 as superseded by the comprehensive event-driven design.
 
-## Milestone 1: MVP - Local, Synchronous Execution
+## Milestone 3: MVP - Local, Synchronous Execution (GitHub Milestone 9)
 
 This milestone delivers core single-repository workflow functionality, providing immediate value and a foundation for multi-repository features.
 
@@ -298,7 +298,7 @@ Create comprehensive E2E tests for single-repository workflows that validate the
 
 ---
 
-## Milestone 2: Event-Driven Multi-Repository Orchestration
+## Milestone 4: Event-Driven Multi-Repository Orchestration (GitHub Milestone 10)
 
 This milestone introduces the core event-driven multi-repository functionality with containerization and advanced orchestration features.
 
@@ -523,7 +523,7 @@ Create comprehensive E2E tests for multi-repository event-driven workflows, vali
 
 ---
 
-## Milestone 3: Advanced Features & Production Readiness
+## Milestone 5: Advanced Features & Production Readiness (GitHub Milestone 11)
 
 This milestone adds production-ready features including performance optimizations, observability, and advanced workflow capabilities.
 
@@ -835,9 +835,9 @@ Create comprehensive production-readiness testing including performance, scalabi
 ### Release Strategy
 
 **Milestone Releases:**
-- Milestone 1: Single-repository workflow engine (immediate value)
-- Milestone 2: Multi-repository event-driven orchestration (core differentiator)  
-- Milestone 3: Production-ready feature complete system
+- Milestone 3: Single-repository workflow engine (immediate value)
+- Milestone 4: Multi-repository event-driven orchestration (core differentiator)  
+- Milestone 5: Production-ready feature complete system
 
 **Feature Flags:**
 - Event-driven features can be flag-gated during development
