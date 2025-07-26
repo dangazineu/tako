@@ -18,6 +18,7 @@ func TestNewRunner(t *testing.T) {
 		DryRun:             true,
 		Debug:              false,
 		NoCache:            false,
+		Environment:        []string{}, // Empty environment for tests
 	}
 
 	runner, err := NewRunner(opts)
@@ -54,6 +55,7 @@ func TestRunnerGetters(t *testing.T) {
 	opts := RunnerOptions{
 		WorkspaceRoot: filepath.Join(tempDir, "workspace"),
 		CacheDir:      filepath.Join(tempDir, "cache"),
+		Environment:   []string{}, // Empty environment for tests
 	}
 
 	runner, err := NewRunner(opts)
@@ -83,6 +85,7 @@ func TestRunnerValidateInputs(t *testing.T) {
 	opts := RunnerOptions{
 		WorkspaceRoot: filepath.Join(tempDir, "workspace"),
 		CacheDir:      filepath.Join(tempDir, "cache"),
+		Environment:   []string{}, // Empty environment for tests
 	}
 
 	runner, err := NewRunner(opts)
@@ -135,6 +138,7 @@ func TestRunnerDryRunMode(t *testing.T) {
 		WorkspaceRoot: filepath.Join(tempDir, "workspace"),
 		CacheDir:      filepath.Join(tempDir, "cache"),
 		DryRun:        true,
+		Environment:   []string{}, // Empty environment for tests
 	}
 
 	runner, err := NewRunner(opts)
@@ -179,7 +183,8 @@ func TestRunnerExecutionTimeout(t *testing.T) {
 	opts := RunnerOptions{
 		WorkspaceRoot: filepath.Join(tempDir, "workspace"),
 		CacheDir:      filepath.Join(tempDir, "cache"),
-		DryRun:        false, // Use normal mode to potentially allow timeout
+		DryRun:        false,      // Use normal mode to potentially allow timeout
+		Environment:   []string{}, // Empty environment for tests
 	}
 
 	runner, err := NewRunner(opts)
@@ -218,6 +223,7 @@ func TestRunnerMultiRepoNotImplemented(t *testing.T) {
 	opts := RunnerOptions{
 		WorkspaceRoot: filepath.Join(tempDir, "workspace"),
 		CacheDir:      filepath.Join(tempDir, "cache"),
+		Environment:   []string{}, // Empty environment for tests
 	}
 
 	runner, err := NewRunner(opts)
@@ -246,6 +252,7 @@ func TestRunnerResumeNotImplemented(t *testing.T) {
 	opts := RunnerOptions{
 		WorkspaceRoot: filepath.Join(tempDir, "workspace"),
 		CacheDir:      filepath.Join(tempDir, "cache"),
+		Environment:   []string{}, // Empty environment for tests
 	}
 
 	runner, err := NewRunner(opts)

@@ -7,14 +7,14 @@ import (
 	"sync"
 )
 
-// WorkspaceManager provides copy-on-write workspace isolation for concurrent executions
+// WorkspaceManager provides copy-on-write workspace isolation for concurrent executions.
 type WorkspaceManager struct {
 	baseDir    string
 	workspaces map[string]*Workspace
 	mu         sync.RWMutex
 }
 
-// Workspace represents an isolated execution environment
+// Workspace represents an isolated execution environment.
 type Workspace struct {
 	RunID      string
 	Path       string
@@ -23,7 +23,7 @@ type Workspace struct {
 	mu         sync.RWMutex
 }
 
-// NewWorkspaceManager creates a new workspace manager
+// NewWorkspaceManager creates a new workspace manager.
 func NewWorkspaceManager(baseDir string) (*WorkspaceManager, error) {
 	if err := os.MkdirAll(baseDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create workspace base directory: %v", err)
@@ -35,7 +35,7 @@ func NewWorkspaceManager(baseDir string) (*WorkspaceManager, error) {
 	}, nil
 }
 
-// CreateWorkspace creates a new isolated workspace for a run
+// CreateWorkspace creates a new isolated workspace for a run.
 func (wm *WorkspaceManager) CreateWorkspace(runID, baseRepoPath string) (*Workspace, error) {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
@@ -64,7 +64,7 @@ func (wm *WorkspaceManager) CreateWorkspace(runID, baseRepoPath string) (*Worksp
 	return workspace, nil
 }
 
-// GetWorkspace returns an existing workspace or creates a new one
+// GetWorkspace returns an existing workspace or creates a new one.
 func (wm *WorkspaceManager) GetWorkspace(runID string) (*Workspace, error) {
 	wm.mu.RLock()
 	ws, exists := wm.workspaces[runID]
@@ -77,7 +77,7 @@ func (wm *WorkspaceManager) GetWorkspace(runID string) (*Workspace, error) {
 	return nil, fmt.Errorf("workspace for run %s not found", runID)
 }
 
-// PrepareRepository prepares a repository in the workspace using copy-on-write semantics
+// PrepareRepository prepares a repository in the workspace using copy-on-write semantics.
 func (ws *Workspace) PrepareRepository(repoPath string) (string, error) {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
@@ -111,27 +111,27 @@ func (ws *Workspace) PrepareRepository(repoPath string) (string, error) {
 	return workspaceRepoPath, nil
 }
 
-// GetExecutionDir returns the directory for execution-specific files
+// GetExecutionDir returns the directory for execution-specific files.
 func (ws *Workspace) GetExecutionDir() string {
 	return filepath.Join(ws.Path, "execution")
 }
 
-// GetStateDir returns the directory for state files
+// GetStateDir returns the directory for state files.
 func (ws *Workspace) GetStateDir() string {
 	return filepath.Join(ws.Path, "state")
 }
 
-// GetLogsDir returns the directory for log files
+// GetLogsDir returns the directory for log files.
 func (ws *Workspace) GetLogsDir() string {
 	return filepath.Join(ws.Path, "logs")
 }
 
-// GetTempDir returns the directory for temporary files
+// GetTempDir returns the directory for temporary files.
 func (ws *Workspace) GetTempDir() string {
 	return filepath.Join(ws.Path, "tmp")
 }
 
-// EnsureDirectories creates all necessary workspace directories
+// EnsureDirectories creates all necessary workspace directories.
 func (ws *Workspace) EnsureDirectories() error {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
@@ -153,7 +153,7 @@ func (ws *Workspace) EnsureDirectories() error {
 	return nil
 }
 
-// CreateCopyOnWrite creates a writable copy of a file when modification is needed
+// CreateCopyOnWrite creates a writable copy of a file when modification is needed.
 func (ws *Workspace) CreateCopyOnWrite(originalPath, workspacePath string) error {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
@@ -173,7 +173,7 @@ func (ws *Workspace) CreateCopyOnWrite(originalPath, workspacePath string) error
 	return copyFile(originalPath, workspacePath)
 }
 
-// Cleanup removes the workspace and all its contents
+// Cleanup removes the workspace and all its contents.
 func (ws *Workspace) Cleanup() error {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
@@ -185,7 +185,7 @@ func (ws *Workspace) Cleanup() error {
 	return nil
 }
 
-// CleanupWorkspace removes a specific workspace
+// CleanupWorkspace removes a specific workspace.
 func (wm *WorkspaceManager) CleanupWorkspace(runID string) error {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
@@ -203,7 +203,7 @@ func (wm *WorkspaceManager) CleanupWorkspace(runID string) error {
 	return nil
 }
 
-// CleanupAll removes all workspaces
+// CleanupAll removes all workspaces.
 func (wm *WorkspaceManager) CleanupAll() error {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
@@ -225,7 +225,7 @@ func (wm *WorkspaceManager) CleanupAll() error {
 	return nil
 }
 
-// ListWorkspaces returns a list of all active workspaces
+// ListWorkspaces returns a list of all active workspaces.
 func (wm *WorkspaceManager) ListWorkspaces() []string {
 	wm.mu.RLock()
 	defer wm.mu.RUnlock()
@@ -238,7 +238,7 @@ func (wm *WorkspaceManager) ListWorkspaces() []string {
 	return runIDs
 }
 
-// copyFile copies a file from src to dst
+// copyFile copies a file from src to dst.
 func copyFile(src, dst string) error {
 	sourceFile, err := os.Open(src)
 	if err != nil {

@@ -66,13 +66,22 @@ You can specify a workflow by its name.`,
 				return handleResumeExecution(resume, cacheDir)
 			}
 
+			// Determine workspace root
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("failed to get user home directory: %v", err)
+			}
+			workspaceRoot := filepath.Join(homeDir, ".tako", "workspaces")
+
 			// Create execution runner
 			runnerOpts := engine.RunnerOptions{
+				WorkspaceRoot:      workspaceRoot,
 				CacheDir:           cacheDir,
 				MaxConcurrentRepos: maxConcurrentRepos,
 				DryRun:             dryRun,
 				Debug:              debug,
 				NoCache:            noCache,
+				Environment:        os.Environ(),
 			}
 
 			runner, err := engine.NewRunner(runnerOpts)

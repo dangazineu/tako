@@ -9,7 +9,7 @@ import (
 
 // GenerateRunID generates a timestamp-based run ID for human readability.
 // Format: exec-YYYYMMDD-HHMMSS-<hash>
-// Example: exec-20240726-143022-a7b3c1d2
+// Example: exec-20240726-143022-a7b3c1d2.
 func GenerateRunID() string {
 	now := time.Now().UTC()
 
@@ -26,7 +26,7 @@ func GenerateRunID() string {
 }
 
 // ParseRunID extracts components from a run ID
-// Returns timestamp, hash, and error if parsing fails
+// Returns timestamp, hash, and error if parsing fails.
 func ParseRunID(runID string) (time.Time, string, error) {
 	if len(runID) < 29 || runID[:5] != "exec-" {
 		return time.Time{}, "", fmt.Errorf("invalid run ID format: %s", runID)
@@ -52,7 +52,7 @@ func ParseRunID(runID string) (time.Time, string, error) {
 	return timestamp, hash, nil
 }
 
-// IsValidRunID checks if a string follows the expected run ID format
+// IsValidRunID checks if a string follows the expected run ID format.
 func IsValidRunID(runID string) bool {
 	_, _, err := ParseRunID(runID)
 	return err == nil

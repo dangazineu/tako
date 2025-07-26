@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// ExecutionStatus represents the current status of an execution
+// ExecutionStatus represents the current status of an execution.
 type ExecutionStatus string
 
 const (
@@ -20,8 +20,8 @@ const (
 	StatusCancelled ExecutionStatus = "cancelled"
 )
 
-// ExecutionState manages the persistent state of workflow executions
-// Supports hierarchical state management for multi-repository execution trees
+// ExecutionState manages the persistent state of workflow executions.
+// Supports hierarchical state management for multi-repository execution trees.
 type ExecutionState struct {
 	RunID        string            `json:"run_id"`
 	Status       ExecutionStatus   `json:"status"`
@@ -49,7 +49,7 @@ type ExecutionState struct {
 	mu        sync.RWMutex
 }
 
-// StepState represents the state of an individual workflow step
+// StepState represents the state of an individual workflow step.
 type StepState struct {
 	ID         string            `json:"id"`
 	Status     ExecutionStatus   `json:"status"`
@@ -61,7 +61,7 @@ type StepState struct {
 	RetryCount int               `json:"retry_count"`
 }
 
-// NewExecutionState creates a new execution state manager
+// NewExecutionState creates a new execution state manager.
 func NewExecutionState(runID, workspaceRoot string) (*ExecutionState, error) {
 	stateDir := filepath.Join(workspaceRoot, "state")
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
@@ -87,7 +87,7 @@ func NewExecutionState(runID, workspaceRoot string) (*ExecutionState, error) {
 	return state, nil
 }
 
-// LoadExecutionState loads an existing execution state from disk
+// LoadExecutionState loads an existing execution state from disk.
 func LoadExecutionState(runID, workspaceRoot string) (*ExecutionState, error) {
 	stateFile := filepath.Join(workspaceRoot, "state", "execution.json")
 
@@ -111,7 +111,7 @@ func LoadExecutionState(runID, workspaceRoot string) (*ExecutionState, error) {
 	return &state, nil
 }
 
-// StartExecution marks the beginning of workflow execution
+// StartExecution marks the beginning of workflow execution.
 func (s *ExecutionState) StartExecution(workflowName, repository string, inputs map[string]string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -126,7 +126,7 @@ func (s *ExecutionState) StartExecution(workflowName, repository string, inputs 
 	return s.save()
 }
 
-// CompleteExecution marks the successful completion of workflow execution
+// CompleteExecution marks the successful completion of workflow execution.
 func (s *ExecutionState) CompleteExecution() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -140,7 +140,7 @@ func (s *ExecutionState) CompleteExecution() error {
 	return s.save()
 }
 
-// FailExecution marks the execution as failed with an error message
+// FailExecution marks the execution as failed with an error message.
 func (s *ExecutionState) FailExecution(errorMsg string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -154,7 +154,7 @@ func (s *ExecutionState) FailExecution(errorMsg string) error {
 	return s.save()
 }
 
-// CancelExecution marks the execution as cancelled
+// CancelExecution marks the execution as cancelled.
 func (s *ExecutionState) CancelExecution() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -167,7 +167,7 @@ func (s *ExecutionState) CancelExecution() error {
 	return s.save()
 }
 
-// StartStep marks the beginning of a workflow step execution
+// StartStep marks the beginning of a workflow step execution.
 func (s *ExecutionState) StartStep(stepID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -194,7 +194,7 @@ func (s *ExecutionState) StartStep(stepID string) error {
 	return s.save()
 }
 
-// CompleteStep marks a step as successfully completed
+// CompleteStep marks a step as successfully completed.
 func (s *ExecutionState) CompleteStep(stepID, output string, outputs map[string]string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -217,7 +217,7 @@ func (s *ExecutionState) CompleteStep(stepID, output string, outputs map[string]
 	return s.save()
 }
 
-// FailStep marks a step as failed with an error message
+// FailStep marks a step as failed with an error message.
 func (s *ExecutionState) FailStep(stepID, errorMsg string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -237,7 +237,7 @@ func (s *ExecutionState) FailStep(stepID, errorMsg string) error {
 	return s.save()
 }
 
-// AddChildRun adds a child run ID to the execution tree
+// AddChildRun adds a child run ID to the execution tree.
 func (s *ExecutionState) AddChildRun(childRunID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -248,14 +248,14 @@ func (s *ExecutionState) AddChildRun(childRunID string) error {
 	return s.save()
 }
 
-// GetStatus returns the current execution status (thread-safe)
+// GetStatus returns the current execution status (thread-safe).
 func (s *ExecutionState) GetStatus() ExecutionStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Status
 }
 
-// GetStepStatus returns the status of a specific step (thread-safe)
+// GetStepStatus returns the status of a specific step (thread-safe).
 func (s *ExecutionState) GetStepStatus(stepID string) ExecutionStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -266,7 +266,7 @@ func (s *ExecutionState) GetStepStatus(stepID string) ExecutionStatus {
 	return StatusPending
 }
 
-// GetFailedSteps returns a list of failed steps for resume operations
+// GetFailedSteps returns a list of failed steps for resume operations.
 func (s *ExecutionState) GetFailedSteps() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -281,7 +281,7 @@ func (s *ExecutionState) GetFailedSteps() []string {
 	return failedSteps
 }
 
-// GetCompletedSteps returns a list of successfully completed steps
+// GetCompletedSteps returns a list of successfully completed steps.
 func (s *ExecutionState) GetCompletedSteps() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -296,7 +296,7 @@ func (s *ExecutionState) GetCompletedSteps() []string {
 	return completedSteps
 }
 
-// GetStepOutputs returns the outputs of a specific step
+// GetStepOutputs returns the outputs of a specific step.
 func (s *ExecutionState) GetStepOutputs(stepID string) map[string]string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -307,7 +307,7 @@ func (s *ExecutionState) GetStepOutputs(stepID string) map[string]string {
 	return nil
 }
 
-// IsResumable returns true if the execution can be resumed
+// IsResumable returns true if the execution can be resumed.
 func (s *ExecutionState) IsResumable() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -315,7 +315,7 @@ func (s *ExecutionState) IsResumable() bool {
 	return s.Status == StatusFailed && len(s.GetFailedSteps()) > 0
 }
 
-// GetExecutionSummary returns a summary of the execution state
+// GetExecutionSummary returns a summary of the execution state.
 func (s *ExecutionState) GetExecutionSummary() map[string]interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -364,7 +364,7 @@ func (s *ExecutionState) GetExecutionSummary() map[string]interface{} {
 	return summary
 }
 
-// save persists the execution state to disk
+// save persists the execution state to disk.
 func (s *ExecutionState) save() error {
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
@@ -385,7 +385,7 @@ func (s *ExecutionState) save() error {
 	return nil
 }
 
-// load loads the execution state from disk
+// load loads the execution state from disk.
 func (s *ExecutionState) load() error {
 	data, err := os.ReadFile(s.stateFile)
 	if err != nil {

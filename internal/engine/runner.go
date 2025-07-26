@@ -16,7 +16,7 @@ import (
 	"github.com/dangazineu/tako/internal/config"
 )
 
-// ExecutionMode defines how the workflow should be executed
+// ExecutionMode defines how the workflow should be executed.
 type ExecutionMode int
 
 const (
@@ -25,7 +25,7 @@ const (
 	ExecutionModeDebug
 )
 
-// ExecutionResult represents the result of a workflow execution
+// ExecutionResult represents the result of a workflow execution.
 type ExecutionResult struct {
 	RunID     string
 	Success   bool
@@ -35,7 +35,7 @@ type ExecutionResult struct {
 	Steps     []StepResult
 }
 
-// StepResult represents the result of a single step execution
+// StepResult represents the result of a single step execution.
 type StepResult struct {
 	ID        string
 	Success   bool
@@ -46,7 +46,7 @@ type StepResult struct {
 	Outputs   map[string]string
 }
 
-// Runner executes workflows with comprehensive state management and workspace isolation
+// Runner executes workflows with comprehensive state management and workspace isolation.
 type Runner struct {
 	mode          ExecutionMode
 	workspaceRoot string
@@ -62,23 +62,20 @@ type Runner struct {
 	dryRun             bool
 	debug              bool
 	noCache            bool
+	environment        []string
 
 	// Synchronization
 	mu sync.RWMutex
 }
 
-// NewRunner creates a new execution runner with the specified configuration
+// NewRunner creates a new execution runner with the specified configuration.
 func NewRunner(opts RunnerOptions) (*Runner, error) {
 	runID := GenerateRunID()
 
-	// Determine workspace root
+	// Use the provided workspace root
 	workspaceRoot := opts.WorkspaceRoot
 	if workspaceRoot == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get user home directory: %v", err)
-		}
-		workspaceRoot = filepath.Join(homeDir, ".tako", "workspaces", runID)
+		return nil, fmt.Errorf("workspace root is required")
 	}
 
 	// Create workspace directory
@@ -116,10 +113,11 @@ func NewRunner(opts RunnerOptions) (*Runner, error) {
 		dryRun:             opts.DryRun,
 		debug:              opts.Debug,
 		noCache:            opts.NoCache,
+		environment:        opts.Environment,
 	}, nil
 }
 
-// RunnerOptions configures the execution runner
+// RunnerOptions configures the execution runner.
 type RunnerOptions struct {
 	WorkspaceRoot      string
 	CacheDir           string
@@ -127,9 +125,10 @@ type RunnerOptions struct {
 	DryRun             bool
 	Debug              bool
 	NoCache            bool
+	Environment        []string // Environment variables for command execution
 }
 
-// ExecuteWorkflow executes a workflow in single-repository mode
+// ExecuteWorkflow executes a workflow in single-repository mode.
 func (r *Runner) ExecuteWorkflow(ctx context.Context, workflowName string, inputs map[string]string, repoPath string) (*ExecutionResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -207,7 +206,7 @@ func (r *Runner) ExecuteWorkflow(ctx context.Context, workflowName string, input
 	}, err
 }
 
-// ExecuteMultiRepoWorkflow executes a workflow with multi-repository orchestration
+// ExecuteMultiRepoWorkflow executes a workflow with multi-repository orchestration.
 func (r *Runner) ExecuteMultiRepoWorkflow(ctx context.Context, workflowName string, inputs map[string]string, parentRepo string) (*ExecutionResult, error) {
 	// TODO: Implement multi-repository execution with event-driven orchestration
 	// This will be the main orchestration logic that handles:
@@ -220,7 +219,7 @@ func (r *Runner) ExecuteMultiRepoWorkflow(ctx context.Context, workflowName stri
 	return nil, fmt.Errorf("multi-repository execution not yet implemented")
 }
 
-// Resume resumes a previously failed or interrupted execution
+// Resume resumes a previously failed or interrupted execution.
 func (r *Runner) Resume(ctx context.Context, runID string) (*ExecutionResult, error) {
 	// TODO: Implement execution resume functionality
 	// This will handle:
@@ -232,7 +231,7 @@ func (r *Runner) Resume(ctx context.Context, runID string) (*ExecutionResult, er
 	return nil, fmt.Errorf("execution resume not yet implemented")
 }
 
-// validateInputs validates workflow inputs against the schema
+// validateInputs validates workflow inputs against the schema.
 func (r *Runner) validateInputs(workflow config.Workflow, inputs map[string]string) error {
 	for name, input := range workflow.Inputs {
 		value, provided := inputs[name]
@@ -259,7 +258,7 @@ func (r *Runner) validateInputs(workflow config.Workflow, inputs map[string]stri
 	return nil
 }
 
-// validateInputValue validates a single input value against its schema
+// validateInputValue validates a single input value against its schema.
 func (r *Runner) validateInputValue(name string, input config.WorkflowInput, value string) error {
 	// Type validation would go here
 	// For now, we'll implement basic enum validation
@@ -275,7 +274,7 @@ func (r *Runner) validateInputValue(name string, input config.WorkflowInput, val
 	return nil
 }
 
-// executeSteps executes a list of workflow steps
+// executeSteps executes a list of workflow steps.
 func (r *Runner) executeSteps(ctx context.Context, steps []config.WorkflowStep, workDir string, inputs map[string]string) ([]StepResult, error) {
 	var results []StepResult
 	stepOutputs := make(map[string]map[string]string)
@@ -303,7 +302,7 @@ func (r *Runner) executeSteps(ctx context.Context, steps []config.WorkflowStep, 
 	return results, nil
 }
 
-// executeStep executes a single workflow step
+// executeStep executes a single workflow step.
 func (r *Runner) executeStep(ctx context.Context, step config.WorkflowStep, workDir string, inputs map[string]string, stepOutputs map[string]map[string]string) (StepResult, error) {
 	startTime := time.Now()
 	stepID := step.ID
@@ -347,7 +346,7 @@ func (r *Runner) executeStep(ctx context.Context, step config.WorkflowStep, work
 	return r.executeShellStep(ctx, step, stepID, workDir, inputs, stepOutputs, startTime)
 }
 
-// executeShellStep executes a step with a shell command
+// executeShellStep executes a step with a shell command.
 func (r *Runner) executeShellStep(ctx context.Context, step config.WorkflowStep, stepID, workDir string, inputs map[string]string, stepOutputs map[string]map[string]string, startTime time.Time) (StepResult, error) {
 	// Expand template variables in the command
 	command, err := r.expandTemplate(step.Run, inputs, stepOutputs)
@@ -367,7 +366,8 @@ func (r *Runner) executeShellStep(ctx context.Context, step config.WorkflowStep,
 	cmd.Dir = workDir
 
 	// Set up environment variables
-	cmd.Env = append(os.Environ(),
+	env := r.getEnvironment()
+	cmd.Env = append(env,
 		fmt.Sprintf("TAKO_RUN_ID=%s", r.runID),
 		fmt.Sprintf("TAKO_STEP_ID=%s", stepID),
 		fmt.Sprintf("TAKO_WORKSPACE=%s", r.workspaceRoot),
@@ -444,7 +444,7 @@ func (r *Runner) executeShellStep(ctx context.Context, step config.WorkflowStep,
 	}, nil
 }
 
-// executeBuiltinStep executes a built-in Tako step
+// executeBuiltinStep executes a built-in Tako step.
 func (r *Runner) executeBuiltinStep(step config.WorkflowStep, stepID string, startTime time.Time) (StepResult, error) {
 	// TODO: Implement built-in steps like tako/fan-out@v1
 	// For now, return not implemented
@@ -461,7 +461,7 @@ func (r *Runner) executeBuiltinStep(step config.WorkflowStep, stepID string, sta
 	}, err
 }
 
-// expandTemplate expands template variables in a string
+// expandTemplate expands template variables in a string.
 func (r *Runner) expandTemplate(tmplStr string, inputs map[string]string, stepOutputs map[string]map[string]string) (string, error) {
 	// Create template data structure
 	data := map[string]interface{}{
@@ -483,17 +483,26 @@ func (r *Runner) expandTemplate(tmplStr string, inputs map[string]string, stepOu
 	return buf.String(), nil
 }
 
-// GetRunID returns the current run ID
+// GetRunID returns the current run ID.
 func (r *Runner) GetRunID() string {
 	return r.runID
 }
 
-// GetWorkspaceRoot returns the workspace root directory
+// GetWorkspaceRoot returns the workspace root directory.
 func (r *Runner) GetWorkspaceRoot() string {
 	return r.workspaceRoot
 }
 
-// Close cleans up the runner resources
+// getEnvironment returns the environment variables for command execution.
+func (r *Runner) getEnvironment() []string {
+	if r.environment != nil {
+		return r.environment
+	}
+	// Return an empty environment if none provided
+	return []string{}
+}
+
+// Close cleans up the runner resources.
 func (r *Runner) Close() error {
 	if r.locks != nil {
 		return r.locks.Close()

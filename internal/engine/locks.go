@@ -208,13 +208,13 @@ func (lm *LockManager) GetLockInfo(repository string) ([]*LockInfo, error) {
 	return locks, nil
 }
 
-// IsLocked returns true if the repository has any active locks
+// IsLocked returns true if the repository has any active locks.
 func (lm *LockManager) IsLocked(repository string) bool {
 	locks, _ := lm.GetLockInfo(repository)
 	return len(locks) > 0
 }
 
-// DetectDeadlocks performs deadlock detection across all active locks
+// DetectDeadlocks performs deadlock detection across all active locks.
 func (lm *LockManager) DetectDeadlocks() ([]string, error) {
 	lm.mu.RLock()
 	defer lm.mu.RUnlock()
@@ -235,7 +235,7 @@ func (lm *LockManager) DetectDeadlocks() ([]string, error) {
 	return deadlocks, nil
 }
 
-// Close cleans up the lock manager and releases all held locks
+// Close cleans up the lock manager and releases all held locks.
 func (lm *LockManager) Close() error {
 	lm.mu.Lock()
 	defer lm.mu.Unlock()
@@ -251,7 +251,7 @@ func (lm *LockManager) Close() error {
 	return nil
 }
 
-// tryAcquireLock attempts to atomically acquire a lock by creating a lock file
+// tryAcquireLock attempts to atomically acquire a lock by creating a lock file.
 func (lm *LockManager) tryAcquireLock(lockFile string, lockInfo *LockInfo) error {
 	// Check if lock file already exists
 	if _, err := os.Stat(lockFile); err == nil {
@@ -283,7 +283,7 @@ func (lm *LockManager) tryAcquireLock(lockFile string, lockInfo *LockInfo) error
 	return nil
 }
 
-// checkConflictingLocks checks for conflicting locks before acquiring a new one
+// checkConflictingLocks checks for conflicting locks before acquiring a new one.
 func (lm *LockManager) checkConflictingLocks(repository string, lockType LockType) error {
 	lm.mu.RLock()
 	defer lm.mu.RUnlock()
@@ -310,7 +310,7 @@ func (lm *LockManager) checkConflictingLocks(repository string, lockType LockTyp
 	return nil
 }
 
-// checkStaleLock checks if a lock file represents a stale lock and removes it if so
+// checkStaleLock checks if a lock file represents a stale lock and removes it if so.
 func (lm *LockManager) checkStaleLock(lockFile string) error {
 	data, err := os.ReadFile(lockFile)
 	if err != nil {
@@ -340,7 +340,7 @@ func (lm *LockManager) checkStaleLock(lockFile string) error {
 	return fmt.Errorf("lock is still valid")
 }
 
-// cleanupStaleLocks removes stale lock files on startup
+// cleanupStaleLocks removes stale lock files on startup.
 func (lm *LockManager) cleanupStaleLocks() error {
 	entries, err := os.ReadDir(lm.lockDir)
 	if err != nil {
@@ -357,7 +357,7 @@ func (lm *LockManager) cleanupStaleLocks() error {
 	return nil
 }
 
-// getLockKey generates a unique key for a repository and lock type combination
+// getLockKey generates a unique key for a repository and lock type combination.
 func (lm *LockManager) getLockKey(repository string, lockType LockType) string {
 	// Create a unique key that prevents conflicts between repositories
 	// with the same base name but different paths/organizations
@@ -382,7 +382,7 @@ func (lm *LockManager) getLockKey(repository string, lockType LockType) string {
 	return fmt.Sprintf("%s_%s_%s", safeName, hash, lockType)
 }
 
-// isProcessAlive checks if a process with the given PID is still running
+// isProcessAlive checks if a process with the given PID is still running.
 func (lm *LockManager) isProcessAlive(pid int) bool {
 	if pid <= 0 {
 		return false

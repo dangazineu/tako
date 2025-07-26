@@ -7,7 +7,7 @@ import (
 	"github.com/dangazineu/tako/internal/config"
 )
 
-// createTestWorkflow creates a test workflow for testing purposes
+// createTestWorkflow creates a test workflow for testing purposes.
 func createTestWorkflow() config.Workflow {
 	return config.Workflow{
 		Name: "test-workflow",
@@ -42,7 +42,7 @@ func createTestWorkflow() config.Workflow {
 	}
 }
 
-// createTestTakoConfig creates a test tako.yml file for testing
+// createTestTakoConfig creates a test tako.yml file for testing.
 func createTestTakoConfig(t *testing.T, filePath string) {
 	content := `version: 0.1.0
 artifacts:
