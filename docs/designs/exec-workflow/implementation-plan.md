@@ -527,7 +527,7 @@ Create comprehensive E2E tests for multi-repository event-driven workflows, vali
 
 This milestone adds production-ready features including performance optimizations, observability, and advanced workflow capabilities.
 
-### Issue 11: `feat(engine): Implement step caching system`
+### Issue 11: `feat(engine): Implement step caching system` → **#109**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
@@ -564,7 +564,7 @@ Implement content-addressable step caching with performance optimizations for mu
 
 ---
 
-### Issue 12: `feat(engine): Implement long-running steps with container persistence`
+### Issue 12: `feat(engine): Implement long-running steps with container persistence` → **#110**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
@@ -602,7 +602,7 @@ Implement long-running step support with container persistence and advanced life
 
 ---
 
-### Issue 13: `feat(cmd): Implement comprehensive status and observability`
+### Issue 13: `feat(cmd): Implement comprehensive status and observability` → **#111**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
@@ -651,7 +651,7 @@ tako status exec-20240726-143022-a7b3c1d2 --show-events
 
 ---
 
-### Issue 14: `feat(cmd): Implement tako lint command for configuration validation`
+### Issue 14: `feat(cmd): Implement tako lint command for configuration validation` → **#112**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
@@ -689,7 +689,7 @@ Implement `tako lint` command for comprehensive validation of `tako.yml` configu
 
 ---
 
-### Issue 15: `feat(exec): Implement comprehensive dry-run mode`
+### Issue 15: `feat(exec): Implement comprehensive dry-run mode` → **#113**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
@@ -727,12 +727,12 @@ Implement comprehensive dry-run functionality for multi-repository event-driven 
 
 ---
 
-### Issue 16: `feat(engine): Implement cancellation and cleanup`
+### Issue 16: `feat(engine): Implement cancellation and cleanup` → **#114**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
 - Design: #98 - Event-driven workflow engine design
-- Depends On: Issues 12-14 (long-running steps and status)
+- Depends On: #110-#112 (long-running steps and status)
 
 **Description:**
 Implement workflow cancellation and comprehensive cleanup across multi-repository execution trees.
@@ -764,7 +764,7 @@ Implement workflow cancellation and comprehensive cleanup across multi-repositor
 
 ---
 
-### Issue 17: `test(e2e): Implement comprehensive production testing`
+### Issue 17: `test(e2e): Implement comprehensive production testing` → **#115**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
@@ -815,8 +815,8 @@ Create comprehensive production-readiness testing including performance, scalabi
 
 **Parallel Development Opportunities:**
 - Issues 6 (containerization) and 9 (semantic steps) can be developed in parallel after Issue 3
-- Testing issues (5, 10, 17) can be developed alongside their corresponding feature issues
-- Issues 11 (caching) and 15 (dry-run) are largely independent after core functionality
+- Testing issues (#103, #108, #115) can be developed alongside their corresponding feature issues
+- Issues #109 (caching) and #113 (dry-run) are largely independent after core functionality
 
 ### Quality Assurance
 
