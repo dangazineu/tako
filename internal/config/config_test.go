@@ -581,7 +581,7 @@ func TestLoad_WorkflowInputValidationErrors(t *testing.T) {
 			expectedError: "min/max validation is only supported for number inputs",
 		},
 		{
-			name: "max on non-number input", 
+			name: "max on non-number input",
 			inputYAML: `    inputs:
       my_input:
         type: boolean

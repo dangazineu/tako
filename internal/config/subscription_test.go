@@ -222,4 +222,3 @@ func TestValidateSubscriptions(t *testing.T) {
 		})
 	}
 }
-

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Subscription represents a repository's subscription to events from other repositories
+// Subscription represents a repository's subscription to events from other repositories.
 type Subscription struct {
 	Artifact      string            `yaml:"artifact"`                 // Format: repo:artifact (e.g., "my-org/go-lib:go-lib")
 	Events        []string          `yaml:"events"`                   // List of event types to subscribe to
@@ -16,7 +16,7 @@ type Subscription struct {
 	Inputs        map[string]string `yaml:"inputs,omitempty"`         // Input mappings for the triggered workflow
 }
 
-// validateArtifactReference validates the repo:artifact format
+// validateArtifactReference validates the repo:artifact format.
 func validateArtifactReference(artifact string) error {
 	if artifact == "" {
 		return fmt.Errorf("artifact reference cannot be empty")
@@ -58,7 +58,7 @@ func validateArtifactReference(artifact string) error {
 	return nil
 }
 
-// ValidateSubscription validates a single subscription
+// ValidateSubscription validates a single subscription.
 func (s *Subscription) ValidateSubscription() error {
 	// Validate artifact reference
 	if err := validateArtifactReference(s.Artifact); err != nil {
@@ -112,7 +112,7 @@ func (s *Subscription) ValidateSubscription() error {
 	return nil
 }
 
-// ValidateSubscriptions validates a list of subscriptions
+// ValidateSubscriptions validates a list of subscriptions.
 func ValidateSubscriptions(subscriptions []Subscription) error {
 	for i, subscription := range subscriptions {
 		if err := subscription.ValidateSubscription(); err != nil {
@@ -122,4 +122,3 @@ func ValidateSubscriptions(subscriptions []Subscription) error {
 
 	return nil
 }
-

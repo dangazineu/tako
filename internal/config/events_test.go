@@ -120,4 +120,3 @@ func TestEventProduction_ValidateEvents(t *testing.T) {
 		})
 	}
 }
-

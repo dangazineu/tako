@@ -5,19 +5,19 @@ import (
 	"regexp"
 )
 
-// Event represents an event that can be emitted by a workflow step
+// Event represents an event that can be emitted by a workflow step.
 type Event struct {
 	Type          string            `yaml:"type"`
 	SchemaVersion string            `yaml:"schema_version,omitempty"`
 	Payload       map[string]string `yaml:"payload,omitempty"`
 }
 
-// EventProduction represents the events section in a produces block
+// EventProduction represents the events section in a produces block.
 type EventProduction struct {
 	Events []Event `yaml:"events,omitempty"`
 }
 
-// validateEventType validates that event types follow the naming conventions
+// validateEventType validates that event types follow the naming conventions.
 func validateEventType(eventType string) error {
 	// Event types should be snake_case and not empty
 	if eventType == "" {
@@ -36,7 +36,7 @@ func validateEventType(eventType string) error {
 	return nil
 }
 
-// validateSchemaVersion validates semantic version format if provided
+// validateSchemaVersion validates semantic version format if provided.
 func validateSchemaVersion(version string) error {
 	if version == "" {
 		return nil // Schema version is optional
@@ -54,7 +54,7 @@ func validateSchemaVersion(version string) error {
 	return nil
 }
 
-// ValidateEvents validates all events in an EventProduction
+// ValidateEvents validates all events in an EventProduction.
 func (ep *EventProduction) ValidateEvents() error {
 	for i, event := range ep.Events {
 		if err := validateEventType(event.Type); err != nil {
@@ -75,4 +75,3 @@ func (ep *EventProduction) ValidateEvents() error {
 
 	return nil
 }
-

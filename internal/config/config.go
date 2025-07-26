@@ -91,14 +91,14 @@ type WorkflowStep struct {
 	OnFailure     []WorkflowStep         `yaml:"on_failure,omitempty"`      // Steps to run on failure
 }
 
-// WorkflowStepProduces represents what a step produces (outputs, artifacts, events)
+// WorkflowStepProduces represents what a step produces (outputs, artifacts, events).
 type WorkflowStepProduces struct {
 	Artifact string            `yaml:"artifact,omitempty"` // Artifact name produced
 	Outputs  map[string]string `yaml:"outputs,omitempty"`  // Output mappings
 	Events   []Event           `yaml:"events,omitempty"`   // Events to emit
 }
 
-// UnmarshalYAML implements custom YAML unmarshaling for WorkflowStep to support backward compatibility
+// UnmarshalYAML implements custom YAML unmarshaling for WorkflowStep to support backward compatibility.
 func (step *WorkflowStep) UnmarshalYAML(node *yaml.Node) error {
 	// If the node is a string, this is a legacy simple step
 	if node.Kind == yaml.ScalarNode {
@@ -214,7 +214,7 @@ func validateArtifacts(dependentArtifacts []string, definedArtifacts map[string]
 	return nil
 }
 
-// validateWorkflow validates a single workflow definition
+// validateWorkflow validates a single workflow definition.
 func validateWorkflow(_ string, workflow *Workflow) error {
 	// Validate workflow inputs
 	for inputName, input := range workflow.Inputs {
@@ -233,7 +233,7 @@ func validateWorkflow(_ string, workflow *Workflow) error {
 	return nil
 }
 
-// validateWorkflowInput validates a workflow input definition
+// validateWorkflowInput validates a workflow input definition.
 func validateWorkflowInput(_ string, input *WorkflowInput) error {
 	// Validate input type
 	if input.Type != "" {
@@ -263,7 +263,7 @@ func validateWorkflowInput(_ string, input *WorkflowInput) error {
 	return nil
 }
 
-// validateWorkflowStep validates a single workflow step
+// validateWorkflowStep validates a single workflow step.
 func validateWorkflowStep(_ int, step *WorkflowStep) error {
 	// Either 'run' or 'uses' must be specified, but not both
 	if step.Run == "" && step.Uses == "" {
@@ -297,7 +297,7 @@ func validateWorkflowStep(_ int, step *WorkflowStep) error {
 	return nil
 }
 
-// validateWorkflowStepProduces validates the produces section of a step
+// validateWorkflowStepProduces validates the produces section of a step.
 func validateWorkflowStepProduces(produces *WorkflowStepProduces) error {
 	// Validate output formats
 	for outputName, outputValue := range produces.Outputs {
@@ -339,7 +339,7 @@ var knownBuiltinSteps = map[string][]string{
 	"tako/poll":                {"v1"},
 }
 
-// validateBuiltinStep validates that a built-in step is known and uses a supported version
+// validateBuiltinStep validates that a built-in step is known and uses a supported version.
 func validateBuiltinStep(uses string) error {
 	parts := strings.Split(uses, "@")
 	if len(parts) != 2 {
@@ -363,7 +363,7 @@ func validateBuiltinStep(uses string) error {
 	return fmt.Errorf("built-in step '%s' version '%s' is not supported. Supported versions: %v", stepName, version, supportedVersions)
 }
 
-// validateCELExpression validates CEL expression syntax (basic validation)
+// validateCELExpression validates CEL expression syntax (basic validation).
 func validateCELExpression(expression string) error {
 	// Basic validation for common CEL patterns
 	// This is a simplified validation - in production, you'd use the actual CEL library
@@ -401,7 +401,7 @@ func validateCELExpression(expression string) error {
 	return nil
 }
 
-// validateSemverRange validates semantic version range syntax
+// validateSemverRange validates semantic version range syntax.
 func validateSemverRange(versionRange string) error {
 	if versionRange == "" {
 		return nil // Empty version range is valid
@@ -429,7 +429,7 @@ func validateSemverRange(versionRange string) error {
 	return fmt.Errorf("invalid version range format '%s'. Supported formats: ^1.0.0, ~1.0.0, 1.0.0, (1.0.0...2.0.0], [1.0.0...2.0.0)", versionRange)
 }
 
-// validateTemplateExpression validates template expressions in payload fields
+// validateTemplateExpression validates template expressions in payload fields.
 func validateTemplateExpression(expression string) error {
 	if !strings.Contains(expression, "{{") {
 		return nil // Not a template expression
