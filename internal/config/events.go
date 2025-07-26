@@ -23,7 +23,7 @@ func validateEventType(eventType string) error {
 	if eventType == "" {
 		return fmt.Errorf("event type cannot be empty")
 	}
-	
+
 	// Basic validation - only lowercase letters, numbers, and underscores
 	matched, err := regexp.MatchString("^[a-z][a-z0-9_]*$", eventType)
 	if err != nil {
@@ -32,7 +32,7 @@ func validateEventType(eventType string) error {
 	if !matched {
 		return fmt.Errorf("event type '%s' must be snake_case (lowercase letters, numbers, underscores only)", eventType)
 	}
-	
+
 	return nil
 }
 
@@ -41,7 +41,7 @@ func validateSchemaVersion(version string) error {
 	if version == "" {
 		return nil // Schema version is optional
 	}
-	
+
 	// Basic semantic version validation (x.y.z format)
 	matched, err := regexp.MatchString(`^\d+\.\d+\.\d+$`, version)
 	if err != nil {
@@ -50,7 +50,7 @@ func validateSchemaVersion(version string) error {
 	if !matched {
 		return fmt.Errorf("schema version '%s' must follow semantic versioning format (x.y.z)", version)
 	}
-	
+
 	return nil
 }
 
@@ -60,11 +60,11 @@ func (ep *EventProduction) ValidateEvents() error {
 		if err := validateEventType(event.Type); err != nil {
 			return fmt.Errorf("event %d: %w", i, err)
 		}
-		
+
 		if err := validateSchemaVersion(event.SchemaVersion); err != nil {
 			return fmt.Errorf("event %d (%s): %w", i, event.Type, err)
 		}
-		
+
 		// Validate template expressions in event payload
 		for payloadKey, payloadValue := range event.Payload {
 			if err := validateTemplateExpression(payloadValue); err != nil {
@@ -72,6 +72,7 @@ func (ep *EventProduction) ValidateEvents() error {
 			}
 		}
 	}
-	
+
 	return nil
 }
+

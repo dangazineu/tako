@@ -233,7 +233,7 @@ subscriptions:
 	if len(config.Workflows) != 1 {
 		t.Errorf("expected 1 workflow, got %d", len(config.Workflows))
 	}
-	
+
 	releaseWorkflow := config.Workflows["release"]
 	if releaseWorkflow.On != "exec" {
 		t.Errorf("expected on 'exec', got %q", releaseWorkflow.On)
@@ -243,7 +243,7 @@ subscriptions:
 	if len(releaseWorkflow.Inputs) != 1 {
 		t.Errorf("expected 1 input, got %d", len(releaseWorkflow.Inputs))
 	}
-	
+
 	versionBumpInput := releaseWorkflow.Inputs["version-bump"]
 	if versionBumpInput.Type != "string" {
 		t.Errorf("expected input type 'string', got %q", versionBumpInput.Type)
@@ -277,7 +277,7 @@ subscriptions:
 	if len(config.Subscriptions) != 1 {
 		t.Errorf("expected 1 subscription, got %d", len(config.Subscriptions))
 	}
-	
+
 	subscription := config.Subscriptions[0]
 	if subscription.Artifact != "my-org/go-lib:go-lib" {
 		t.Errorf("expected artifact 'my-org/go-lib:go-lib', got %q", subscription.Artifact)
@@ -349,8 +349,8 @@ dependents: []
 
 func TestLoad_ValidationErrors(t *testing.T) {
 	testCases := []struct {
-		name         string
-		yamlContent  string
+		name          string
+		yamlContent   string
 		expectedError string
 	}{
 		{

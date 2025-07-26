@@ -3,8 +3,8 @@ package config
 import (
 	"fmt"
 	"os"
-	"strings"
 	"regexp"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -28,7 +28,7 @@ type Artifact struct {
 	Image          string `yaml:"image"`
 	Command        string `yaml:"command"`
 	Path           string `yaml:"path"`
-	Ecosystem      string `yaml:"ecosystem,omitempty"`      // New field for artifact ecosystem (go, npm, maven, etc.)
+	Ecosystem      string `yaml:"ecosystem,omitempty"` // New field for artifact ecosystem (go, npm, maven, etc.)
 	InstallCommand string `yaml:"install_command"`
 	VerifyCommand  string `yaml:"verify_command"`
 }
@@ -40,14 +40,14 @@ type Dependent struct {
 }
 
 type Workflow struct {
-	Name      string                 `yaml:"-"`
-	On        string                 `yaml:"on,omitempty"`        // Trigger condition ("exec" for manual workflows)
-	Image     string                 `yaml:"image,omitempty"`
-	Env       []string               `yaml:"env,omitempty"`
-	Secrets   []string               `yaml:"secrets,omitempty"`   // List of secret names
-	Resources Resources              `yaml:"resources,omitempty"`
-	Inputs    map[string]WorkflowInput `yaml:"inputs,omitempty"`    // Input definitions
-	Steps     []WorkflowStep         `yaml:"steps,omitempty"`     // Updated to support rich step definitions
+	Name      string                   `yaml:"-"`
+	On        string                   `yaml:"on,omitempty"` // Trigger condition ("exec" for manual workflows)
+	Image     string                   `yaml:"image,omitempty"`
+	Env       []string                 `yaml:"env,omitempty"`
+	Secrets   []string                 `yaml:"secrets,omitempty"` // List of secret names
+	Resources Resources                `yaml:"resources,omitempty"`
+	Inputs    map[string]WorkflowInput `yaml:"inputs,omitempty"` // Input definitions
+	Steps     []WorkflowStep           `yaml:"steps,omitempty"`  // Updated to support rich step definitions
 }
 
 type Resources struct {
@@ -58,44 +58,44 @@ type Resources struct {
 	DiskLimit string `yaml:"disk_limit,omitempty"` // Disk space limit
 }
 
-// WorkflowInput represents an input parameter for a workflow
+// WorkflowInput represents an input parameter for a workflow.
 type WorkflowInput struct {
-	Type        string                 `yaml:"type,omitempty"`        // Input type (string, boolean, number)
-	Description string                 `yaml:"description,omitempty"` // Human-readable description
-	Required    bool                   `yaml:"required,omitempty"`    // Whether input is required
-	Default     interface{}            `yaml:"default,omitempty"`     // Default value
+	Type        string                  `yaml:"type,omitempty"`        // Input type (string, boolean, number)
+	Description string                  `yaml:"description,omitempty"` // Human-readable description
+	Required    bool                    `yaml:"required,omitempty"`    // Whether input is required
+	Default     interface{}             `yaml:"default,omitempty"`     // Default value
 	Validation  WorkflowInputValidation `yaml:"validation,omitempty"`  // Validation rules
 }
 
-// WorkflowInputValidation represents validation rules for workflow inputs
+// WorkflowInputValidation represents validation rules for workflow inputs.
 type WorkflowInputValidation struct {
 	Enum []string `yaml:"enum,omitempty"` // List of allowed values
 	Min  *float64 `yaml:"min,omitempty"`  // Minimum value for numbers
 	Max  *float64 `yaml:"max,omitempty"`  // Maximum value for numbers
 }
 
-// WorkflowStep represents a single step in a workflow
+// WorkflowStep represents a single step in a workflow.
 type WorkflowStep struct {
-	ID           string                   `yaml:"id,omitempty"`           // Step identifier
-	If           string                   `yaml:"if,omitempty"`           // Conditional execution (CEL expression)
-	Run          string                   `yaml:"run,omitempty"`          // Command to run
-	Uses         string                   `yaml:"uses,omitempty"`         // Built-in step to use (e.g., "tako/checkout@v1")
-	With         map[string]interface{}   `yaml:"with,omitempty"`         // Parameters for built-in steps
-	Image        string                   `yaml:"image,omitempty"`        // Container image override
-	LongRunning  bool                     `yaml:"long_running,omitempty"` // Whether step runs asynchronously
-	Network      string                   `yaml:"network,omitempty"`      // Network access level
-	Capabilities []string                 `yaml:"capabilities,omitempty"` // Linux capabilities to grant
-	CacheKeyFiles string                  `yaml:"cache_key_files,omitempty"` // Glob pattern for cache key
-	Env          map[string]string        `yaml:"env,omitempty"`          // Environment variables
-	Produces     *WorkflowStepProduces    `yaml:"produces,omitempty"`     // Step outputs and events
-	OnFailure    []WorkflowStep           `yaml:"on_failure,omitempty"`   // Steps to run on failure
+	ID            string                 `yaml:"id,omitempty"`              // Step identifier
+	If            string                 `yaml:"if,omitempty"`              // Conditional execution (CEL expression)
+	Run           string                 `yaml:"run,omitempty"`             // Command to run
+	Uses          string                 `yaml:"uses,omitempty"`            // Built-in step to use (e.g., "tako/checkout@v1")
+	With          map[string]interface{} `yaml:"with,omitempty"`            // Parameters for built-in steps
+	Image         string                 `yaml:"image,omitempty"`           // Container image override
+	LongRunning   bool                   `yaml:"long_running,omitempty"`    // Whether step runs asynchronously
+	Network       string                 `yaml:"network,omitempty"`         // Network access level
+	Capabilities  []string               `yaml:"capabilities,omitempty"`    // Linux capabilities to grant
+	CacheKeyFiles string                 `yaml:"cache_key_files,omitempty"` // Glob pattern for cache key
+	Env           map[string]string      `yaml:"env,omitempty"`             // Environment variables
+	Produces      *WorkflowStepProduces  `yaml:"produces,omitempty"`        // Step outputs and events
+	OnFailure     []WorkflowStep         `yaml:"on_failure,omitempty"`      // Steps to run on failure
 }
 
 // WorkflowStepProduces represents what a step produces (outputs, artifacts, events)
 type WorkflowStepProduces struct {
-	Artifact string                   `yaml:"artifact,omitempty"` // Artifact name produced
-	Outputs  map[string]string        `yaml:"outputs,omitempty"`  // Output mappings
-	Events   []Event                  `yaml:"events,omitempty"`   // Events to emit
+	Artifact string            `yaml:"artifact,omitempty"` // Artifact name produced
+	Outputs  map[string]string `yaml:"outputs,omitempty"`  // Output mappings
+	Events   []Event           `yaml:"events,omitempty"`   // Events to emit
 }
 
 // UnmarshalYAML implements custom YAML unmarshaling for WorkflowStep to support backward compatibility
@@ -155,7 +155,7 @@ func validate(config *TakoConfig) error {
 		if err := ValidateSubscriptions(config.Subscriptions); err != nil {
 			return fmt.Errorf("invalid subscriptions: %w", err)
 		}
-		
+
 		// Validate that referenced workflows exist
 		for i, subscription := range config.Subscriptions {
 			if _, exists := config.Workflows[subscription.Workflow]; !exists {
@@ -215,7 +215,7 @@ func validateArtifacts(dependentArtifacts []string, definedArtifacts map[string]
 }
 
 // validateWorkflow validates a single workflow definition
-func validateWorkflow(name string, workflow *Workflow) error {
+func validateWorkflow(_ string, workflow *Workflow) error {
 	// Validate workflow inputs
 	for inputName, input := range workflow.Inputs {
 		if err := validateWorkflowInput(inputName, &input); err != nil {
@@ -234,7 +234,7 @@ func validateWorkflow(name string, workflow *Workflow) error {
 }
 
 // validateWorkflowInput validates a workflow input definition
-func validateWorkflowInput(name string, input *WorkflowInput) error {
+func validateWorkflowInput(_ string, input *WorkflowInput) error {
 	// Validate input type
 	if input.Type != "" {
 		validTypes := []string{"string", "boolean", "number"}
@@ -264,7 +264,7 @@ func validateWorkflowInput(name string, input *WorkflowInput) error {
 }
 
 // validateWorkflowStep validates a single workflow step
-func validateWorkflowStep(index int, step *WorkflowStep) error {
+func validateWorkflowStep(_ int, step *WorkflowStep) error {
 	// Either 'run' or 'uses' must be specified, but not both
 	if step.Run == "" && step.Uses == "" {
 		return fmt.Errorf("step must specify either 'run' or 'uses'")
@@ -304,7 +304,7 @@ func validateWorkflowStepProduces(produces *WorkflowStepProduces) error {
 		if outputValue == "" {
 			return fmt.Errorf("output '%s' cannot have empty value", outputName)
 		}
-		
+
 		// Validate known output formats
 		validFormats := []string{"from_stdout", "from_stderr", "from_file:", "from_env:"}
 		valid := false
@@ -330,9 +330,9 @@ func validateWorkflowStepProduces(produces *WorkflowStepProduces) error {
 	return nil
 }
 
-// Known built-in steps with their supported versions
+// knownBuiltinSteps defines the known built-in steps with their supported versions.
 var knownBuiltinSteps = map[string][]string{
-	"tako/checkout":             {"v1"},
+	"tako/checkout":            {"v1"},
 	"tako/fan-out":             {"v1"},
 	"tako/update-dependency":   {"v1"},
 	"tako/create-pull-request": {"v1"},
@@ -374,9 +374,10 @@ func validateCELExpression(expression string) error {
 	// Check for balanced parentheses
 	parenCount := 0
 	for _, char := range expression {
-		if char == '(' {
+		switch char {
+		case '(':
 			parenCount++
-		} else if char == ')' {
+		case ')':
 			parenCount--
 			if parenCount < 0 {
 				return fmt.Errorf("unbalanced parentheses in CEL expression: %s", expression)
@@ -408,9 +409,9 @@ func validateSemverRange(versionRange string) error {
 
 	// Patterns for semantic version ranges
 	patterns := []string{
-		`^\^\d+\.\d+\.\d+$`,                    // ^1.0.0
-		`^~\d+\.\d+\.\d+$`,                    // ~1.0.0
-		`^\d+\.\d+\.\d+$`,                     // 1.0.0
+		`^\^\d+\.\d+\.\d+$`,                         // ^1.0.0
+		`^~\d+\.\d+\.\d+$`,                          // ~1.0.0
+		`^\d+\.\d+\.\d+$`,                           // 1.0.0
 		`^\(\d+\.\d+\.\d+\.\.\.(\d+\.\d+\.\d+)?\]$`, // (1.0.0...2.0.0]
 		`^\[\d+\.\d+\.\d+\.\.\.(\d+\.\d+\.\d+)?\)$`, // [1.0.0...2.0.0)
 	}
