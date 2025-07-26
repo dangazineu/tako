@@ -13,7 +13,7 @@ type TakoConfig struct {
 	Version       string              `yaml:"version"`
 	Metadata      Metadata            `yaml:"metadata"`
 	Artifacts     map[string]Artifact `yaml:"artifacts"`
-	Dependents    []Dependent         `yaml:"dependents,omitempty"` // Legacy field, optional for backward compatibility
+	Dependents    []Dependent         `yaml:"dependents"` // Legacy field, still required for graph functionality
 	Workflows     map[string]Workflow `yaml:"workflows"`
 	Subscriptions []Subscription      `yaml:"subscriptions,omitempty"` // New event-driven subscriptions
 }
