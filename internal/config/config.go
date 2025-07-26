@@ -9,11 +9,12 @@ import (
 )
 
 type TakoConfig struct {
-	Version    string              `yaml:"version"`
-	Metadata   Metadata            `yaml:"metadata"`
-	Artifacts  map[string]Artifact `yaml:"artifacts"`
-	Dependents []Dependent         `yaml:"dependents"`
-	Workflows  map[string]Workflow `yaml:"workflows"`
+	Version       string              `yaml:"version"`
+	Metadata      Metadata            `yaml:"metadata"`
+	Artifacts     map[string]Artifact `yaml:"artifacts"`
+	Dependents    []Dependent         `yaml:"dependents,omitempty"` // Legacy field, optional for backward compatibility
+	Workflows     map[string]Workflow `yaml:"workflows"`
+	Subscriptions []Subscription      `yaml:"subscriptions,omitempty"` // New event-driven subscriptions
 }
 
 type Metadata struct {
@@ -26,6 +27,7 @@ type Artifact struct {
 	Image          string `yaml:"image"`
 	Command        string `yaml:"command"`
 	Path           string `yaml:"path"`
+	Ecosystem      string `yaml:"ecosystem,omitempty"`      // New field for artifact ecosystem (go, npm, maven, etc.)
 	InstallCommand string `yaml:"install_command"`
 	VerifyCommand  string `yaml:"verify_command"`
 }
@@ -37,16 +39,81 @@ type Dependent struct {
 }
 
 type Workflow struct {
-	Name      string    `yaml:"-"`
-	Image     string    `yaml:"image"`
-	Env       []string  `yaml:"env"`
-	Resources Resources `yaml:"resources"`
-	Steps     []string  `yaml:"steps"`
+	Name      string                 `yaml:"-"`
+	On        string                 `yaml:"on,omitempty"`        // Trigger condition ("exec" for manual workflows)
+	Image     string                 `yaml:"image,omitempty"`
+	Env       []string               `yaml:"env,omitempty"`
+	Secrets   []string               `yaml:"secrets,omitempty"`   // List of secret names
+	Resources Resources              `yaml:"resources,omitempty"`
+	Inputs    map[string]WorkflowInput `yaml:"inputs,omitempty"`    // Input definitions
+	Steps     []WorkflowStep         `yaml:"steps,omitempty"`     // Updated to support rich step definitions
 }
 
 type Resources struct {
-	CPU    string `yaml:"cpu"`
-	Memory string `yaml:"memory"`
+	CPU       string `yaml:"cpu,omitempty"`
+	Memory    string `yaml:"memory,omitempty"`
+	CPULimit  string `yaml:"cpu_limit,omitempty"`  // New format for resource limits
+	MemLimit  string `yaml:"mem_limit,omitempty"`  // New format for memory limits
+	DiskLimit string `yaml:"disk_limit,omitempty"` // Disk space limit
+}
+
+// WorkflowInput represents an input parameter for a workflow
+type WorkflowInput struct {
+	Type        string                 `yaml:"type,omitempty"`        // Input type (string, boolean, number)
+	Description string                 `yaml:"description,omitempty"` // Human-readable description
+	Required    bool                   `yaml:"required,omitempty"`    // Whether input is required
+	Default     interface{}            `yaml:"default,omitempty"`     // Default value
+	Validation  WorkflowInputValidation `yaml:"validation,omitempty"`  // Validation rules
+}
+
+// WorkflowInputValidation represents validation rules for workflow inputs
+type WorkflowInputValidation struct {
+	Enum []string `yaml:"enum,omitempty"` // List of allowed values
+	Min  *float64 `yaml:"min,omitempty"`  // Minimum value for numbers
+	Max  *float64 `yaml:"max,omitempty"`  // Maximum value for numbers
+}
+
+// WorkflowStep represents a single step in a workflow
+type WorkflowStep struct {
+	ID           string                   `yaml:"id,omitempty"`           // Step identifier
+	If           string                   `yaml:"if,omitempty"`           // Conditional execution (CEL expression)
+	Run          string                   `yaml:"run,omitempty"`          // Command to run
+	Uses         string                   `yaml:"uses,omitempty"`         // Built-in step to use (e.g., "tako/checkout@v1")
+	With         map[string]interface{}   `yaml:"with,omitempty"`         // Parameters for built-in steps
+	Image        string                   `yaml:"image,omitempty"`        // Container image override
+	LongRunning  bool                     `yaml:"long_running,omitempty"` // Whether step runs asynchronously
+	Network      string                   `yaml:"network,omitempty"`      // Network access level
+	Capabilities []string                 `yaml:"capabilities,omitempty"` // Linux capabilities to grant
+	CacheKeyFiles string                  `yaml:"cache_key_files,omitempty"` // Glob pattern for cache key
+	Env          map[string]string        `yaml:"env,omitempty"`          // Environment variables
+	Produces     *WorkflowStepProduces    `yaml:"produces,omitempty"`     // Step outputs and events
+	OnFailure    []WorkflowStep           `yaml:"on_failure,omitempty"`   // Steps to run on failure
+}
+
+// WorkflowStepProduces represents what a step produces (outputs, artifacts, events)
+type WorkflowStepProduces struct {
+	Artifact string                   `yaml:"artifact,omitempty"` // Artifact name produced
+	Outputs  map[string]string        `yaml:"outputs,omitempty"`  // Output mappings
+	Events   []Event                  `yaml:"events,omitempty"`   // Events to emit
+}
+
+// UnmarshalYAML implements custom YAML unmarshaling for WorkflowStep to support backward compatibility
+func (step *WorkflowStep) UnmarshalYAML(node *yaml.Node) error {
+	// If the node is a string, this is a legacy simple step
+	if node.Kind == yaml.ScalarNode {
+		step.Run = node.Value
+		return nil
+	}
+
+	// If the node is a mapping, this is a new-style step
+	if node.Kind == yaml.MappingNode {
+		// Create a temporary struct to avoid infinite recursion
+		type WorkflowStepAlias WorkflowStep
+		alias := (*WorkflowStepAlias)(step)
+		return node.Decode(alias)
+	}
+
+	return fmt.Errorf("step must be either a string or an object")
 }
 
 func Load(path string) (*TakoConfig, error) {
@@ -82,16 +149,40 @@ func validate(config *TakoConfig) error {
 		return fmt.Errorf("missing required field: version")
 	}
 
-	if config.Dependents == nil {
-		return fmt.Errorf("missing required field: dependents")
+	// Validate subscriptions (new event-driven model)
+	if len(config.Subscriptions) > 0 {
+		if err := ValidateSubscriptions(config.Subscriptions); err != nil {
+			return fmt.Errorf("invalid subscriptions: %w", err)
+		}
+		
+		// Validate that referenced workflows exist
+		for i, subscription := range config.Subscriptions {
+			if _, exists := config.Workflows[subscription.Workflow]; !exists {
+				return fmt.Errorf("subscription %d references non-existent workflow '%s'", i, subscription.Workflow)
+			}
+		}
 	}
 
-	for _, dependent := range config.Dependents {
-		if err := validateRepoFormat(dependent.Repo); err != nil {
-			return err
+	// Validate dependents (legacy model) - only if subscriptions are not present
+	if len(config.Subscriptions) == 0 {
+		if config.Dependents == nil {
+			return fmt.Errorf("missing required field: dependents (or subscriptions for event-driven workflows)")
 		}
-		if err := validateArtifacts(dependent.Artifacts, config.Artifacts); err != nil {
-			return err
+
+		for _, dependent := range config.Dependents {
+			if err := validateRepoFormat(dependent.Repo); err != nil {
+				return err
+			}
+			if err := validateArtifacts(dependent.Artifacts, config.Artifacts); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Validate workflows
+	for workflowName, workflow := range config.Workflows {
+		if err := validateWorkflow(workflowName, &workflow); err != nil {
+			return fmt.Errorf("invalid workflow '%s': %w", workflowName, err)
 		}
 	}
 
@@ -119,5 +210,121 @@ func validateArtifacts(dependentArtifacts []string, definedArtifacts map[string]
 			return fmt.Errorf("dependent artifact not found: %s", dependentArtifact)
 		}
 	}
+	return nil
+}
+
+// validateWorkflow validates a single workflow definition
+func validateWorkflow(name string, workflow *Workflow) error {
+	// Validate workflow inputs
+	for inputName, input := range workflow.Inputs {
+		if err := validateWorkflowInput(inputName, &input); err != nil {
+			return fmt.Errorf("invalid input '%s': %w", inputName, err)
+		}
+	}
+
+	// Validate workflow steps
+	for i, step := range workflow.Steps {
+		if err := validateWorkflowStep(i, &step); err != nil {
+			return fmt.Errorf("invalid step %d: %w", i, err)
+		}
+	}
+
+	return nil
+}
+
+// validateWorkflowInput validates a workflow input definition
+func validateWorkflowInput(name string, input *WorkflowInput) error {
+	// Validate input type
+	if input.Type != "" {
+		validTypes := []string{"string", "boolean", "number"}
+		valid := false
+		for _, validType := range validTypes {
+			if input.Type == validType {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return fmt.Errorf("invalid input type '%s', must be one of: %v", input.Type, validTypes)
+		}
+	}
+
+	// Validate enum values if present
+	if len(input.Validation.Enum) > 0 && input.Type != "string" && input.Type != "" {
+		return fmt.Errorf("enum validation is only supported for string inputs")
+	}
+
+	// Validate min/max for numeric inputs
+	if (input.Validation.Min != nil || input.Validation.Max != nil) && input.Type != "number" && input.Type != "" {
+		return fmt.Errorf("min/max validation is only supported for number inputs")
+	}
+
+	return nil
+}
+
+// validateWorkflowStep validates a single workflow step
+func validateWorkflowStep(index int, step *WorkflowStep) error {
+	// Either 'run' or 'uses' must be specified, but not both
+	if step.Run == "" && step.Uses == "" {
+		return fmt.Errorf("step must specify either 'run' or 'uses'")
+	}
+	if step.Run != "" && step.Uses != "" {
+		return fmt.Errorf("step cannot specify both 'run' and 'uses'")
+	}
+
+	// Validate built-in step format
+	if step.Uses != "" {
+		if !strings.Contains(step.Uses, "@") {
+			return fmt.Errorf("built-in step '%s' must include version (e.g., 'tako/checkout@v1')", step.Uses)
+		}
+	}
+
+	// Validate produces section if present
+	if step.Produces != nil {
+		if err := validateWorkflowStepProduces(step.Produces); err != nil {
+			return fmt.Errorf("invalid produces section: %w", err)
+		}
+	}
+
+	// Validate failure steps
+	for i, failureStep := range step.OnFailure {
+		if err := validateWorkflowStep(i, &failureStep); err != nil {
+			return fmt.Errorf("invalid failure step %d: %w", i, err)
+		}
+	}
+
+	return nil
+}
+
+// validateWorkflowStepProduces validates the produces section of a step
+func validateWorkflowStepProduces(produces *WorkflowStepProduces) error {
+	// Validate output formats
+	for outputName, outputValue := range produces.Outputs {
+		if outputValue == "" {
+			return fmt.Errorf("output '%s' cannot have empty value", outputName)
+		}
+		
+		// Validate known output formats
+		validFormats := []string{"from_stdout", "from_stderr", "from_file:", "from_env:"}
+		valid := false
+		for _, format := range validFormats {
+			if outputValue == format || strings.HasPrefix(outputValue, format) {
+				valid = true
+				break
+			}
+		}
+		if !valid && !strings.HasPrefix(outputValue, "{{") {
+			return fmt.Errorf("output '%s' has invalid format '%s'", outputName, outputValue)
+		}
+	}
+
+	// Validate events
+	if len(produces.Events) > 0 {
+		eventProduction := EventProduction{Events: produces.Events}
+		if err := eventProduction.ValidateEvents(); err != nil {
+			return fmt.Errorf("invalid events: %w", err)
+		}
+	}
+
 	return nil
 }
