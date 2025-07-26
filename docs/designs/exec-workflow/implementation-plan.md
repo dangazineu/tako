@@ -29,7 +29,7 @@ Each issue is linked to the parent epic (#21) and design issue (#98). The plan a
 
 This milestone delivers core single-repository workflow functionality, providing immediate value and a foundation for multi-repository features.
 
-### Issue 1: `feat(config): Implement event-driven workflow schema`
+### Issue 1: `feat(config): Implement event-driven workflow schema` → **#99**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
@@ -115,13 +115,13 @@ subscriptions:
 
 ---
 
-### Issue 2: `feat(cmd): Implement 'tako exec' with event-driven support`
+### Issue 2: `feat(cmd): Implement 'tako exec' with event-driven support` → **#100**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
 - Design: #98 - Event-driven workflow engine design
 - Supersedes: #94 - feat(cmd): Add exec command
-- Depends On: Issue 1 (event-driven schema support)
+- Depends On: #99 (event-driven schema support)
 
 **Description:**
 Implement the `tako exec` command with full support for event-driven multi-repository orchestration, including parent-led execution and event simulation for debugging.
@@ -170,12 +170,12 @@ tako exec --resume exec-20240726-143022-a7b3c1d2 --repo=my-org/go-lib
 
 ---
 
-### Issue 3: `feat(engine): Implement core execution engine with state management`
+### Issue 3: `feat(engine): Implement core execution engine with state management` → **#101**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
 - Design: #98 - Event-driven workflow engine design
-- Depends On: Issue 2 (exec command)
+- Depends On: #100 (exec command)
 
 **Description:**
 Create the core execution engine supporting both single-repository and multi-repository workflows with comprehensive state management and workspace isolation.
@@ -216,12 +216,12 @@ Create the core execution engine supporting both single-repository and multi-rep
 
 ---
 
-### Issue 4: `feat(engine): Implement template engine with event context`
+### Issue 4: `feat(engine): Implement template engine with event context` → **#102**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
 - Design: #98 - Event-driven workflow engine design
-- Depends On: Issue 3 (execution engine)
+- Depends On: #101 (execution engine)
 
 **Description:**
 Implement the template engine with comprehensive support for event-driven workflows, including event context, security functions, and performance optimizations.
@@ -269,12 +269,12 @@ steps:
 
 ---
 
-### Issue 5: `test(e2e): Implement single-repository workflow testing`
+### Issue 5: `test(e2e): Implement single-repository workflow testing` → **#103**
 
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
 - Design: #98 - Event-driven workflow engine design
-- Depends On: Issues 1-4 (core functionality)
+- Depends On: #99-#102 (core functionality)
 
 **Description:**
 Create comprehensive E2E tests for single-repository workflows that validate the foundation for multi-repository orchestration.
@@ -307,7 +307,7 @@ This milestone introduces the core event-driven multi-repository functionality w
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
 - Design: #98 - Event-driven workflow engine design
-- Depends On: Issue 3 (execution engine)
+- Depends On: #101 (execution engine)
 
 **Description:**
 Implement secure containerized step execution with comprehensive security hardening and resource management.
@@ -345,7 +345,7 @@ Implement secure containerized step execution with comprehensive security harden
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
 - Design: #98 - Event-driven workflow engine design
-- Depends On: Issues 3-4 (execution engine and templates)
+- Depends On: #101, #102 (execution engine and templates)
 
 **Description:**
 Implement the `tako/fan-out@v1` built-in step that enables event-driven multi-repository orchestration through explicit fan-out operations.
@@ -532,7 +532,7 @@ This milestone adds production-ready features including performance optimization
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
 - Design: #98 - Event-driven workflow engine design
-- Depends On: Issue 3 (execution engine)
+- Depends On: #101 (execution engine)
 
 **Description:**
 Implement content-addressable step caching with performance optimizations for multi-repository workflows.
@@ -656,7 +656,7 @@ tako status exec-20240726-143022-a7b3c1d2 --show-events
 **Related Issues:**
 - Parent Epic: #21 - Execute multi-step workflows
 - Design: #98 - Event-driven workflow engine design
-- Depends On: Issue 1 (configuration schema)
+- Depends On: #99 (configuration schema)
 
 **Description:**
 Implement `tako lint` command for comprehensive validation of `tako.yml` configuration files, including syntax, semantics, and best practices.
