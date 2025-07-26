@@ -357,7 +357,7 @@ func runCmd(t *testing.T, cmd *exec.Cmd, dir string) {
 func replacePlaceholders(s string, env e2e.TestEnvironmentDef) string {
 	for _, repo := range env.Repositories {
 		placeholder := fmt.Sprintf("{{.Repo.%s}}", repo.Name)
-		fullName := fmt.Sprintf("%s-%s", env.Name, repo.Name)
+		fullName := fmt.Sprintf("%s/%s-%s", testOrg, env.Name, repo.Name)
 		s = strings.ReplaceAll(s, placeholder, fullName)
 	}
 	s = strings.ReplaceAll(s, "{{.Owner}}", testOrg)

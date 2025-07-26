@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -175,15 +176,26 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 		}
 
 		// Create tako.yml
-		takoConfig := &config.TakoConfig{
+		takoConfig := &config.Config{
 			Version: "0.1.0",
-			Metadata: config.Metadata{
-				Name: repoName,
+			Artifacts: map[string]config.Artifact{
+				"default": {Path: ".", Ecosystem: "generic"},
 			},
-			Dependents: []config.Dependent{}, // Initialize empty slice for repos with no dependencies
+			Workflows: map[string]config.Workflow{
+				"default": {
+					Steps: []config.WorkflowStep{
+						{Run: "echo 'default workflow'"},
+					},
+				},
+			},
+			Subscriptions: []config.Subscription{},
 		}
 		for _, dep := range repoDef.Dependencies {
-			takoConfig.Dependents = append(takoConfig.Dependents, config.Dependent{Repo: fmt.Sprintf("%s/%s-%s:main", owner, env.Name, dep)})
+			takoConfig.Subscriptions = append(takoConfig.Subscriptions, config.Subscription{
+				Artifact: fmt.Sprintf("%s/%s-%s:default", owner, env.Name, dep),
+				Events:   []string{"updated"},
+				Workflow: "default",
+			})
 		}
 		content, err := yaml.Marshal(takoConfig)
 		if err != nil {
@@ -241,16 +253,40 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 }
 
 func createRepoFiles(repoPath string, repoDef *e2e.RepositoryDef, envName, owner string) error {
+	// Init git repo
+	cmd := exec.Command("git", "init")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to init git repo in %s: %w", repoPath, err)
+	}
+	remoteURL := fmt.Sprintf("https://github.com/%s/%s-%s.git", owner, envName, repoDef.Name)
+	cmd = exec.Command("git", "remote", "add", "origin", remoteURL)
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to add remote in %s: %w", repoPath, err)
+	}
+
 	// Create tako.yml
-	takoConfig := &config.TakoConfig{
+	takoConfig := &config.Config{
 		Version: "0.1.0",
-		Metadata: config.Metadata{
-			Name: fmt.Sprintf("%s-%s", envName, repoDef.Name),
+		Artifacts: map[string]config.Artifact{
+			"default": {Path: ".", Ecosystem: "generic"},
 		},
-		Dependents: []config.Dependent{}, // Initialize empty slice for repos with no dependencies
+		Workflows: map[string]config.Workflow{
+			"default": {
+				Steps: []config.WorkflowStep{
+					{Run: "echo 'default workflow'"},
+				},
+			},
+		},
+		Subscriptions: []config.Subscription{},
 	}
 	for _, dep := range repoDef.Dependencies {
-		takoConfig.Dependents = append(takoConfig.Dependents, config.Dependent{Repo: fmt.Sprintf("%s/%s-%s:main", owner, envName, dep)})
+		takoConfig.Subscriptions = append(takoConfig.Subscriptions, config.Subscription{
+			Artifact: fmt.Sprintf("%s/%s-%s:default", owner, envName, dep),
+			Events:   []string{"updated"},
+			Workflow: "default",
+		})
 	}
 	content, err := yaml.Marshal(takoConfig)
 	if err != nil {

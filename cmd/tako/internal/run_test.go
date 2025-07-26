@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -222,28 +223,31 @@ func TestRunCmd_DryRunIntegration(t *testing.T) {
 	// Create a temporary directory with a simple tako.yml
 	tempDir := t.TempDir()
 
+	// Init git repo
+	cmd := exec.Command("git", "init")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("failed to init git repo: %v", err)
+	}
+	cmd = exec.Command("git", "remote", "add", "origin", "https://github.com/test/repo-a.git")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("failed to add remote: %v", err)
+	}
+
 	// Create a simple tako.yml
-	takoYml := `version: "1"
-dependents: []
-`
+	takoYml := `version: "1"`
 	err := os.WriteFile(filepath.Join(tempDir, "tako.yml"), []byte(takoYml), 0644)
 	require.NoError(t, err)
 
-	cmd := NewRunCmd()
+	rootCmd := NewRootCmd()
 	var out bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetErr(&out)
-
-	// Test dry-run integration
-	err = cmd.Flags().Set("dry-run", "true")
-	require.NoError(t, err)
-	err = cmd.Flags().Set("root", tempDir)
-	require.NoError(t, err)
-	err = cmd.Flags().Set("local", "true")
-	require.NoError(t, err)
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&out)
+	rootCmd.SetArgs([]string{"run", "--dry-run", "--root", tempDir, "--local", "echo", "test"})
 
 	// Execute the command
-	err = cmd.RunE(cmd, []string{"echo", "test"})
+	err = rootCmd.Execute()
 	require.NoError(t, err)
 
 	// Verify dry-run output format
