@@ -487,6 +487,48 @@ subscriptions:
 `,
 			expectedError: "invalid version range format",
 		},
+		{
+			name: "config with neither dependents nor subscriptions",
+			yamlContent: `
+version: "0.1.0"
+workflows:
+  test:
+    steps:
+      - "echo test"
+`,
+			expectedError: "missing required field: dependents (or subscriptions for event-driven workflows)",
+		},
+		{
+			name: "invalid output format in produces",
+			yamlContent: `
+version: "0.1.0"
+workflows:
+  test:
+    steps:
+      - id: "test"
+        run: "echo test"
+        produces:
+          outputs:
+            result: "invalid_source"
+dependents: []
+`,
+			expectedError: "output 'result' has invalid format 'invalid_source'",
+		},
+		{
+			name: "invalid step in on_failure",
+			yamlContent: `
+version: "0.1.0"
+workflows:
+  test:
+    steps:
+      - id: "test"
+        run: "echo test"
+        on_failure:
+          - uses: "tako/checkout"
+dependents: []
+`,
+			expectedError: "invalid failure step 0: built-in step 'tako/checkout' must include version",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -498,6 +540,83 @@ subscriptions:
 			defer os.Remove(tmpfile.Name())
 
 			if _, err := tmpfile.Write([]byte(tc.yamlContent)); err != nil {
+				t.Fatal(err)
+			}
+			if err := tmpfile.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = Load(tmpfile.Name())
+			if err == nil {
+				t.Errorf("expected error, got nil")
+			} else if !strings.Contains(err.Error(), tc.expectedError) {
+				t.Errorf("expected error containing %q, got %q", tc.expectedError, err.Error())
+			}
+		})
+	}
+}
+
+func TestLoad_WorkflowInputValidationErrors(t *testing.T) {
+	testCases := []struct {
+		name          string
+		inputYAML     string
+		expectedError string
+	}{
+		{
+			name: "enum on non-string input",
+			inputYAML: `    inputs:
+      my_input:
+        type: number
+        validation:
+          enum: ["1", "2"]`,
+			expectedError: "enum validation is only supported for string inputs",
+		},
+		{
+			name: "min on non-number input",
+			inputYAML: `    inputs:
+      my_input:
+        type: string
+        validation:
+          min: 5`,
+			expectedError: "min/max validation is only supported for number inputs",
+		},
+		{
+			name: "max on non-number input", 
+			inputYAML: `    inputs:
+      my_input:
+        type: boolean
+        validation:
+          max: 10`,
+			expectedError: "min/max validation is only supported for number inputs",
+		},
+		{
+			name: "invalid input type",
+			inputYAML: `    inputs:
+      my_input:
+        type: float`,
+			expectedError: "invalid input type 'float'",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			yamlContent := fmt.Sprintf(`
+version: "0.1.0"
+workflows:
+  test:
+%s
+    steps:
+      - "echo hello"  
+dependents: []
+`, tc.inputYAML)
+
+			tmpfile, err := os.CreateTemp(t.TempDir(), "tako.yml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.Remove(tmpfile.Name())
+
+			if _, err := tmpfile.Write([]byte(yamlContent)); err != nil {
 				t.Fatal(err)
 			}
 			if err := tmpfile.Close(); err != nil {
