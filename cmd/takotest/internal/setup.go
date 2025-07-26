@@ -180,6 +180,7 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 			Metadata: config.Metadata{
 				Name: repoName,
 			},
+			Dependents: []config.Dependent{}, // Initialize empty slice for repos with no dependencies
 		}
 		for _, dep := range repoDef.Dependencies {
 			takoConfig.Dependents = append(takoConfig.Dependents, config.Dependent{Repo: fmt.Sprintf("%s/%s-%s:main", owner, env.Name, dep)})
@@ -246,6 +247,7 @@ func createRepoFiles(repoPath string, repoDef *e2e.RepositoryDef, envName, owner
 		Metadata: config.Metadata{
 			Name: fmt.Sprintf("%s-%s", envName, repoDef.Name),
 		},
+		Dependents: []config.Dependent{}, // Initialize empty slice for repos with no dependencies
 	}
 	for _, dep := range repoDef.Dependencies {
 		takoConfig.Dependents = append(takoConfig.Dependents, config.Dependent{Repo: fmt.Sprintf("%s/%s-%s:main", owner, envName, dep)})
