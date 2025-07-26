@@ -118,5 +118,22 @@ func GetTestCases() []TestCase {
 				},
 			},
 		},
+		{
+			Name:        "exec-basic-workflow",
+			Environment: "simple-graph",
+			ReadOnly:    true,
+			Test: []Step{
+				{
+					Name:         "tako exec basic workflow",
+					Command:      "tako",
+					Args:         []string{"exec", "test-workflow", "--inputs.environment=dev"},
+					AssertOutput: true,
+					ExpectedOutput: `Executing workflow 'test-workflow'
+{{.RepoLine}}Inputs:
+  environment: dev
+`,
+				},
+			},
+		},
 	}
 }

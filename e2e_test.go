@@ -322,7 +322,7 @@ func runSteps(t *testing.T, steps []e2e.Step, workDir, cacheDir, mode string, wi
 			}
 
 			if step.AssertOutput {
-				expected := replacePlaceholders(step.ExpectedOutput, env)
+				expected := replacePlaceholders(step.ExpectedOutput, env, withRepoEntryPoint)
 				if strings.TrimSpace(out.String()) != strings.TrimSpace(expected) {
 					t.Errorf("expected output to match:\n%s\ngot:\n%s", expected, out.String())
 				}
@@ -354,13 +354,24 @@ func runCmd(t *testing.T, cmd *exec.Cmd, dir string) {
 	}
 }
 
-func replacePlaceholders(s string, env e2e.TestEnvironmentDef) string {
+func replacePlaceholders(s string, env e2e.TestEnvironmentDef, withRepoEntryPoint bool) string {
 	for _, repo := range env.Repositories {
 		placeholder := fmt.Sprintf("{{.Repo.%s}}", repo.Name)
 		fullName := fmt.Sprintf("%s/%s-%s", testOrg, env.Name, repo.Name)
 		s = strings.ReplaceAll(s, placeholder, fullName)
 	}
 	s = strings.ReplaceAll(s, "{{.Owner}}", testOrg)
+
+	// Handle conditional repository line for exec command
+	if withRepoEntryPoint {
+		// Replace placeholder with actual repository line
+		repoName := fmt.Sprintf("%s/%s-%s:main", testOrg, env.Name, env.Repositories[0].Name)
+		s = strings.ReplaceAll(s, "{{.RepoLine}}", fmt.Sprintf("Repository: %s\n", repoName))
+	} else {
+		// Remove repository line placeholder when not using repo entrypoint
+		s = strings.ReplaceAll(s, "{{.RepoLine}}", "")
+	}
+
 	return s
 }
 

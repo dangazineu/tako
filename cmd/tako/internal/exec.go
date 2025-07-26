@@ -2,6 +2,9 @@ package internal
 
 import (
 	"fmt"
+	"os"
+	"strings"
+
 	"github.com/spf13/cobra"
 )
 
@@ -16,7 +19,16 @@ You can specify a workflow by its name.`,
 			workflowName := args[0]
 			repo, _ := cmd.Flags().GetString("repo")
 			resume, _ := cmd.Flags().GetString("resume")
-			inputs, _ := cmd.Flags().GetStringToString("inputs")
+
+			inputs := make(map[string]string)
+			for _, arg := range os.Args {
+				if strings.HasPrefix(arg, "--inputs.") {
+					parts := strings.SplitN(strings.TrimPrefix(arg, "--inputs."), "=", 2)
+					if len(parts) == 2 {
+						inputs[parts[0]] = parts[1]
+					}
+				}
+			}
 
 			fmt.Printf("Executing workflow '%s'\n", workflowName)
 			if repo != "" {
@@ -44,6 +56,7 @@ You can specify a workflow by its name.`,
 	cmd.Flags().Bool("no-cache", false, "Invalidate the cache and execute all steps")
 	cmd.Flags().Int("max-concurrent-repos", 4, "Maximum number of repositories to process in parallel")
 	cmd.Flags().Bool("debug", false, "Enable interactive step-by-step execution")
+	cmd.FParseErrWhitelist.UnknownFlags = true
 
 	return cmd
 }

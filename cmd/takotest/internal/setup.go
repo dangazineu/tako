@@ -176,27 +176,7 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 		}
 
 		// Create tako.yml
-		takoConfig := &config.Config{
-			Version: "0.1.0",
-			Artifacts: map[string]config.Artifact{
-				"default": {Path: ".", Ecosystem: "generic"},
-			},
-			Workflows: map[string]config.Workflow{
-				"default": {
-					Steps: []config.WorkflowStep{
-						{Run: "echo 'default workflow'"},
-					},
-				},
-			},
-			Subscriptions: []config.Subscription{},
-		}
-		for _, dep := range repoDef.Dependencies {
-			takoConfig.Subscriptions = append(takoConfig.Subscriptions, config.Subscription{
-				Artifact: fmt.Sprintf("%s/%s-%s:default", owner, env.Name, dep),
-				Events:   []string{"updated"},
-				Workflow: "default",
-			})
-		}
+		takoConfig := buildTakoConfig(env.Name, owner, &repoDef)
 		content, err := yaml.Marshal(takoConfig)
 		if err != nil {
 			return err
@@ -267,27 +247,7 @@ func createRepoFiles(repoPath string, repoDef *e2e.RepositoryDef, envName, owner
 	}
 
 	// Create tako.yml
-	takoConfig := &config.Config{
-		Version: "0.1.0",
-		Artifacts: map[string]config.Artifact{
-			"default": {Path: ".", Ecosystem: "generic"},
-		},
-		Workflows: map[string]config.Workflow{
-			"default": {
-				Steps: []config.WorkflowStep{
-					{Run: "echo 'default workflow'"},
-				},
-			},
-		},
-		Subscriptions: []config.Subscription{},
-	}
-	for _, dep := range repoDef.Dependencies {
-		takoConfig.Subscriptions = append(takoConfig.Subscriptions, config.Subscription{
-			Artifact: fmt.Sprintf("%s/%s-%s:default", owner, envName, dep),
-			Events:   []string{"updated"},
-			Workflow: "default",
-		})
-	}
+	takoConfig := buildTakoConfig(envName, owner, repoDef)
 	content, err := yaml.Marshal(takoConfig)
 	if err != nil {
 		return err
@@ -314,4 +274,58 @@ func createRepoFiles(repoPath string, repoDef *e2e.RepositoryDef, envName, owner
 		}
 	}
 	return nil
+}
+
+func buildTakoConfig(envName, owner string, repoDef *e2e.RepositoryDef) *config.Config {
+	takoConfig := &config.Config{
+		Version: "0.1.0",
+		Artifacts: map[string]config.Artifact{
+			"default": {Path: ".", Ecosystem: "generic"},
+		},
+		Workflows: map[string]config.Workflow{
+			"default": {
+				Steps: []config.WorkflowStep{
+					{Run: "echo 'default workflow'"},
+				},
+			},
+		},
+		Subscriptions: []config.Subscription{},
+	}
+
+	if envName == "simple-graph" {
+		takoConfig.Workflows["test-workflow"] = config.Workflow{
+			Inputs: map[string]config.WorkflowInput{
+				"environment": {
+					Type: "string",
+					Validation: config.WorkflowInputValidation{
+						Enum: []string{"dev", "staging", "prod"},
+					},
+				},
+			},
+			Steps: []config.WorkflowStep{
+				{
+					ID:  "validate_input",
+					Run: "echo 'Deploying to {{ .inputs.environment }}'",
+				},
+				{
+					ID:  "process_output",
+					Run: "echo 'processed-{{ .steps.validate_input.outputs.result }}'",
+					Produces: &config.WorkflowStepProduces{
+						Outputs: map[string]string{
+							"final_result": "from_stdout",
+						},
+					},
+				},
+			},
+		}
+	}
+
+	for _, dep := range repoDef.Dependencies {
+		takoConfig.Subscriptions = append(takoConfig.Subscriptions, config.Subscription{
+			Artifact: fmt.Sprintf("%s/%s-%s:default", owner, envName, dep),
+			Events:   []string{"updated"},
+			Workflow: "default",
+		})
+	}
+	return takoConfig
 }
