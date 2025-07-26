@@ -140,3 +140,21 @@ func GetRepoPath(repo, currentPath, cacheDir, homeDir string, localOnly bool) (s
 	// Fallback for other patterns - treat as local relative path
 	return filepath.Clean(filepath.Join(currentPath, strings.Split(repo, ":")[0])), nil
 }
+
+func GetRepoName(path string) (string, error) {
+	cmd := exec.Command("git", "-C", path, "remote", "get-url", "origin")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", errors.Wrap(err, "TAKO_E008", fmt.Sprintf("failed to get remote URL for %s: %s", path, string(output)))
+	}
+	url := strings.TrimSpace(string(output))
+	// https://github.com/owner/repo.git or git@github.com:owner/repo.git
+	if strings.HasPrefix(url, "https://") {
+		url = strings.TrimPrefix(url, "https://github.com/")
+		url = strings.TrimSuffix(url, ".git")
+	} else if strings.HasPrefix(url, "git@") {
+		url = strings.TrimPrefix(url, "git@github.com:")
+		url = strings.TrimSuffix(url, ".git")
+	}
+	return url, nil
+}

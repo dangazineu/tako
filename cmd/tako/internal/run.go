@@ -45,7 +45,17 @@ func NewRunCmd() *cobra.Command {
 				return err
 			}
 
-			rootNode, err := graph.BuildGraph(entrypointPath, cacheDir, homeDir, local)
+			var repoName string
+			if repo != "" {
+				repoName = strings.Split(repo, ":")[0]
+			} else {
+				repoName, err = git.GetRepoName(entrypointPath)
+				if err != nil {
+					return err
+				}
+			}
+
+			rootNode, err := graph.BuildGraph(repoName, entrypointPath, cacheDir, homeDir, local)
 			if err != nil {
 				return err
 			}

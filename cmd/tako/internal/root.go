@@ -18,6 +18,7 @@ It allows you to run commands across your repositories in the correct order, ens
 	}
 
 	cmd.PersistentFlags().StringVar(&cacheDir, "cache-dir", "~/.tako/cache", "The cache directory to use.")
+	cmd.AddCommand(NewExecCmd())
 	cmd.AddCommand(NewGraphCmd())
 	cmd.AddCommand(NewRunCmd())
 	cmd.AddCommand(NewCacheCmd())

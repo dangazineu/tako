@@ -206,11 +206,11 @@ func (n *Node) Filter(only, ignore []string) (*Node, error) {
 	return &Node{Name: "empty-root", Path: ""}, nil
 }
 
-func BuildGraph(path, cacheDir, homeDir string, localOnly bool) (*Node, error) {
-	return buildGraphRecursive(path, cacheDir, homeDir, make(map[string]*Node), []string{}, []string{}, localOnly)
+func BuildGraph(repoName, path, cacheDir, homeDir string, localOnly bool) (*Node, error) {
+	return buildGraphRecursive(repoName, path, cacheDir, homeDir, make(map[string]*Node), []string{}, []string{}, localOnly)
 }
 
-func buildGraphRecursive(path, cacheDir, homeDir string, visited map[string]*Node, currentPath []string, currentPathNames []string, localOnly bool) (*Node, error) {
+func buildGraphRecursive(repoName, path, cacheDir, homeDir string, visited map[string]*Node, currentPath []string, currentPathNames []string, localOnly bool) (*Node, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get absolute path: %w", err)
@@ -218,13 +218,7 @@ func buildGraphRecursive(path, cacheDir, homeDir string, visited map[string]*Nod
 
 	for i, p := range currentPath {
 		if p == absPath {
-			cfg, err := config.Load(filepath.Join(absPath, "tako.yml"))
-			if err != nil {
-				// If we can't load the config, we can't get the name.
-				// Just return the path with absPath.
-				return nil, &CircularDependencyError{Path: append(currentPath, absPath)}
-			}
-			cyclePath := append(currentPathNames[i:], cfg.Metadata.Name)
+			cyclePath := append(currentPathNames[i:], repoName)
 			return nil, &CircularDependencyError{Path: cyclePath}
 		}
 	}
@@ -239,20 +233,27 @@ func buildGraphRecursive(path, cacheDir, homeDir string, visited map[string]*Nod
 	}
 
 	root := &Node{
-		Name: cfg.Metadata.Name,
+		Name: repoName,
 		Path: absPath,
 	}
 
 	newPath := append(currentPath, absPath)
 	newPathNames := append(currentPathNames, root.Name)
 
-	for _, dependent := range cfg.Dependents {
-		repoPath, err := git.GetRepoPath(dependent.Repo, absPath, cacheDir, homeDir, localOnly)
+	for _, subscription := range cfg.Subscriptions {
+		// subscription.Artifact is in the format "owner/repo:artifact"
+		parts := strings.Split(subscription.Artifact, ":")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid artifact reference in subscription: %s", subscription.Artifact)
+		}
+		depRepoName := parts[0]
+
+		repoPath, err := git.GetRepoPath(depRepoName, absPath, cacheDir, homeDir, localOnly)
 		if err != nil {
 			return nil, err
 		}
 
-		child, err := buildGraphRecursive(repoPath, cacheDir, homeDir, visited, newPath, newPathNames, localOnly)
+		child, err := buildGraphRecursive(depRepoName, repoPath, cacheDir, homeDir, visited, newPath, newPathNames, localOnly)
 		if err != nil {
 			return nil, err
 		}

@@ -150,10 +150,14 @@ func TestBuildGraph_CircularDependency(t *testing.T) {
 	}
 	takoA := `
 version: 0.1.0
-metadata:
-  name: repo-a
-dependents:
-  - repo: local/repo-b:main
+subscriptions:
+  - artifact: "local/repo-b:default"
+    events: ["updated"]
+    workflow: "default"
+workflows:
+  default:
+    steps:
+      - run: "echo default"
 `
 	if err := os.WriteFile(filepath.Join(repoA, "tako.yml"), []byte(takoA), 0644); err != nil {
 		t.Fatal(err)
@@ -166,10 +170,14 @@ dependents:
 	}
 	takoB := `
 version: 0.1.0
-metadata:
-  name: repo-b
-dependents:
-  - repo: local/repo-a:main
+subscriptions:
+  - artifact: "local/repo-a:default"
+    events: ["updated"]
+    workflow: "default"
+workflows:
+  default:
+    steps:
+      - run: "echo default"
 `
 	if err := os.WriteFile(filepath.Join(repoB, "tako.yml"), []byte(takoB), 0644); err != nil {
 		t.Fatal(err)
@@ -194,14 +202,14 @@ dependents:
 		t.Fatal(err)
 	}
 
-	_, err := BuildGraph(repoA, cacheDir, "", true)
+	_, err := BuildGraph("local/repo-a", repoA, cacheDir, "", true)
 	if err == nil {
 		t.Fatal("Expected an error, but got nil")
 	}
 	if _, ok := err.(*CircularDependencyError); !ok {
 		t.Errorf("Expected error of type *CircularDependencyError, but got %T", err)
 	}
-	expectedError := "circular dependency detected: repo-a -> repo-b -> repo-a"
+	expectedError := "circular dependency detected: local/repo-a -> local/repo-b -> local/repo-a"
 	if err.Error() != expectedError {
 		t.Errorf("Expected error message '%s', but got '%s'", expectedError, err.Error())
 	}
@@ -234,9 +242,6 @@ func TestPrintDot(t *testing.T) {
 }
 
 func TestFilter(t *testing.T) {
-	// A -> B -> C
-	// D -> E
-
 	testCases := []struct {
 		name          string
 		only          []string

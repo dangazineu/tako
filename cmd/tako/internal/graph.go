@@ -5,6 +5,7 @@ import (
 	"github.com/dangazineu/tako/internal/graph"
 	"github.com/spf13/cobra"
 	"os"
+	"strings"
 )
 
 func NewGraphCmd() *cobra.Command {
@@ -32,7 +33,17 @@ func NewGraphCmd() *cobra.Command {
 				return err
 			}
 
-			rootNode, err := graph.BuildGraph(entrypointPath, cacheDir, homeDir, local)
+			var repoName string
+			if repo != "" {
+				repoName = strings.Split(repo, ":")[0]
+			} else {
+				repoName, err = git.GetRepoName(entrypointPath)
+				if err != nil {
+					return err
+				}
+			}
+
+			rootNode, err := graph.BuildGraph(repoName, entrypointPath, cacheDir, homeDir, local)
 			if err != nil {
 				if _, ok := err.(*graph.CircularDependencyError); ok {
 					return err
