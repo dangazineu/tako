@@ -1,10 +1,13 @@
 package internal
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/dangazineu/tako/internal/engine"
 	"github.com/spf13/cobra"
 )
 
@@ -19,6 +22,20 @@ You can specify a workflow by its name.`,
 			workflowName := args[0]
 			repo, _ := cmd.Flags().GetString("repo")
 			resume, _ := cmd.Flags().GetString("resume")
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			debug, _ := cmd.Flags().GetBool("debug")
+			noCache, _ := cmd.Flags().GetBool("no-cache")
+			maxConcurrentRepos, _ := cmd.Flags().GetInt("max-concurrent-repos")
+
+			// Get cache directory
+			cacheDir, _ := cmd.Flags().GetString("cache-dir")
+			if cacheDir == "" {
+				homeDir, err := os.UserHomeDir()
+				if err != nil {
+					return fmt.Errorf("failed to get user home directory: %v", err)
+				}
+				cacheDir = filepath.Join(homeDir, ".tako", "cache")
+			}
 
 			inputs := make(map[string]string)
 			for _, arg := range os.Args {
@@ -44,8 +61,48 @@ You can specify a workflow by its name.`,
 				}
 			}
 
-			// TODO: Implement the actual execution logic.
-			return nil
+			// Handle resume operation
+			if resume != "" {
+				return handleResumeExecution(resume, cacheDir)
+			}
+
+			// Create execution runner
+			runnerOpts := engine.RunnerOptions{
+				CacheDir:           cacheDir,
+				MaxConcurrentRepos: maxConcurrentRepos,
+				DryRun:             dryRun,
+				Debug:              debug,
+				NoCache:            noCache,
+			}
+
+			runner, err := engine.NewRunner(runnerOpts)
+			if err != nil {
+				return fmt.Errorf("failed to create execution runner: %v", err)
+			}
+			defer runner.Close()
+
+			ctx := context.Background()
+
+			if repo != "" {
+				// Multi-repository execution mode
+				result, err := runner.ExecuteMultiRepoWorkflow(ctx, workflowName, inputs, repo)
+				if err != nil {
+					return fmt.Errorf("multi-repository execution failed: %v", err)
+				}
+				return printExecutionResult(result)
+			} else {
+				// Single-repository execution mode
+				repoPath, err := determineRepositoryPath(cmd)
+				if err != nil {
+					return fmt.Errorf("failed to determine repository path: %v", err)
+				}
+
+				result, err := runner.ExecuteWorkflow(ctx, workflowName, inputs, repoPath)
+				if err != nil {
+					return fmt.Errorf("workflow execution failed: %v", err)
+				}
+				return printExecutionResult(result)
+			}
 		},
 	}
 
@@ -56,7 +113,65 @@ You can specify a workflow by its name.`,
 	cmd.Flags().Bool("no-cache", false, "Invalidate the cache and execute all steps")
 	cmd.Flags().Int("max-concurrent-repos", 4, "Maximum number of repositories to process in parallel")
 	cmd.Flags().Bool("debug", false, "Enable interactive step-by-step execution")
+	cmd.Flags().String("cache-dir", "", "Directory for caching repositories (default: ~/.tako/cache)")
+	cmd.Flags().String("root", "", "Root directory for local repository execution")
 	cmd.FParseErrWhitelist.UnknownFlags = true
 
 	return cmd
+}
+
+// handleResumeExecution handles resuming a previous execution.
+func handleResumeExecution(runID, cacheDir string) error {
+	// TODO: Implement resume functionality
+	fmt.Printf("Resuming execution %s...\n", runID)
+	return fmt.Errorf("resume functionality not yet implemented")
+}
+
+// determineRepositoryPath determines the repository path for execution.
+func determineRepositoryPath(cmd *cobra.Command) (string, error) {
+	// Check for --root flag first
+	rootPath, _ := cmd.Flags().GetString("root")
+	if rootPath != "" {
+		return rootPath, nil
+	}
+
+	// Fall back to current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current working directory: %v", err)
+	}
+
+	return cwd, nil
+}
+
+// printExecutionResult prints the execution result.
+func printExecutionResult(result *engine.ExecutionResult) error {
+	if result == nil {
+		return fmt.Errorf("no execution result")
+	}
+
+	fmt.Printf("\nExecution completed: %s\n", result.RunID)
+	fmt.Printf("Success: %v\n", result.Success)
+	fmt.Printf("Duration: %v\n", result.EndTime.Sub(result.StartTime))
+
+	if result.Error != nil {
+		fmt.Printf("Error: %v\n", result.Error)
+	}
+
+	if len(result.Steps) > 0 {
+		fmt.Printf("\nSteps executed: %d\n", len(result.Steps))
+		for _, step := range result.Steps {
+			status := "✓"
+			if !step.Success {
+				status = "✗"
+			}
+			fmt.Printf("  %s %s (%v)\n", status, step.ID, step.EndTime.Sub(step.StartTime))
+		}
+	}
+
+	if !result.Success {
+		return fmt.Errorf("execution failed")
+	}
+
+	return nil
 }
