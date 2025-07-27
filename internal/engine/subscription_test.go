@@ -1,0 +1,683 @@
+package engine
+
+import (
+	"testing"
+	"time"
+
+	"github.com/dangazineu/tako/internal/config"
+)
+
+func TestNewSubscriptionEvaluator(t *testing.T) {
+	se, err := NewSubscriptionEvaluator()
+	if err != nil {
+		t.Fatalf("Failed to create subscription evaluator: %v", err)
+	}
+	if se == nil {
+		t.Fatal("Expected non-nil subscription evaluator")
+	}
+	if se.celEnv == nil {
+		t.Fatal("Expected non-nil CEL environment")
+	}
+	if se.costLimit != 1000000 {
+		t.Errorf("Expected cost limit 1000000, got %d", se.costLimit)
+	}
+}
+
+func TestSubscriptionEvaluator_EvaluateSubscription(t *testing.T) {
+	se, err := NewSubscriptionEvaluator()
+	if err != nil {
+		t.Fatalf("Failed to create subscription evaluator: %v", err)
+	}
+
+	event := Event{
+		Type:          "library_built",
+		SchemaVersion: "1.0.0",
+		Payload: map[string]interface{}{
+			"version": "2.1.0",
+			"status":  "success",
+		},
+		Source:    "test-org/library",
+		Timestamp: time.Now().Unix(),
+	}
+
+	tests := []struct {
+		name         string
+		subscription config.Subscription
+		event        Event
+		want         bool
+		expectError  bool
+	}{
+		{
+			name: "exact event type match",
+			subscription: config.Subscription{
+				Events:   []string{"library_built"},
+				Workflow: "update",
+			},
+			event: event,
+			want:  true,
+		},
+		{
+			name: "multiple event types - match",
+			subscription: config.Subscription{
+				Events:   []string{"library_updated", "library_built", "library_deployed"},
+				Workflow: "update",
+			},
+			event: event,
+			want:  true,
+		},
+		{
+			name: "event type mismatch",
+			subscription: config.Subscription{
+				Events:   []string{"library_deployed"},
+				Workflow: "deploy",
+			},
+			event: event,
+			want:  false,
+		},
+		{
+			name: "schema version exact match",
+			subscription: config.Subscription{
+				Events:        []string{"library_built"},
+				SchemaVersion: "1.0.0",
+				Workflow:      "update",
+			},
+			event: event,
+			want:  true,
+		},
+		{
+			name: "schema version caret range match",
+			subscription: config.Subscription{
+				Events:        []string{"library_built"},
+				SchemaVersion: "^1.0.0",
+				Workflow:      "update",
+			},
+			event: event,
+			want:  true,
+		},
+		{
+			name: "schema version incompatible",
+			subscription: config.Subscription{
+				Events:        []string{"library_built"},
+				SchemaVersion: "2.0.0",
+				Workflow:      "update",
+			},
+			event: event,
+			want:  false,
+		},
+		{
+			name: "CEL filter match",
+			subscription: config.Subscription{
+				Events:   []string{"library_built"},
+				Filters:  []string{"payload.status == 'success'"},
+				Workflow: "update",
+			},
+			event: event,
+			want:  true,
+		},
+		{
+			name: "CEL filter no match",
+			subscription: config.Subscription{
+				Events:   []string{"library_built"},
+				Filters:  []string{"payload.status == 'failed'"},
+				Workflow: "update",
+			},
+			event: event,
+			want:  false,
+		},
+		{
+			name: "multiple CEL filters - all match",
+			subscription: config.Subscription{
+				Events:   []string{"library_built"},
+				Filters:  []string{"payload.status == 'success'", "event_type == 'library_built'"},
+				Workflow: "update",
+			},
+			event: event,
+			want:  true,
+		},
+		{
+			name: "multiple CEL filters - one fails",
+			subscription: config.Subscription{
+				Events:   []string{"library_built"},
+				Filters:  []string{"payload.status == 'success'", "payload.version == '1.0.0'"},
+				Workflow: "update",
+			},
+			event: event,
+			want:  false,
+		},
+		{
+			name: "invalid CEL filter",
+			subscription: config.Subscription{
+				Events:   []string{"library_built"},
+				Filters:  []string{"invalid syntax ]["},
+				Workflow: "update",
+			},
+			event:       event,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := se.EvaluateSubscription(tt.subscription, tt.event)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error, but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if got != tt.want {
+				t.Errorf("EvaluateSubscription() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSubscriptionEvaluator_CheckSchemaCompatibility(t *testing.T) {
+	se, err := NewSubscriptionEvaluator()
+	if err != nil {
+		t.Fatalf("Failed to create subscription evaluator: %v", err)
+	}
+
+	tests := []struct {
+		name              string
+		eventVersion      string
+		subscriptionRange string
+		want              bool
+		expectError       bool
+	}{
+		{
+			name:              "exact version match",
+			eventVersion:      "1.0.0",
+			subscriptionRange: "1.0.0",
+			want:              true,
+		},
+		{
+			name:              "exact version mismatch",
+			eventVersion:      "1.0.0",
+			subscriptionRange: "2.0.0",
+			want:              false,
+		},
+		{
+			name:              "caret range compatible",
+			eventVersion:      "1.2.3",
+			subscriptionRange: "^1.0.0",
+			want:              true,
+		},
+		{
+			name:              "caret range incompatible major",
+			eventVersion:      "2.0.0",
+			subscriptionRange: "^1.0.0",
+			want:              false,
+		},
+		{
+			name:              "tilde range compatible",
+			eventVersion:      "1.0.5",
+			subscriptionRange: "~1.0.0",
+			want:              true,
+		},
+		{
+			name:              "tilde range incompatible minor",
+			eventVersion:      "1.1.0",
+			subscriptionRange: "~1.0.0",
+			want:              false,
+		},
+		{
+			name:              "greater than or equal - equal",
+			eventVersion:      "1.0.0",
+			subscriptionRange: ">=1.0.0",
+			want:              true,
+		},
+		{
+			name:              "greater than or equal - greater",
+			eventVersion:      "1.0.1",
+			subscriptionRange: ">=1.0.0",
+			want:              true,
+		},
+		{
+			name:              "greater than or equal - less",
+			eventVersion:      "0.9.0",
+			subscriptionRange: ">=1.0.0",
+			want:              false,
+		},
+		{
+			name:              "empty event version - compatible",
+			eventVersion:      "",
+			subscriptionRange: "1.0.0",
+			want:              true,
+		},
+		{
+			name:              "empty subscription range - compatible",
+			eventVersion:      "1.0.0",
+			subscriptionRange: "",
+			want:              true,
+		},
+		{
+			name:              "both empty - compatible",
+			eventVersion:      "",
+			subscriptionRange: "",
+			want:              true,
+		},
+		{
+			name:              "invalid event version",
+			eventVersion:      "invalid",
+			subscriptionRange: "1.0.0",
+			expectError:       true,
+		},
+		{
+			name:              "invalid subscription range",
+			eventVersion:      "1.0.0",
+			subscriptionRange: "invalid",
+			expectError:       true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := se.CheckSchemaCompatibility(tt.eventVersion, tt.subscriptionRange)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error, but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if got != tt.want {
+				t.Errorf("CheckSchemaCompatibility() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSubscriptionEvaluator_ProcessEventPayload(t *testing.T) {
+	se, err := NewSubscriptionEvaluator()
+	if err != nil {
+		t.Fatalf("Failed to create subscription evaluator: %v", err)
+	}
+
+	payload := map[string]interface{}{
+		"version": "2.1.0",
+		"status":  "success",
+		"tags":    []string{"latest", "stable"},
+	}
+
+	tests := []struct {
+		name         string
+		payload      map[string]interface{}
+		subscription config.Subscription
+		want         map[string]string
+		expectError  bool
+	}{
+		{
+			name:    "simple template substitution",
+			payload: payload,
+			subscription: config.Subscription{
+				Inputs: map[string]string{
+					"version": "{{ .payload.version }}",
+					"status":  "{{ .payload.status }}",
+				},
+			},
+			want: map[string]string{
+				"version": "2.1.0",
+				"status":  "success",
+			},
+		},
+		{
+			name:    "literal input values",
+			payload: payload,
+			subscription: config.Subscription{
+				Inputs: map[string]string{
+					"environment": "production",
+					"action":      "deploy",
+				},
+			},
+			want: map[string]string{
+				"environment": "production",
+				"action":      "deploy",
+			},
+		},
+		{
+			name:    "mixed template and literal",
+			payload: payload,
+			subscription: config.Subscription{
+				Inputs: map[string]string{
+					"version":     "{{ .payload.version }}",
+					"environment": "staging",
+				},
+			},
+			want: map[string]string{
+				"version":     "2.1.0",
+				"environment": "staging",
+			},
+		},
+		{
+			name:    "nonexistent payload field",
+			payload: payload,
+			subscription: config.Subscription{
+				Inputs: map[string]string{
+					"missing": "{{ .payload.nonexistent }}",
+				},
+			},
+			expectError: true,
+		},
+		{
+			name:    "empty inputs",
+			payload: payload,
+			subscription: config.Subscription{
+				Inputs: map[string]string{},
+			},
+			want: map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := se.ProcessEventPayload(tt.payload, tt.subscription)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error, but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if len(got) != len(tt.want) {
+				t.Errorf("ProcessEventPayload() result length = %v, want %v", len(got), len(tt.want))
+				return
+			}
+
+			for key, expectedValue := range tt.want {
+				if actualValue, exists := got[key]; !exists {
+					t.Errorf("ProcessEventPayload() missing key %s", key)
+				} else if actualValue != expectedValue {
+					t.Errorf("ProcessEventPayload() key %s = %v, want %v", key, actualValue, expectedValue)
+				}
+			}
+		})
+	}
+}
+
+func TestParseSemVer(t *testing.T) {
+	tests := []struct {
+		name        string
+		version     string
+		want        SemVer
+		expectError bool
+	}{
+		{
+			name:    "valid version",
+			version: "1.2.3",
+			want:    SemVer{Major: 1, Minor: 2, Patch: 3},
+		},
+		{
+			name:    "version with zeros",
+			version: "0.0.0",
+			want:    SemVer{Major: 0, Minor: 0, Patch: 0},
+		},
+		{
+			name:    "large version numbers",
+			version: "10.20.30",
+			want:    SemVer{Major: 10, Minor: 20, Patch: 30},
+		},
+		{
+			name:        "invalid format - missing patch",
+			version:     "1.2",
+			expectError: true,
+		},
+		{
+			name:        "invalid format - extra component",
+			version:     "1.2.3.4",
+			expectError: true,
+		},
+		{
+			name:        "invalid format - non-numeric",
+			version:     "1.2.x",
+			expectError: true,
+		},
+		{
+			name:        "empty string",
+			version:     "",
+			expectError: true,
+		},
+		{
+			name:        "invalid format - with v prefix",
+			version:     "v1.2.3",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseSemVer(tt.version)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error, but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if got != tt.want {
+				t.Errorf("parseSemVer() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEvaluateVersionRange(t *testing.T) {
+	tests := []struct {
+		name        string
+		version     SemVer
+		rangeSpec   string
+		want        bool
+		expectError bool
+	}{
+		{
+			name:      "exact match",
+			version:   SemVer{1, 2, 3},
+			rangeSpec: "1.2.3",
+			want:      true,
+		},
+		{
+			name:      "exact no match",
+			version:   SemVer{1, 2, 3},
+			rangeSpec: "1.2.4",
+			want:      false,
+		},
+		{
+			name:      "caret range - same version",
+			version:   SemVer{1, 2, 3},
+			rangeSpec: "^1.2.3",
+			want:      true,
+		},
+		{
+			name:      "caret range - higher minor",
+			version:   SemVer{1, 3, 0},
+			rangeSpec: "^1.2.3",
+			want:      true,
+		},
+		{
+			name:      "caret range - higher patch",
+			version:   SemVer{1, 2, 5},
+			rangeSpec: "^1.2.3",
+			want:      true,
+		},
+		{
+			name:      "caret range - incompatible major",
+			version:   SemVer{2, 0, 0},
+			rangeSpec: "^1.2.3",
+			want:      false,
+		},
+		{
+			name:      "caret range - lower minor",
+			version:   SemVer{1, 1, 0},
+			rangeSpec: "^1.2.3",
+			want:      false,
+		},
+		{
+			name:      "tilde range - same version",
+			version:   SemVer{1, 2, 3},
+			rangeSpec: "~1.2.3",
+			want:      true,
+		},
+		{
+			name:      "tilde range - higher patch",
+			version:   SemVer{1, 2, 5},
+			rangeSpec: "~1.2.3",
+			want:      true,
+		},
+		{
+			name:      "tilde range - incompatible minor",
+			version:   SemVer{1, 3, 0},
+			rangeSpec: "~1.2.3",
+			want:      false,
+		},
+		{
+			name:      "greater than or equal - equal",
+			version:   SemVer{1, 2, 3},
+			rangeSpec: ">=1.2.3",
+			want:      true,
+		},
+		{
+			name:      "greater than or equal - greater",
+			version:   SemVer{1, 2, 4},
+			rangeSpec: ">=1.2.3",
+			want:      true,
+		},
+		{
+			name:      "greater than or equal - less",
+			version:   SemVer{1, 2, 2},
+			rangeSpec: ">=1.2.3",
+			want:      false,
+		},
+		{
+			name:      "greater than - greater",
+			version:   SemVer{1, 2, 4},
+			rangeSpec: ">1.2.3",
+			want:      true,
+		},
+		{
+			name:      "greater than - equal",
+			version:   SemVer{1, 2, 3},
+			rangeSpec: ">1.2.3",
+			want:      false,
+		},
+		{
+			name:        "invalid range format",
+			version:     SemVer{1, 2, 3},
+			rangeSpec:   "invalid",
+			expectError: true,
+		},
+		{
+			name:        "unsupported operator",
+			version:     SemVer{1, 2, 3},
+			rangeSpec:   "!=1.2.3",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := evaluateVersionRange(tt.version, tt.rangeSpec)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error, but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if got != tt.want {
+				t.Errorf("evaluateVersionRange() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCompareVersions(t *testing.T) {
+	tests := []struct {
+		name string
+		v1   SemVer
+		v2   SemVer
+		want int
+	}{
+		{
+			name: "equal versions",
+			v1:   SemVer{1, 2, 3},
+			v2:   SemVer{1, 2, 3},
+			want: 0,
+		},
+		{
+			name: "v1 major > v2 major",
+			v1:   SemVer{2, 0, 0},
+			v2:   SemVer{1, 9, 9},
+			want: 1,
+		},
+		{
+			name: "v1 major < v2 major",
+			v1:   SemVer{1, 9, 9},
+			v2:   SemVer{2, 0, 0},
+			want: -1,
+		},
+		{
+			name: "v1 minor > v2 minor",
+			v1:   SemVer{1, 3, 0},
+			v2:   SemVer{1, 2, 9},
+			want: 1,
+		},
+		{
+			name: "v1 minor < v2 minor",
+			v1:   SemVer{1, 2, 9},
+			v2:   SemVer{1, 3, 0},
+			want: -1,
+		},
+		{
+			name: "v1 patch > v2 patch",
+			v1:   SemVer{1, 2, 4},
+			v2:   SemVer{1, 2, 3},
+			want: 1,
+		},
+		{
+			name: "v1 patch < v2 patch",
+			v1:   SemVer{1, 2, 3},
+			v2:   SemVer{1, 2, 4},
+			want: -1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := compareVersions(tt.v1, tt.v2)
+			if got != tt.want {
+				t.Errorf("compareVersions() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

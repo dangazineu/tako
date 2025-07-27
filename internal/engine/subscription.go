@@ -1,0 +1,339 @@
+package engine
+
+import (
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"github.com/dangazineu/tako/internal/config"
+	"github.com/google/cel-go/cel"
+	"github.com/google/cel-go/checker/decls"
+	"github.com/google/cel-go/common/types"
+)
+
+// Event represents an event emitted by a fan-out step.
+type Event struct {
+	Type          string
+	SchemaVersion string
+	Payload       map[string]interface{}
+	Source        string
+	Timestamp     int64
+}
+
+// SubscriptionEvaluator handles event-subscription matching and filtering.
+type SubscriptionEvaluator struct {
+	celEnv    *cel.Env
+	costLimit uint64 // Maximum cost for CEL expression evaluation
+}
+
+// NewSubscriptionEvaluator creates a new subscription evaluator with security safeguards.
+func NewSubscriptionEvaluator() (*SubscriptionEvaluator, error) {
+	// Create CEL environment with security constraints
+	env, err := cel.NewEnv(
+		cel.Declarations(
+			// Event context available in CEL expressions
+			decls.NewVar("event", decls.NewMapType(decls.String, decls.Dyn)),
+			decls.NewVar("payload", decls.NewMapType(decls.String, decls.Dyn)),
+			decls.NewVar("event_type", decls.String),
+			decls.NewVar("schema_version", decls.String),
+			decls.NewVar("source", decls.String),
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create CEL environment: %v", err)
+	}
+
+	return &SubscriptionEvaluator{
+		celEnv:    env,
+		costLimit: 1000000, // 1M cost units - prevents complex expressions from causing DoS
+	}, nil
+}
+
+// EvaluateSubscription checks if a subscription matches the specified event.
+func (se *SubscriptionEvaluator) EvaluateSubscription(subscription config.Subscription, event Event) (bool, error) {
+	// First check basic event type matching
+	eventTypeMatches := false
+	for _, subEventType := range subscription.Events {
+		if subEventType == event.Type {
+			eventTypeMatches = true
+			break
+		}
+	}
+	if !eventTypeMatches {
+		return false, nil
+	}
+
+	// Check schema version compatibility if specified
+	if subscription.SchemaVersion != "" {
+		compatible, err := se.CheckSchemaCompatibility(event.SchemaVersion, subscription.SchemaVersion)
+		if err != nil {
+			return false, fmt.Errorf("schema compatibility check failed: %v", err)
+		}
+		if !compatible {
+			return false, nil
+		}
+	}
+
+	// Evaluate CEL filter expressions if present
+	for i, filter := range subscription.Filters {
+		matches, err := se.evaluateCELFilter(filter, event)
+		if err != nil {
+			return false, fmt.Errorf("filter %d evaluation failed: %v", i, err)
+		}
+		if !matches {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+// CheckSchemaCompatibility checks if the event's schema version is compatible with the subscription's version range.
+func (se *SubscriptionEvaluator) CheckSchemaCompatibility(eventVersion, subscriptionRange string) (bool, error) {
+	// If no event version is specified, assume compatibility
+	if eventVersion == "" {
+		return true, nil
+	}
+
+	// If no subscription version range is specified, accept any version
+	if subscriptionRange == "" {
+		return true, nil
+	}
+
+	// Parse the event version
+	eventSemVer, err := parseSemVer(eventVersion)
+	if err != nil {
+		return false, fmt.Errorf("invalid event schema version '%s': %v", eventVersion, err)
+	}
+
+	// Parse and evaluate the subscription version range
+	return evaluateVersionRange(eventSemVer, subscriptionRange)
+}
+
+// ProcessEventPayload processes the event payload for input mapping to workflow inputs.
+func (se *SubscriptionEvaluator) ProcessEventPayload(payload map[string]interface{}, subscription config.Subscription) (map[string]string, error) {
+	result := make(map[string]string)
+
+	// Process each input mapping in the subscription
+	for inputName, inputValue := range subscription.Inputs {
+		// For now, we'll do simple template variable substitution
+		// This will be enhanced to use the full template engine in later phases
+		processedValue, err := se.processSimpleTemplate(inputValue, payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to process input '%s': %v", inputName, err)
+		}
+		result[inputName] = processedValue
+	}
+
+	return result, nil
+}
+
+// evaluateCELFilter evaluates a CEL expression against an event.
+func (se *SubscriptionEvaluator) evaluateCELFilter(filterExpr string, event Event) (bool, error) {
+	// Parse the CEL expression
+	ast, issues := se.celEnv.Compile(filterExpr)
+	if issues != nil && issues.Err() != nil {
+		return false, fmt.Errorf("CEL compilation error: %v", issues.Err())
+	}
+
+	// Create evaluation program
+	program, err := se.celEnv.Program(ast)
+	if err != nil {
+		return false, fmt.Errorf("CEL program creation error: %v", err)
+	}
+
+	// Prepare evaluation context
+	evalCtx := map[string]interface{}{
+		"event":          eventToMap(event),
+		"payload":        event.Payload,
+		"event_type":     event.Type,
+		"schema_version": event.SchemaVersion,
+		"source":         event.Source,
+	}
+
+	// Evaluate the expression
+	result, _, err := program.Eval(evalCtx)
+	if err != nil {
+		return false, fmt.Errorf("CEL evaluation error: %v", err)
+	}
+
+	// Convert result to boolean
+	if result.Type() != types.BoolType {
+		return false, fmt.Errorf("CEL expression must return boolean, got %v", result.Type())
+	}
+
+	return result.Value().(bool), nil
+}
+
+// processSimpleTemplate processes a simple template string with variable substitution.
+// This is a simplified implementation - full template processing will be added in later phases.
+func (se *SubscriptionEvaluator) processSimpleTemplate(template string, payload map[string]interface{}) (string, error) {
+	result := template
+
+	// Simple variable substitution for {{ .payload.field }} patterns
+	re := regexp.MustCompile(`\{\{\s*\.payload\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}`)
+	matches := re.FindAllStringSubmatch(template, -1)
+
+	for _, match := range matches {
+		fullMatch := match[0]
+		fieldName := match[1]
+
+		if value, exists := payload[fieldName]; exists {
+			// Convert value to string
+			strValue := fmt.Sprintf("%v", value)
+			result = strings.ReplaceAll(result, fullMatch, strValue)
+		} else {
+			return "", fmt.Errorf("payload field '%s' not found", fieldName)
+		}
+	}
+
+	return result, nil
+}
+
+// eventToMap converts an Event to a map for CEL evaluation.
+func eventToMap(event Event) map[string]interface{} {
+	return map[string]interface{}{
+		"type":           event.Type,
+		"schema_version": event.SchemaVersion,
+		"payload":        event.Payload,
+		"source":         event.Source,
+		"timestamp":      event.Timestamp,
+	}
+}
+
+// SemVer represents a semantic version.
+type SemVer struct {
+	Major int
+	Minor int
+	Patch int
+}
+
+// parseSemVer parses a semantic version string.
+func parseSemVer(version string) (SemVer, error) {
+	// Basic semantic version regex (major.minor.patch)
+	re := regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)$`)
+	matches := re.FindStringSubmatch(version)
+	if len(matches) != 4 {
+		return SemVer{}, fmt.Errorf("invalid semantic version format: %s", version)
+	}
+
+	major, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return SemVer{}, fmt.Errorf("invalid major version: %v", err)
+	}
+
+	minor, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return SemVer{}, fmt.Errorf("invalid minor version: %v", err)
+	}
+
+	patch, err := strconv.Atoi(matches[3])
+	if err != nil {
+		return SemVer{}, fmt.Errorf("invalid patch version: %v", err)
+	}
+
+	return SemVer{Major: major, Minor: minor, Patch: patch}, nil
+}
+
+// evaluateVersionRange evaluates whether a semantic version satisfies a version range.
+// Supports basic ranges like "1.0.0", "^1.0.0", "~1.0.0", ">=1.0.0"
+func evaluateVersionRange(version SemVer, rangeSpec string) (bool, error) {
+	rangeSpec = strings.TrimSpace(rangeSpec)
+
+	// Exact version match
+	if !strings.ContainsAny(rangeSpec, "^~><") {
+		targetVersion, err := parseSemVer(rangeSpec)
+		if err != nil {
+			return false, err
+		}
+		return version == targetVersion, nil
+	}
+
+	// Caret range (^1.0.0) - compatible within major version
+	if strings.HasPrefix(rangeSpec, "^") {
+		targetVersion, err := parseSemVer(strings.TrimPrefix(rangeSpec, "^"))
+		if err != nil {
+			return false, err
+		}
+		return version.Major == targetVersion.Major &&
+			(version.Minor > targetVersion.Minor ||
+				(version.Minor == targetVersion.Minor && version.Patch >= targetVersion.Patch)), nil
+	}
+
+	// Tilde range (~1.0.0) - compatible within minor version
+	if strings.HasPrefix(rangeSpec, "~") {
+		targetVersion, err := parseSemVer(strings.TrimPrefix(rangeSpec, "~"))
+		if err != nil {
+			return false, err
+		}
+		return version.Major == targetVersion.Major &&
+			version.Minor == targetVersion.Minor &&
+			version.Patch >= targetVersion.Patch, nil
+	}
+
+	// Greater than or equal (>=1.0.0)
+	if strings.HasPrefix(rangeSpec, ">=") {
+		targetVersion, err := parseSemVer(strings.TrimPrefix(rangeSpec, ">="))
+		if err != nil {
+			return false, err
+		}
+		return compareVersions(version, targetVersion) >= 0, nil
+	}
+
+	// Greater than (>1.0.0)
+	if strings.HasPrefix(rangeSpec, ">") {
+		targetVersion, err := parseSemVer(strings.TrimPrefix(rangeSpec, ">"))
+		if err != nil {
+			return false, err
+		}
+		return compareVersions(version, targetVersion) > 0, nil
+	}
+
+	// Less than or equal (<=1.0.0)
+	if strings.HasPrefix(rangeSpec, "<=") {
+		targetVersion, err := parseSemVer(strings.TrimPrefix(rangeSpec, "<="))
+		if err != nil {
+			return false, err
+		}
+		return compareVersions(version, targetVersion) <= 0, nil
+	}
+
+	// Less than (<1.0.0)
+	if strings.HasPrefix(rangeSpec, "<") {
+		targetVersion, err := parseSemVer(strings.TrimPrefix(rangeSpec, "<"))
+		if err != nil {
+			return false, err
+		}
+		return compareVersions(version, targetVersion) < 0, nil
+	}
+
+	return false, fmt.Errorf("unsupported version range format: %s", rangeSpec)
+}
+
+// compareVersions compares two semantic versions.
+// Returns: -1 if v1 < v2, 0 if v1 == v2, 1 if v1 > v2
+func compareVersions(v1, v2 SemVer) int {
+	if v1.Major != v2.Major {
+		if v1.Major < v2.Major {
+			return -1
+		}
+		return 1
+	}
+
+	if v1.Minor != v2.Minor {
+		if v1.Minor < v2.Minor {
+			return -1
+		}
+		return 1
+	}
+
+	if v1.Patch != v2.Patch {
+		if v1.Patch < v2.Patch {
+			return -1
+		}
+		return 1
+	}
+
+	return 0
+}
