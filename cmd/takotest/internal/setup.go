@@ -320,6 +320,165 @@ func buildTakoConfig(envName, owner string, repoDef *e2e.RepositoryDef) *config.
 		}
 	}
 
+	if envName == "single-repo-workflow" {
+		// Advanced workflow with input validation and type conversion
+		takoConfig.Workflows["advanced-input-workflow"] = config.Workflow{
+			Inputs: map[string]config.WorkflowInput{
+				"environment": {
+					Type:     "string",
+					Required: true,
+					Validation: config.WorkflowInputValidation{
+						Enum: []string{"dev", "staging", "prod"},
+					},
+				},
+				"version": {
+					Type:    "string",
+					Default: "1.0.0",
+				},
+				"replicas": {
+					Type:    "string",
+					Default: "3",
+				},
+				"debug": {
+					Type:    "string",
+					Default: "false",
+				},
+			},
+			Steps: []config.WorkflowStep{
+				{
+					ID:  "validate_inputs",
+					Run: "echo 'Environment: {{ .Inputs.environment }}, Version: {{ .Inputs.version }}, Replicas: {{ .Inputs.replicas }}, Debug: {{ .Inputs.debug }}'",
+				},
+				{
+					ID:  "process_with_templates",
+					Run: "echo 'Processed: {{ .Steps.validate_inputs.result | shell_quote }}' && echo 'JSON: {{ .Inputs.environment | json_escape }}' && echo 'URL: {{ .Inputs.version | url_encode }}'",
+					Produces: &config.WorkflowStepProduces{
+						Outputs: map[string]string{
+							"processed_data": "from_stdout",
+						},
+					},
+				},
+				{
+					ID:  "final_step",
+					Run: "echo 'Final result: {{ .Steps.process_with_templates.outputs.processed_data }}'",
+					Produces: &config.WorkflowStepProduces{
+						Outputs: map[string]string{
+							"final_output": "from_stdout",
+						},
+					},
+				},
+			},
+		}
+
+		// Basic step output testing workflow
+		takoConfig.Workflows["step-output-workflow"] = config.Workflow{
+			Steps: []config.WorkflowStep{
+				{
+					ID:  "step1",
+					Run: "echo 'output1'",
+					Produces: &config.WorkflowStepProduces{
+						Outputs: map[string]string{
+							"result": "from_stdout",
+						},
+					},
+				},
+				{
+					ID:  "step2",
+					Run: "echo 'Step1 output was: {{ .Steps.step1.outputs.result }}'",
+					Produces: &config.WorkflowStepProduces{
+						Outputs: map[string]string{
+							"combined": "from_stdout",
+						},
+					},
+				},
+				{
+					ID:  "step3",
+					Run: "echo 'Final: {{ .Steps.step2.outputs.combined }}'",
+				},
+			},
+		}
+
+		// Error handling workflow
+		takoConfig.Workflows["error-handling-workflow"] = config.Workflow{
+			Steps: []config.WorkflowStep{
+				{
+					ID:  "success_step",
+					Run: "echo 'This step succeeds'",
+				},
+				{
+					ID:  "failure_step",
+					Run: "echo 'This step will fail' && exit 1",
+				},
+				{
+					ID:  "should_not_run",
+					Run: "echo 'This should not execute'",
+				},
+			},
+		}
+
+		// Template variable resolution workflow
+		takoConfig.Workflows["template-variable-workflow"] = config.Workflow{
+			Inputs: map[string]config.WorkflowInput{
+				"message": {
+					Type:    "string",
+					Default: "Hello World",
+				},
+				"count": {
+					Type:    "string",
+					Default: "5",
+				},
+			},
+			Steps: []config.WorkflowStep{
+				{
+					ID:  "test_variables",
+					Run: "echo 'Message: {{ .Inputs.message }}' && echo 'Count: {{ .Inputs.count }}' && echo 'Combined: {{ .Inputs.message }}-{{ .Inputs.count }}'",
+					Produces: &config.WorkflowStepProduces{
+						Outputs: map[string]string{
+							"message_output": "from_stdout",
+						},
+					},
+				},
+				{
+					ID:  "test_security_functions",
+					Run: "echo 'Shell quoted: {{ .Inputs.message | shell_quote }}' && echo 'JSON escaped: {{ .Inputs.message | json_escape }}' && echo 'HTML escaped: {{ .Inputs.message | html_escape }}'",
+				},
+			},
+		}
+
+		// Long-running workflow (for future resume testing)
+		takoConfig.Workflows["long-running-workflow"] = config.Workflow{
+			Steps: []config.WorkflowStep{
+				{
+					ID:  "prepare",
+					Run: "chmod +x ./scripts/prepare.sh && ./scripts/prepare.sh",
+					Produces: &config.WorkflowStepProduces{
+						Outputs: map[string]string{
+							"prepare_result": "from_stdout",
+						},
+					},
+				},
+				{
+					ID:  "long_process",
+					Run: "chmod +x ./scripts/long-process.sh && ./scripts/long-process.sh",
+					Produces: &config.WorkflowStepProduces{
+						Outputs: map[string]string{
+							"process_result": "from_stdout",
+						},
+					},
+				},
+				{
+					ID:  "finalize",
+					Run: "chmod +x ./scripts/finalize.sh && ./scripts/finalize.sh",
+					Produces: &config.WorkflowStepProduces{
+						Outputs: map[string]string{
+							"final_result": "from_stdout",
+						},
+					},
+				},
+			},
+		}
+	}
+
 	for _, dep := range repoDef.Dependencies {
 		takoConfig.Subscriptions = append(takoConfig.Subscriptions, config.Subscription{
 			Artifact: fmt.Sprintf("%s/%s-%s:default", owner, envName, dep),

@@ -135,5 +135,225 @@ func GetTestCases() []TestCase {
 				},
 			},
 		},
+		{
+			Name:        "exec-advanced-input-validation",
+			Environment: "single-repo-workflow",
+			ReadOnly:    true,
+			Test: []Step{
+				{
+					Name:    "tako exec with valid enum input",
+					Command: "tako",
+					Args:    []string{"exec", "advanced-input-workflow", "--inputs.environment=staging", "--inputs.version=2.0.0"},
+					AssertOutputContains: []string{
+						"Executing workflow 'advanced-input-workflow'",
+						"environment: staging",
+						"version: 2.0.0",
+						"Success: true",
+						"validate_inputs",
+						"process_with_templates",
+						"final_step",
+					},
+				},
+				{
+					Name:             "tako exec with invalid enum input should fail",
+					Command:          "tako",
+					Args:             []string{"exec", "advanced-input-workflow", "--inputs.environment=invalid"},
+					ExpectedExitCode: 1,
+					AssertOutputContains: []string{
+						"workflow execution failed",
+						"not in allowed values",
+					},
+				},
+				{
+					Name:             "tako exec missing required input should fail",
+					Command:          "tako",
+					Args:             []string{"exec", "advanced-input-workflow", "--inputs.version=1.0.0"},
+					ExpectedExitCode: 1,
+					AssertOutputContains: []string{
+						"required input 'environment' not provided",
+					},
+				},
+			},
+		},
+		{
+			Name:        "exec-step-output-passing",
+			Environment: "single-repo-workflow",
+			ReadOnly:    true,
+			Test: []Step{
+				{
+					Name:    "tako exec step output workflow",
+					Command: "tako",
+					Args:    []string{"exec", "step-output-workflow"},
+					AssertOutputContains: []string{
+						"Executing workflow 'step-output-workflow'",
+						"Success: true",
+						"step1",
+						"step2", 
+						"step3",
+					},
+				},
+			},
+		},
+		{
+			Name:        "exec-template-variable-resolution",
+			Environment: "single-repo-workflow",
+			ReadOnly:    true,
+			Test: []Step{
+				{
+					Name:    "tako exec template variables with default values",
+					Command: "tako",
+					Args:    []string{"exec", "template-variable-workflow"},
+					AssertOutputContains: []string{
+						"Executing workflow 'template-variable-workflow'",
+						"Success: true",
+						"test_variables",
+						"test_security_functions",
+					},
+				},
+				{
+					Name:    "tako exec template variables with custom values",
+					Command: "tako",
+					Args:    []string{"exec", "template-variable-workflow", "--inputs.message=Custom Message", "--inputs.count=10"},
+					AssertOutputContains: []string{
+						"Executing workflow 'template-variable-workflow'",
+						"message: Custom Message",
+						"count: 10",
+						"Success: true",
+					},
+				},
+				{
+					Name:    "tako exec template security functions",
+					Command: "tako",
+					Args:    []string{"exec", "template-variable-workflow", "--inputs.message=test'quote\"json&html"},
+					AssertOutputContains: []string{
+						"Executing workflow 'template-variable-workflow'",
+						"Success: true",
+						"test_variables",
+						"test_security_functions",
+					},
+				},
+			},
+		},
+		{
+			Name:        "exec-error-handling",
+			Environment: "single-repo-workflow",
+			ReadOnly:    true,
+			Test: []Step{
+				{
+					Name:             "tako exec workflow with step failure",
+					Command:          "tako",
+					Args:             []string{"exec", "error-handling-workflow"},
+					ExpectedExitCode: 1,
+					AssertOutputContains: []string{
+						"Executing workflow 'error-handling-workflow'",
+						"workflow execution failed",
+						"success_step",
+						"failure_step",
+					},
+				},
+			},
+		},
+		{
+			Name:        "exec-long-running-workflow",
+			Environment: "single-repo-workflow",
+			ReadOnly:    false,
+			Test: []Step{
+				{
+					Name:    "tako exec long-running workflow",
+					Command: "tako",
+					Args:    []string{"exec", "long-running-workflow"},
+					AssertOutputContains: []string{
+						"Executing workflow 'long-running-workflow'",
+						"Success: true",
+						"prepare",
+						"long_process",
+						"finalize",
+					},
+				},
+			},
+			Verify: Verification{
+				Files: []VerifyFileExists{
+					{
+						FileName:        "preparation.log",
+						ShouldExist:     true,
+						ExpectedContent: "Workflow preparation complete",
+					},
+					{
+						FileName:        "long-process.log",
+						ShouldExist:     true,
+						ExpectedContent: "Long process completed successfully",
+					},
+					{
+						FileName:        "finalization.log",
+						ShouldExist:     true,
+						ExpectedContent: "Workflow finalization complete",
+					},
+				},
+			},
+		},
+		{
+			Name:        "exec-dry-run-mode",
+			Environment: "single-repo-workflow",
+			ReadOnly:    true,
+			Test: []Step{
+				{
+					Name:    "tako exec with dry-run flag",
+					Command: "tako",
+					Args:    []string{"exec", "long-running-workflow", "--dry-run"},
+					AssertOutputContains: []string{
+						"Executing workflow 'long-running-workflow'",
+						"[dry-run]",
+					},
+				},
+			},
+			Verify: Verification{
+				Files: []VerifyFileExists{
+					{
+						FileName:    "preparation.log",
+						ShouldExist: false,
+					},
+					{
+						FileName:    "long-process.log",
+						ShouldExist: false,
+					},
+					{
+						FileName:    "finalization.log",
+						ShouldExist: false,
+					},
+				},
+			},
+		},
+		{
+			Name:        "exec-debug-mode",
+			Environment: "single-repo-workflow",
+			ReadOnly:    true,
+			Test: []Step{
+				{
+					Name:    "tako exec with debug flag",
+					Command: "tako",
+					Args:    []string{"exec", "step-output-workflow", "--debug"},
+					AssertOutputContains: []string{
+						"Executing workflow 'step-output-workflow'",
+						"Debug mode enabled",
+					},
+				},
+			},
+		},
+		{
+			Name:        "exec-workflow-not-found",
+			Environment: "single-repo-workflow",
+			ReadOnly:    true,
+			Test: []Step{
+				{
+					Name:             "tako exec non-existent workflow should fail",
+					Command:          "tako",
+					Args:             []string{"exec", "non-existent-workflow"},
+					ExpectedExitCode: 1,
+					AssertOutputContains: []string{
+						"workflow 'non-existent-workflow' not found",
+					},
+				},
+			},
+		},
 	}
 }
