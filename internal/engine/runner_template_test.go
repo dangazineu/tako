@@ -186,7 +186,8 @@ func TestRunner_executeBuiltinStep(t *testing.T) {
 	startTime := time.Now()
 
 	// Execute built-in step (should return not implemented error)
-	result, err := runner.executeBuiltinStep(step, stepID, startTime)
+	ctx := context.Background()
+	result, err := runner.executeBuiltinStep(ctx, step, stepID, startTime)
 
 	// Should return error indicating not implemented
 	if err == nil {
@@ -250,7 +251,8 @@ func TestRunner_executeBuiltinStep_DifferentBuiltins(t *testing.T) {
 			}
 
 			startTime := time.Now()
-			result, err := runner.executeBuiltinStep(step, step.ID, startTime)
+			ctx := context.Background()
+			result, err := runner.executeBuiltinStep(ctx, step, step.ID, startTime)
 
 			// All should return not implemented error
 			if err == nil {

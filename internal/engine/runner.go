@@ -81,7 +81,7 @@ type Runner struct {
 	mu sync.RWMutex
 }
 
-// Ensure Runner implements WorkflowRunner interface for fan-out steps
+// Runner implements WorkflowRunner interface for fan-out steps.
 var _ interfaces.WorkflowRunner = (*Runner)(nil)
 
 // NewRunner creates a new execution runner with the specified configuration.
@@ -420,7 +420,7 @@ func (r *Runner) executeStep(ctx context.Context, step config.WorkflowStep, work
 
 	// Check if this is a built-in step (uses: field)
 	if step.Uses != "" {
-		return r.executeBuiltinStep(step, stepID, startTime)
+		return r.executeBuiltinStep(ctx, step, stepID, startTime)
 	}
 
 	// Check if this is a container step (image: field)
@@ -531,7 +531,7 @@ func (r *Runner) executeShellStep(ctx context.Context, step config.WorkflowStep,
 }
 
 // executeBuiltinStep executes a built-in Tako step.
-func (r *Runner) executeBuiltinStep(step config.WorkflowStep, stepID string, startTime time.Time) (StepResult, error) {
+func (r *Runner) executeBuiltinStep(ctx context.Context, step config.WorkflowStep, stepID string, startTime time.Time) (StepResult, error) {
 	// Parse step name and version
 	stepParts := strings.Split(step.Uses, "@")
 	if len(stepParts) != 2 {
@@ -552,7 +552,7 @@ func (r *Runner) executeBuiltinStep(step config.WorkflowStep, stepID string, sta
 	switch stepName {
 	case "tako/fan-out":
 		if stepVersion == "v1" {
-			return r.executeFanOutStep(step, stepID, startTime)
+			return r.executeFanOutStep(ctx, step, stepID, startTime)
 		}
 		err := fmt.Errorf("unsupported fan-out step version: %s", stepVersion)
 		r.state.FailStep(stepID, err.Error())
@@ -578,7 +578,7 @@ func (r *Runner) executeBuiltinStep(step config.WorkflowStep, stepID string, sta
 }
 
 // executeFanOutStep executes a tako/fan-out@v1 step.
-func (r *Runner) executeFanOutStep(step config.WorkflowStep, stepID string, startTime time.Time) (StepResult, error) {
+func (r *Runner) executeFanOutStep(ctx context.Context, step config.WorkflowStep, stepID string, startTime time.Time) (StepResult, error) {
 	// Create fan-out executor
 	fanOutExecutor := steps.NewFanOutExecutor(r.orchestrator, r)
 
@@ -589,7 +589,6 @@ func (r *Runner) executeFanOutStep(step config.WorkflowStep, stepID string, star
 	eventPayload := map[string]string{}               // This should come from step outputs and inputs
 
 	// Execute the fan-out step
-	ctx := context.Background() // TODO: Use proper context from execution
 	result, err := fanOutExecutor.Execute(ctx, step, artifactRef, eventPayload)
 	if err != nil {
 		r.state.FailStep(stepID, err.Error())

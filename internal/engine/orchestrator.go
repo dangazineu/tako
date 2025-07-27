@@ -17,7 +17,7 @@ type Orchestrator struct {
 	cacheDir      string
 }
 
-// Ensure Orchestrator implements SubscriptionDiscoverer
+// Orchestrator implements SubscriptionDiscoverer interface.
 var _ interfaces.SubscriptionDiscoverer = (*Orchestrator)(nil)
 
 // NewOrchestrator creates a new orchestrator for multi-repository coordination.
@@ -49,7 +49,7 @@ func (o *Orchestrator) DiscoverSubscriptions(ctx context.Context, eventType, art
 }
 
 // discoverRepositories scans the cache directory for repositories with tako.yml files.
-func (o *Orchestrator) discoverRepositories(ctx context.Context) (map[string]string, error) {
+func (o *Orchestrator) discoverRepositories(_ context.Context) (map[string]string, error) {
 	repositories := make(map[string]string)
 
 	// Use cache directory structure: ~/.tako/cache/repos/<owner>/<repo>/<branch>
@@ -110,7 +110,7 @@ func (o *Orchestrator) extractRepositoryName(repoPath string) string {
 }
 
 // evaluateRepositorySubscriptions checks if a repository has subscriptions matching the event.
-func (o *Orchestrator) evaluateRepositorySubscriptions(ctx context.Context, repoPath, repoName, eventType, artifactRef string, eventPayload map[string]string) ([]interfaces.SubscriptionMatch, error) {
+func (o *Orchestrator) evaluateRepositorySubscriptions(_ context.Context, repoPath, repoName, eventType, artifactRef string, eventPayload map[string]string) ([]interfaces.SubscriptionMatch, error) {
 	// Load repository configuration
 	configPath := filepath.Join(repoPath, "tako.yml")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
@@ -142,7 +142,7 @@ func (o *Orchestrator) evaluateRepositorySubscriptions(ctx context.Context, repo
 }
 
 // subscriptionMatches evaluates if a subscription matches the given event and artifact.
-func (o *Orchestrator) subscriptionMatches(subscription config.Subscription, eventType, artifactRef string, eventPayload map[string]string) bool {
+func (o *Orchestrator) subscriptionMatches(subscription config.Subscription, eventType, artifactRef string, _ map[string]string) bool {
 	// Check artifact reference match
 	if subscription.Artifact != artifactRef {
 		return false
