@@ -49,17 +49,17 @@ func TestRunner_expandTemplate(t *testing.T) {
 	}{
 		{
 			name:     "simple input substitution",
-			template: "Deploying version {{ .inputs.version }} to {{ .inputs.environment }}",
+			template: "Deploying version {{ .Inputs.version }} to {{ .Inputs.environment }}",
 			expected: "Deploying version 1.2.3 to dev",
 		},
 		{
 			name:     "step output substitution",
-			template: "Built artifact: {{ .steps.build.artifact }}",
+			template: "Built artifact: {{ .Steps.build.artifact }}",
 			expected: "Built artifact: app-1.2.3.jar",
 		},
 		{
 			name:     "complex template with multiple substitutions",
-			template: "Version {{ .inputs.version }} built as {{ .steps.build.artifact }} with status {{ .steps.build.status }} and test result {{ .steps.test.result }}",
+			template: "Version {{ .Inputs.version }} built as {{ .Steps.build.artifact }} with status {{ .Steps.build.status }} and test result {{ .Steps.test.result }}",
 			expected: "Version 1.2.3 built as app-1.2.3.jar with status success and test result passed",
 		},
 		{
@@ -74,18 +74,18 @@ func TestRunner_expandTemplate(t *testing.T) {
 		},
 		{
 			name:        "invalid template syntax",
-			template:    "{{ .inputs.invalid }}",
+			template:    "{{ .Inputs.invalid }}",
 			shouldError: false, // Go templates handle missing keys gracefully
 			expected:    "<no value>",
 		},
 		{
 			name:        "malformed template",
-			template:    "{{ .inputs.version",
+			template:    "{{ .Inputs.version",
 			shouldError: true,
 		},
 		{
 			name:     "conditional logic",
-			template: "{{ if eq .inputs.environment \"dev\" }}Development{{ else }}Production{{ end }}",
+			template: "{{ if eq .Inputs.environment \"dev\" }}Development{{ else }}Production{{ end }}",
 			expected: "Development",
 		},
 	}
@@ -129,7 +129,7 @@ func TestRunner_expandTemplate_EdgeCases(t *testing.T) {
 	defer runner.Close()
 
 	// Test with nil/empty inputs
-	result, err := runner.expandTemplate("{{ .inputs.nonexistent }}", nil, nil)
+	result, err := runner.expandTemplate("{{ .Inputs.nonexistent }}", nil, nil)
 	if err != nil {
 		t.Errorf("Should handle nil inputs gracefully: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestRunner_expandTemplate_EdgeCases(t *testing.T) {
 	emptyInputs := make(map[string]string)
 	emptyStepOutputs := make(map[string]map[string]string)
 
-	_, err = runner.expandTemplate("{{ .inputs.test }}", emptyInputs, emptyStepOutputs)
+	_, err = runner.expandTemplate("{{ .Inputs.test }}", emptyInputs, emptyStepOutputs)
 	if err != nil {
 		t.Errorf("Should handle empty maps gracefully: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestRunner_expandTemplate_EdgeCases(t *testing.T) {
 		"special": "value with spaces & symbols!",
 	}
 
-	result, err = runner.expandTemplate("{{ .inputs.special }}", inputs, emptyStepOutputs)
+	result, err = runner.expandTemplate("{{ .Inputs.special }}", inputs, emptyStepOutputs)
 	if err != nil {
 		t.Errorf("Should handle special characters: %v", err)
 	}
