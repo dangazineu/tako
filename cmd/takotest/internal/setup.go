@@ -148,31 +148,111 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 
 	for _, repoDef := range env.Repositories {
 		repoName := fmt.Sprintf("%s-%s", env.Name, repoDef.Name)
-		// Delete if it exists
-		_, err := client.Repositories.Delete(context.Background(), owner, repoName)
-		if err != nil {
-			if _, ok := err.(*github.ErrorResponse); !ok || err.(*github.ErrorResponse).Response.StatusCode != 404 {
+		
+		// Check if repo already exists before trying to delete/create
+		repo, _, err := client.Repositories.Get(context.Background(), owner, repoName)
+		repoExists := (err == nil && repo != nil)
+		
+		if repoExists {
+			// Repository exists, check if it has the right structure
+			_, _, _, err = client.Repositories.GetContents(context.Background(), owner, repoName, "tako.yml", nil)
+			if err == nil {
+				// Repository already has tako.yml, reuse it
+				fmt.Printf("Repository %s already exists and is properly configured, reusing it\n", repoName)
+				continue
+			}
+			
+			// Repository exists but doesn't have proper structure, we need to recreate files
+			fmt.Printf("Repository %s exists but needs file updates\n", repoName)
+		} else {
+			// Repository doesn't exist, we need to create it
+			fmt.Printf("Creating repository %s\n", repoName)
+			
+			// Add exponential backoff for rate limiting
+			retryDelay := 30 * time.Second // Start with longer delay for secondary rate limits
+			maxRetries := 3 // Reduce retries to avoid prolonged failures
+			
+			// Create repo with retry logic (skip deletion since repo doesn't exist)
+			for attempt := 0; attempt < maxRetries; attempt++ {
+				_, _, err = client.Repositories.Create(context.Background(), owner, &github.Repository{
+					Name: &repoName,
+				})
+				if err != nil {
+					if errResp, ok := err.(*github.ErrorResponse); ok && errResp.Response.StatusCode == 403 && strings.Contains(errResp.Message, "rate limit") {
+						waitTime := retryDelay * time.Duration(attempt+1)
+						fmt.Printf("Rate limit hit during repo creation, waiting %v before retry (attempt %d/%d)\n", waitTime, attempt+1, maxRetries)
+						time.Sleep(waitTime)
+						continue
+					}
+					return fmt.Errorf("failed to create repository %s: %w", repoName, err)
+				}
+				break
+			}
+			
+			if err != nil {
+				return fmt.Errorf("failed to create repository %s after %d attempts: %w", repoName, maxRetries, err)
+			}
+			
+			time.Sleep(8 * time.Second) // Give GitHub more time to create the repo
+		}
+
+		// Helper function to create or update file with retry logic
+		createOrUpdateFileWithRetry := func(path string, content []byte, message string) error {
+			maxFileRetries := 3
+			for attempt := 0; attempt < maxFileRetries; attempt++ {
+				// First try to create the file
+				_, _, err := client.Repositories.CreateFile(context.Background(), owner, repoName, path, &github.RepositoryContentFileOptions{
+					Message: github.String(message),
+					Content: content,
+					Branch:  github.String("main"),
+				})
+				
+				if err != nil {
+					// If file already exists, try to update it instead
+					if errResp, ok := err.(*github.ErrorResponse); ok && errResp.Response.StatusCode == 422 {
+						// File already exists, get its SHA and update it
+						fileContent, _, _, err := client.Repositories.GetContents(context.Background(), owner, repoName, path, nil)
+						if err != nil {
+							return fmt.Errorf("failed to get existing file %s: %w", path, err)
+						}
+						
+						_, _, err = client.Repositories.UpdateFile(context.Background(), owner, repoName, path, &github.RepositoryContentFileOptions{
+							Message: github.String(message + " (update)"),
+							Content: content,
+							Branch:  github.String("main"),
+							SHA:     fileContent.SHA,
+						})
+						if err != nil {
+							if errResp, ok := err.(*github.ErrorResponse); ok && errResp.Response.StatusCode == 403 && strings.Contains(errResp.Message, "rate limit") {
+								waitTime := time.Duration(attempt+1) * 5 * time.Second
+								fmt.Printf("Rate limit hit during file update (%s), waiting %v before retry (attempt %d/%d)\n", path, waitTime, attempt+1, maxFileRetries)
+								time.Sleep(waitTime)
+								continue
+							}
+							return fmt.Errorf("failed to update file %s: %w", path, err)
+						}
+					} else if errResp, ok := err.(*github.ErrorResponse); ok && errResp.Response.StatusCode == 403 && strings.Contains(errResp.Message, "rate limit") {
+						waitTime := time.Duration(attempt+1) * 5 * time.Second
+						fmt.Printf("Rate limit hit during file creation (%s), waiting %v before retry (attempt %d/%d)\n", path, waitTime, attempt+1, maxFileRetries)
+						time.Sleep(waitTime)
+						continue
+					} else {
+						return fmt.Errorf("failed to create file %s: %w", path, err)
+					}
+				}
+				// Add small delay between file operations
+				time.Sleep(2 * time.Second)
+				return nil
+			}
+			return fmt.Errorf("failed to create/update file %s after %d attempts", path, maxFileRetries)
+		}
+
+		// Create a dummy file to ensure the main branch is created (only if repo was just created)
+		if !repoExists {
+			err = createOrUpdateFileWithRetry("README.md", []byte("# "+repoName), "initial commit")
+			if err != nil {
 				return err
 			}
-		}
-
-		// Create repo
-		_, _, err = client.Repositories.Create(context.Background(), owner, &github.Repository{
-			Name: &repoName,
-		})
-		if err != nil {
-			return err
-		}
-		time.Sleep(2 * time.Second) // Give GitHub some time to create the repo
-
-		// Create a dummy file to ensure the main branch is created
-		_, _, err = client.Repositories.CreateFile(context.Background(), owner, repoName, "README.md", &github.RepositoryContentFileOptions{
-			Message: github.String("initial commit"),
-			Content: []byte("# " + repoName),
-			Branch:  github.String("main"),
-		})
-		if err != nil {
-			return err
 		}
 
 		// Create tako.yml
@@ -181,30 +261,22 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 		if err != nil {
 			return err
 		}
-		_, _, err = client.Repositories.CreateFile(context.Background(), owner, repoName, "tako.yml", &github.RepositoryContentFileOptions{
-			Message: github.String("add tako.yml"),
-			Content: content,
-			Branch:  github.String("main"),
-		})
+		err = createOrUpdateFileWithRetry("tako.yml", content, "add tako.yml")
 		if err != nil {
 			return err
 		}
 
 		// Create other files from templates
 		for _, fileDef := range repoDef.Files {
-			content, err := e2e.GetTemplate(fileDef.Template)
+			templateContent, err := e2e.GetTemplate(fileDef.Template)
 			if err != nil {
 				return err
 			}
 			// Replace placeholders
-			content = strings.ReplaceAll(content, "{{.Owner}}", owner)
-			content = strings.ReplaceAll(content, "{{.EnvName}}", env.Name)
+			templateContent = strings.ReplaceAll(templateContent, "{{.Owner}}", owner)
+			templateContent = strings.ReplaceAll(templateContent, "{{.EnvName}}", env.Name)
 
-			_, _, err = client.Repositories.CreateFile(context.Background(), owner, repoName, fileDef.Path, &github.RepositoryContentFileOptions{
-				Message: github.String("add " + fileDef.Path),
-				Content: []byte(content),
-				Branch:  github.String("main"),
-			})
+			err = createOrUpdateFileWithRetry(fileDef.Path, []byte(templateContent), "add "+fileDef.Path)
 			if err != nil {
 				return err
 			}
