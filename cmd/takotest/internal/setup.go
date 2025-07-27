@@ -148,11 +148,11 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 
 	for _, repoDef := range env.Repositories {
 		repoName := fmt.Sprintf("%s-%s", env.Name, repoDef.Name)
-		
+
 		// Check if repo already exists before trying to delete/create
 		repo, _, err := client.Repositories.Get(context.Background(), owner, repoName)
 		repoExists := (err == nil && repo != nil)
-		
+
 		if repoExists {
 			// Repository exists, check if it has the right structure
 			_, _, _, err = client.Repositories.GetContents(context.Background(), owner, repoName, "tako.yml", nil)
@@ -161,17 +161,17 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 				fmt.Printf("Repository %s already exists and is properly configured, reusing it\n", repoName)
 				continue
 			}
-			
+
 			// Repository exists but doesn't have proper structure, we need to recreate files
 			fmt.Printf("Repository %s exists but needs file updates\n", repoName)
 		} else {
 			// Repository doesn't exist, we need to create it
 			fmt.Printf("Creating repository %s\n", repoName)
-			
+
 			// Add exponential backoff for rate limiting
 			retryDelay := 30 * time.Second // Start with longer delay for secondary rate limits
-			maxRetries := 3 // Reduce retries to avoid prolonged failures
-			
+			maxRetries := 3                // Reduce retries to avoid prolonged failures
+
 			// Create repo with retry logic (skip deletion since repo doesn't exist)
 			for attempt := 0; attempt < maxRetries; attempt++ {
 				_, _, err = client.Repositories.Create(context.Background(), owner, &github.Repository{
@@ -188,11 +188,11 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 				}
 				break
 			}
-			
+
 			if err != nil {
 				return fmt.Errorf("failed to create repository %s after %d attempts: %w", repoName, maxRetries, err)
 			}
-			
+
 			time.Sleep(8 * time.Second) // Give GitHub more time to create the repo
 		}
 
@@ -206,7 +206,7 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 					Content: content,
 					Branch:  github.String("main"),
 				})
-				
+
 				if err != nil {
 					// If file already exists, try to update it instead
 					if errResp, ok := err.(*github.ErrorResponse); ok && errResp.Response.StatusCode == 422 {
@@ -215,7 +215,7 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 						if err != nil {
 							return fmt.Errorf("failed to get existing file %s: %w", path, err)
 						}
-						
+
 						_, _, err = client.Repositories.UpdateFile(context.Background(), owner, repoName, path, &github.RepositoryContentFileOptions{
 							Message: github.String(message + " (update)"),
 							Content: content,

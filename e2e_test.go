@@ -27,7 +27,7 @@ var (
 	remote      = flag.Bool("remote", false, "run remote tests")
 	entrypoint  = flag.String("entrypoint", "all", "entrypoint mode to run tests in (all, path, repo)")
 	preserveTmp = flag.Bool("preserve-tmp", false, "preserve temporary directories")
-	
+
 	// Global mutex to serialize remote test setups to avoid overwhelming GitHub API
 	remoteSetupMutex sync.Mutex
 )
@@ -243,7 +243,7 @@ func setupEnvironment(t *testing.T, takotestPath, envName, mode string, withRepo
 		if err == nil {
 			break
 		}
-		
+
 		// Check if it's a rate limit error
 		if mode == "remote" && strings.Contains(setupOut.String(), "rate limit") {
 			if attempt < maxRetries {
@@ -252,7 +252,7 @@ func setupEnvironment(t *testing.T, takotestPath, envName, mode string, withRepo
 				waitTime := time.Duration(attempt*2) * time.Minute
 				t.Logf("Setup failed due to GitHub secondary rate limit (attempt %d/%d), waiting %v for rate limit to reset", attempt, maxRetries, waitTime)
 				time.Sleep(waitTime)
-				
+
 				// Reset the command and output buffer for retry
 				setupOut.Reset()
 				setupCmd = exec.CommandContext(ctx, takotestPath, append([]string{"setup"}, setupArgs...)...)
