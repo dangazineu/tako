@@ -81,7 +81,6 @@ type Runner struct {
 	mu sync.RWMutex
 }
 
-// Verify Runner implements WorkflowRunner interface for fan-out steps.
 var _ interfaces.WorkflowRunner = (*Runner)(nil)
 
 // NewRunner creates a new execution runner with the specified configuration.
