@@ -44,7 +44,7 @@ type MockOrchestrator struct {
 	shouldFail          bool
 }
 
-// MockOrchestrator implements SubscriptionDiscoverer interface.
+// Verify MockOrchestrator implements SubscriptionDiscoverer interface.
 var _ interfaces.SubscriptionDiscoverer = (*MockOrchestrator)(nil)
 
 func (m *MockOrchestrator) DiscoverSubscriptions(ctx context.Context, eventType, artifactRef string, eventPayload map[string]string) ([]interfaces.SubscriptionMatch, error) {

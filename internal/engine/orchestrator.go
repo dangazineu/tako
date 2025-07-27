@@ -17,7 +17,7 @@ type Orchestrator struct {
 	cacheDir      string
 }
 
-// Orchestrator implements SubscriptionDiscoverer interface.
+// Verify Orchestrator implements SubscriptionDiscoverer interface.
 var _ interfaces.SubscriptionDiscoverer = (*Orchestrator)(nil)
 
 // NewOrchestrator creates a new orchestrator for multi-repository coordination.
