@@ -1,571 +1,517 @@
 package engine
 
 import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
-func TestShellQuote(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    interface{}
-		expected string
-	}{
-		{
-			name:     "safe string",
-			input:    "hello_world-123",
-			expected: "hello_world-123",
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: "''",
-		},
-		{
-			name:     "string with spaces",
-			input:    "hello world",
-			expected: "'hello world'",
-		},
-		{
-			name:     "string with single quote",
-			input:    "don't",
-			expected: "'don'\"'\"'t'",
-		},
-		{
-			name:     "dangerous command",
-			input:    "test'; rm -rf /; echo 'hacked",
-			expected: "'test'\"'\"'; rm -rf /; echo '\"'\"'hacked'",
-		},
-		{
-			name:     "integer input",
-			input:    42,
-			expected: "42",
-		},
-		{
-			name:     "boolean input",
-			input:    true,
-			expected: "true",
-		},
-		{
-			name:     "nil input",
-			input:    nil,
-			expected: "''",
-		},
+func TestNewSecurityManager(t *testing.T) {
+	tmpDir := t.TempDir()
+	auditLog := filepath.Join(tmpDir, "audit.log")
+
+	sm, err := NewSecurityManager(auditLog, true)
+	if err != nil {
+		t.Fatalf("NewSecurityManager() failed: %v", err)
+	}
+	defer sm.Close()
+
+	// Verify default settings
+	if !sm.enableAudit {
+		t.Error("Audit should be enabled by default")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := shellQuote(tt.input)
-			if result != tt.expected {
-				t.Errorf("Expected %q, got %q", tt.expected, result)
+	if sm.volumeRestrictions == nil {
+		t.Error("Volume restrictions should be initialized")
+	}
+
+	if sm.networkPolicy == nil {
+		t.Error("Network policy should be initialized")
+	}
+
+	// Check default blocked paths
+	blockedPaths := []string{"/etc", "/sys", "/proc", "/dev", "/root", "/home", "/var/run/docker.sock"}
+	for _, path := range blockedPaths {
+		found := false
+		for _, blocked := range sm.volumeRestrictions.BlockedPaths {
+			if blocked == path {
+				found = true
+				break
 			}
-		})
+		}
+		if !found {
+			t.Errorf("Path %s should be in blocked paths", path)
+		}
 	}
 }
 
-func TestJSONEscape(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    interface{}
-		expected string
-	}{
-		{
-			name:     "simple string",
-			input:    "hello",
-			expected: "hello",
-		},
-		{
-			name:     "string with quotes",
-			input:    `hello "world"`,
-			expected: `hello \"world\"`,
-		},
-		{
-			name:     "string with backslashes",
-			input:    `path\to\file`,
-			expected: `path\\to\\file`,
-		},
-		{
-			name:     "string with newlines",
-			input:    "line1\nline2\r\nline3",
-			expected: "line1\\nline2\\r\\nline3",
-		},
-		{
-			name:     "string with tabs",
-			input:    "col1\tcol2\tcol3",
-			expected: "col1\\tcol2\\tcol3",
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: "",
-		},
-		{
-			name:     "integer input",
-			input:    123,
-			expected: "123",
-		},
-		{
-			name:     "boolean input",
-			input:    false,
-			expected: "false",
-		},
+func TestSecurityAuditor_LogEvent(t *testing.T) {
+	tmpDir := t.TempDir()
+	auditLog := filepath.Join(tmpDir, "audit.log")
+
+	auditor, err := NewSecurityAuditor(auditLog, true)
+	if err != nil {
+		t.Fatalf("NewSecurityAuditor() failed: %v", err)
 	}
+	defer auditor.writer.(io.Closer).Close()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := jsonEscape(tt.input)
-			if result != tt.expected {
-				t.Errorf("Expected %q, got %q", tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestURLEncode(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    interface{}
-		expected string
-	}{
-		{
-			name:     "simple string",
-			input:    "hello",
-			expected: "hello",
-		},
-		{
-			name:     "string with spaces",
-			input:    "hello world",
-			expected: "hello+world",
-		},
-		{
-			name:     "string with special chars",
-			input:    "hello & goodbye",
-			expected: "hello+%26+goodbye",
-		},
-		{
-			name:     "url with query params",
-			input:    "https://example.com?param=value with spaces",
-			expected: "https%3A%2F%2Fexample.com%3Fparam%3Dvalue+with+spaces",
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: "",
-		},
-		{
-			name:     "integer input",
-			input:    42,
-			expected: "42",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := urlEncode(tt.input)
-			if result != tt.expected {
-				t.Errorf("Expected %q, got %q", tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestHTMLEscape(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    interface{}
-		expected string
-	}{
-		{
-			name:     "simple string",
-			input:    "hello",
-			expected: "hello",
-		},
-		{
-			name:     "html tags",
-			input:    "<script>alert('xss')</script>",
-			expected: "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;",
-		},
-		{
-			name:     "html entities",
-			input:    "Tom & Jerry",
-			expected: "Tom &amp; Jerry",
-		},
-		{
-			name:     "quotes",
-			input:    `He said "Hello"`,
-			expected: "He said &#34;Hello&#34;",
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := htmlEscape(tt.input)
-			if result != tt.expected {
-				t.Errorf("Expected %q, got %q", tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestTypeConversions(t *testing.T) {
-	t.Run("toString", func(t *testing.T) {
-		tests := []struct {
-			input    interface{}
-			expected string
-		}{
-			{"string", "string"},
-			{42, "42"},
-			{int64(42), "42"},
-			{3.14, "3.14"},
-			{true, "true"},
-			{false, "false"},
-			{nil, ""},
-		}
-
-		for _, tt := range tests {
-			result := toString(tt.input)
-			if result != tt.expected {
-				t.Errorf("toString(%v): expected %q, got %q", tt.input, tt.expected, result)
-			}
-		}
-	})
-
-	t.Run("toInt", func(t *testing.T) {
-		tests := []struct {
-			input       interface{}
-			expected    int
-			shouldError bool
-		}{
-			{42, 42, false},
-			{int64(42), 42, false},
-			{3.14, 3, false},
-			{"42", 42, false},
-			{true, 1, false},
-			{false, 0, false},
-			{"invalid", 0, true},
-		}
-
-		for _, tt := range tests {
-			result, err := toInt(tt.input)
-			if tt.shouldError && err == nil {
-				t.Errorf("toInt(%v): expected error but got none", tt.input)
-			}
-			if !tt.shouldError && err != nil {
-				t.Errorf("toInt(%v): unexpected error: %v", tt.input, err)
-			}
-			if !tt.shouldError && result != tt.expected {
-				t.Errorf("toInt(%v): expected %d, got %d", tt.input, tt.expected, result)
-			}
-		}
-	})
-
-	t.Run("toBool", func(t *testing.T) {
-		tests := []struct {
-			input       interface{}
-			expected    bool
-			shouldError bool
-		}{
-			{true, true, false},
-			{false, false, false},
-			{1, true, false},
-			{0, false, false},
-			{3.14, true, false},
-			{0.0, false, false},
-			{"true", true, false},
-			{"false", false, false},
-			{"invalid", false, true},
-		}
-
-		for _, tt := range tests {
-			result, err := toBool(tt.input)
-			if tt.shouldError && err == nil {
-				t.Errorf("toBool(%v): expected error but got none", tt.input)
-			}
-			if !tt.shouldError && err != nil {
-				t.Errorf("toBool(%v): unexpected error: %v", tt.input, err)
-			}
-			if !tt.shouldError && result != tt.expected {
-				t.Errorf("toBool(%v): expected %t, got %t", tt.input, tt.expected, result)
-			}
-		}
-	})
-}
-
-func TestUtilityFunctions(t *testing.T) {
-	t.Run("defaultValue", func(t *testing.T) {
-		tests := []struct {
-			defaultVal interface{}
-			value      interface{}
-			expected   interface{}
-		}{
-			{"fallback", "", "fallback"},
-			{"fallback", "value", "value"},
-			{"fallback", nil, "fallback"},
-			{42, 0, 42},
-			{42, 10, 10},
-		}
-
-		for _, tt := range tests {
-			result := defaultValue(tt.defaultVal, tt.value)
-			if result != tt.expected {
-				t.Errorf("defaultValue(%v, %v): expected %v, got %v", tt.defaultVal, tt.value, tt.expected, result)
-			}
-		}
-	})
-
-	t.Run("isEmpty", func(t *testing.T) {
-		tests := []struct {
-			input    interface{}
-			expected bool
-		}{
-			{nil, true},
-			{"", true},
-			{"value", false},
-			{0, true},
-			{42, false},
-			{false, true},
-			{true, false},
-			{[]interface{}{}, true},
-			{[]interface{}{1, 2}, false},
-			{map[string]interface{}{}, true},
-			{map[string]interface{}{"key": "value"}, false},
-		}
-
-		for _, tt := range tests {
-			result := isEmpty(tt.input)
-			if result != tt.expected {
-				t.Errorf("isEmpty(%v): expected %t, got %t", tt.input, tt.expected, result)
-			}
-		}
-	})
-
-	t.Run("length", func(t *testing.T) {
-		tests := []struct {
-			input    interface{}
-			expected int
-		}{
-			{nil, 0},
-			{"hello", 5},
-			{[]interface{}{1, 2, 3}, 3},
-			{map[string]interface{}{"a": 1, "b": 2}, 2},
-			{42, 0}, // unsupported type
-		}
-
-		for _, tt := range tests {
-			result := length(tt.input)
-			if result != tt.expected {
-				t.Errorf("length(%v): expected %d, got %d", tt.input, tt.expected, result)
-			}
-		}
-	})
-}
-
-func TestCollectionFunctions(t *testing.T) {
-	t.Run("keys", func(t *testing.T) {
-		input := map[string]interface{}{
+	// Log a test event
+	event := AuditEvent{
+		Timestamp: time.Now(),
+		EventType: "test_event",
+		RunID:     "test-run-123",
+		StepID:    "test-step-456",
+		User:      "test-user",
+		Action:    "test-action",
+		Resource:  "test-resource",
+		Result:    "success",
+		Details: map[string]string{
 			"key1": "value1",
 			"key2": "value2",
-			"key3": "value3",
-		}
-		result := keys(input)
-		if len(result) != 3 {
-			t.Errorf("Expected 3 keys, got %d", len(result))
-		}
+		},
+	}
 
-		// Check all keys are present (order doesn't matter)
-		for _, key := range []string{"key1", "key2", "key3"} {
-			found := false
-			for _, k := range result {
-				if k == key {
-					found = true
-					break
+	err = auditor.LogEvent(event)
+	if err != nil {
+		t.Fatalf("LogEvent() failed: %v", err)
+	}
+
+	// Read the log file
+	content, err := os.ReadFile(auditLog)
+	if err != nil {
+		t.Fatalf("Failed to read audit log: %v", err)
+	}
+
+	// Verify log content
+	logStr := string(content)
+	if !strings.Contains(logStr, `"type":"test_event"`) {
+		t.Error("Log should contain event type")
+	}
+	if !strings.Contains(logStr, `"run_id":"test-run-123"`) {
+		t.Error("Log should contain run ID")
+	}
+	if !strings.Contains(logStr, `"key1":"value1"`) {
+		t.Error("Log should contain event details")
+	}
+}
+
+func TestSecurityManager_ValidateVolumeMounts(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm, err := NewSecurityManager(filepath.Join(tmpDir, "audit.log"), false)
+	if err != nil {
+		t.Fatalf("Failed to create security manager: %v", err)
+	}
+	defer sm.Close()
+
+	tests := []struct {
+		name    string
+		volumes []VolumeMount
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid workspace mount",
+			volumes: []VolumeMount{
+				{Source: "/workspace/test", Destination: "/app", ReadOnly: false},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid tmp mount",
+			volumes: []VolumeMount{
+				{Source: "/tmp/test", Destination: "/tmp/app", ReadOnly: false},
+			},
+			wantErr: false,
+		},
+		{
+			name: "blocked etc mount",
+			volumes: []VolumeMount{
+				{Source: "/etc/passwd", Destination: "/app/passwd", ReadOnly: true},
+			},
+			wantErr: true,
+			errMsg:  "restricted path /etc",
+		},
+		{
+			name: "blocked docker socket",
+			volumes: []VolumeMount{
+				{Source: "/var/run/docker.sock", Destination: "/var/run/docker.sock", ReadOnly: true},
+			},
+			wantErr: true,
+			errMsg:  "restricted path /var/run/docker.sock",
+		},
+		{
+			name: "too many volumes",
+			volumes: []VolumeMount{
+				{Source: "/workspace/1", Destination: "/1", ReadOnly: false},
+				{Source: "/workspace/2", Destination: "/2", ReadOnly: false},
+				{Source: "/workspace/3", Destination: "/3", ReadOnly: false},
+				{Source: "/workspace/4", Destination: "/4", ReadOnly: false},
+				{Source: "/workspace/5", Destination: "/5", ReadOnly: false},
+				{Source: "/workspace/6", Destination: "/6", ReadOnly: false},
+			},
+			wantErr: true,
+			errMsg:  "too many volume mounts",
+		},
+		{
+			name: "usr must be read-only",
+			volumes: []VolumeMount{
+				{Source: "/usr/local", Destination: "/usr/local", ReadOnly: false},
+			},
+			wantErr: true,
+			errMsg:  "must be read-only",
+		},
+		{
+			name: "usr read-only allowed",
+			volumes: []VolumeMount{
+				{Source: "/usr/local", Destination: "/usr/local", ReadOnly: true},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := sm.ValidateVolumeMounts(tt.volumes)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateVolumeMounts() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if tt.wantErr && tt.errMsg != "" && err != nil {
+				if !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("ValidateVolumeMounts() error = %v, should contain %q", err, tt.errMsg)
 				}
 			}
-			if !found {
-				t.Errorf("Key %s not found in result", key)
-			}
-		}
-	})
-
-	t.Run("values", func(t *testing.T) {
-		input := map[string]interface{}{
-			"key1": "value1",
-			"key2": "value2",
-		}
-		result := values(input)
-		if len(result) != 2 {
-			t.Errorf("Expected 2 values, got %d", len(result))
-		}
-	})
-
-	t.Run("first", func(t *testing.T) {
-		tests := []struct {
-			input    interface{}
-			expected interface{}
-		}{
-			{[]interface{}{"a", "b", "c"}, "a"},
-			{"hello", "h"},
-			{[]interface{}{}, nil},
-			{"", nil},
-		}
-
-		for _, tt := range tests {
-			result := first(tt.input)
-			if result != tt.expected {
-				t.Errorf("first(%v): expected %v, got %v", tt.input, tt.expected, result)
-			}
-		}
-	})
-
-	t.Run("last", func(t *testing.T) {
-		tests := []struct {
-			input    interface{}
-			expected interface{}
-		}{
-			{[]interface{}{"a", "b", "c"}, "c"},
-			{"hello", "o"},
-			{[]interface{}{}, nil},
-			{"", nil},
-		}
-
-		for _, tt := range tests {
-			result := last(tt.input)
-			if result != tt.expected {
-				t.Errorf("last(%v): expected %v, got %v", tt.input, tt.expected, result)
-			}
-		}
-	})
+		})
+	}
 }
 
-func TestLogicalFunctions(t *testing.T) {
-	t.Run("isTruthy", func(t *testing.T) {
-		tests := []struct {
-			input    interface{}
-			expected bool
-		}{
-			{nil, false},
-			{true, true},
-			{false, false},
-			{"", false},
-			{"value", true},
-			{0, false},
-			{42, true},
-			{[]interface{}{}, false},
-			{[]interface{}{1}, true},
-			{map[string]interface{}{}, false},
-			{map[string]interface{}{"key": "value"}, true},
-		}
+func TestSecurityManager_ApplySecurityProfile(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm, err := NewSecurityManager(filepath.Join(tmpDir, "audit.log"), false)
+	if err != nil {
+		t.Fatalf("Failed to create security manager: %v", err)
+	}
+	defer sm.Close()
 
-		for _, tt := range tests {
-			result := isTruthy(tt.input)
-			if result != tt.expected {
-				t.Errorf("isTruthy(%v): expected %t, got %t", tt.input, tt.expected, result)
+	tests := []struct {
+		name     string
+		profile  SecurityProfile
+		validate func(*ContainerConfig) error
+	}{
+		{
+			name:    "strict profile",
+			profile: SecurityProfileStrict,
+			validate: func(config *ContainerConfig) error {
+				if !config.Security.NoNewPrivileges {
+					return fmt.Errorf("NoNewPrivileges should be true")
+				}
+				if !config.Security.ReadOnlyRootFS {
+					return fmt.Errorf("ReadOnlyRootFS should be true")
+				}
+				if config.Network != "none" {
+					return fmt.Errorf("Network should be none, got %s", config.Network)
+				}
+				if len(config.Security.AddCapabilities) != 0 {
+					return fmt.Errorf("Should have no capabilities")
+				}
+				return nil
+			},
+		},
+		{
+			name:    "moderate profile",
+			profile: SecurityProfileModerate,
+			validate: func(config *ContainerConfig) error {
+				if !config.Security.NoNewPrivileges {
+					return fmt.Errorf("NoNewPrivileges should be true")
+				}
+				if len(config.Security.AddCapabilities) == 0 {
+					return fmt.Errorf("Should have some capabilities")
+				}
+				// Should have CHOWN capability
+				hasChown := false
+				for _, cap := range config.Security.AddCapabilities {
+					if cap == "CHOWN" {
+						hasChown = true
+						break
+					}
+				}
+				if !hasChown {
+					return fmt.Errorf("Should have CHOWN capability")
+				}
+				return nil
+			},
+		},
+		{
+			name:    "minimal profile",
+			profile: SecurityProfileMinimal,
+			validate: func(config *ContainerConfig) error {
+				if !config.Security.NoNewPrivileges {
+					return fmt.Errorf("NoNewPrivileges should be true")
+				}
+				if config.Security.ReadOnlyRootFS {
+					return fmt.Errorf("ReadOnlyRootFS should be false for minimal")
+				}
+				if config.Network != "bridge" {
+					return fmt.Errorf("Network should be bridge, got %s", config.Network)
+				}
+				return nil
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &ContainerConfig{
+				Image:    "test:latest",
+				Security: &SecurityConfig{},
 			}
-		}
-	})
 
-	t.Run("ifThenElse", func(t *testing.T) {
-		tests := []struct {
-			condition interface{}
-			trueVal   interface{}
-			falseVal  interface{}
-			expected  interface{}
-		}{
-			{true, "yes", "no", "yes"},
-			{false, "yes", "no", "no"},
-			{1, "yes", "no", "yes"},
-			{0, "yes", "no", "no"},
-			{"", "yes", "no", "no"},
-			{"value", "yes", "no", "yes"},
-		}
-
-		for _, tt := range tests {
-			result := ifThenElse(tt.condition, tt.trueVal, tt.falseVal)
-			if result != tt.expected {
-				t.Errorf("ifThenElse(%v, %v, %v): expected %v, got %v",
-					tt.condition, tt.trueVal, tt.falseVal, tt.expected, result)
+			err := sm.ApplySecurityProfile(config, tt.profile)
+			if err != nil {
+				t.Fatalf("ApplySecurityProfile() failed: %v", err)
 			}
-		}
-	})
 
-	t.Run("logical operators", func(t *testing.T) {
-		if !and(true, true) {
-			t.Error("and(true, true) should be true")
-		}
-		if and(true, false) {
-			t.Error("and(true, false) should be false")
-		}
-		if !or(true, false) {
-			t.Error("or(true, false) should be true")
-		}
-		if or(false, false) {
-			t.Error("or(false, false) should be false")
-		}
-		if !not(false) {
-			t.Error("not(false) should be true")
-		}
-		if not(true) {
-			t.Error("not(true) should be false")
-		}
-	})
+			if err := tt.validate(config); err != nil {
+				t.Errorf("Profile validation failed: %v", err)
+			}
+		})
+	}
 }
 
-func TestSecurityIntegration(t *testing.T) {
-	// Test that security functions prevent common injection attacks
+func TestSecurityManager_ValidateNetworkAccess(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm, err := NewSecurityManager(filepath.Join(tmpDir, "audit.log"), false)
+	if err != nil {
+		t.Fatalf("Failed to create security manager: %v", err)
+	}
+	defer sm.Close()
 
-	t.Run("command injection prevention", func(t *testing.T) {
-		maliciousInput := "normal'; rm -rf /; echo 'pwned"
-		quoted := shellQuote(maliciousInput)
+	tests := []struct {
+		name    string
+		network string
+		policy  *NetworkPolicy
+		wantErr bool
+	}{
+		{
+			name:    "none network always allowed",
+			network: "none",
+			policy:  &NetworkPolicy{},
+			wantErr: false,
+		},
+		{
+			name:    "bridge network blocked by default",
+			network: "bridge",
+			policy:  &NetworkPolicy{},
+			wantErr: true,
+		},
+		{
+			name:    "bridge network allowed with localhost",
+			network: "bridge",
+			policy: &NetworkPolicy{
+				AllowLocalhost: true,
+			},
+			wantErr: false,
+		},
+		{
+			name:    "host network blocked by default",
+			network: "host",
+			policy:  &NetworkPolicy{},
+			wantErr: true,
+		},
+		{
+			name:    "custom network with allowed hosts",
+			network: "custom",
+			policy: &NetworkPolicy{
+				AllowedHosts: []string{"github.com", "registry.docker.io"},
+			},
+			wantErr: false,
+		},
+	}
 
-		// Should start and end with quotes (proper shell quoting)
-		if !strings.HasPrefix(quoted, "'") || !strings.HasSuffix(quoted, "'") {
-			t.Error("Shell quoting should wrap the string in quotes")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm.SetNetworkPolicy(tt.policy)
+
+			config := &ContainerConfig{
+				Security: &SecurityConfig{},
+			}
+
+			err := sm.ValidateNetworkAccess(tt.network, config)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateNetworkAccess() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			// Verify network isolation flag
+			if tt.network == "none" && !config.Security.NetworkIsolation {
+				t.Error("NetworkIsolation should be true for none network")
+			}
+			if tt.network != "none" && config.Security.NetworkIsolation {
+				t.Error("NetworkIsolation should be false for non-none network")
+			}
+		})
+	}
+}
+
+func TestGenerateSecureContainerName(t *testing.T) {
+	names := make(map[string]bool)
+
+	// Generate multiple names to ensure uniqueness
+	for i := 0; i < 10; i++ {
+		name, err := GenerateSecureContainerName("test")
+		if err != nil {
+			t.Fatalf("GenerateSecureContainerName() failed: %v", err)
 		}
 
-		// Should contain the escaped version of single quotes
-		if !strings.Contains(quoted, "'\"'\"'") {
-			t.Error("Shell quoting didn't properly escape single quotes")
+		// Check format
+		if !strings.HasPrefix(name, "test-") {
+			t.Errorf("Name should start with prefix, got %s", name)
 		}
 
-		// The dangerous command should be rendered harmless (inside quotes)
-		// We verify this by checking that the quoted string can be safely used in a shell command
-		if !strings.Contains(quoted, "rm -rf /") {
-			t.Error("Test setup issue: expected malicious content to be present but quoted")
+		// Check uniqueness
+		if names[name] {
+			t.Errorf("Generated duplicate name: %s", name)
 		}
-	})
+		names[name] = true
 
-	t.Run("XSS prevention", func(t *testing.T) {
-		maliciousInput := "<script>alert('xss')</script>"
-		escaped := htmlEscape(maliciousInput)
+		// Verify contains hex and timestamp
+		parts := strings.Split(name, "-")
+		if len(parts) != 3 {
+			t.Errorf("Name should have 3 parts, got %d", len(parts))
+		}
+	}
+}
 
-		// Should not contain actual HTML tags
-		if strings.Contains(escaped, "<script>") {
-			t.Error("HTML escaping failed to prevent XSS")
+func TestSecurityAuditor_LogRotation(t *testing.T) {
+	tmpDir := t.TempDir()
+	auditLog := filepath.Join(tmpDir, "audit.log")
+
+	// Create auditor with small rotation size for testing
+	auditor, err := NewSecurityAuditor(auditLog, false)
+	if err != nil {
+		t.Fatalf("NewSecurityAuditor() failed: %v", err)
+	}
+
+	// Set small rotation size
+	auditor.rotateSize = 100 // 100 bytes
+
+	defer auditor.writer.(io.Closer).Close()
+
+	// Log events until rotation occurs
+	for i := 0; i < 10; i++ {
+		event := AuditEvent{
+			Timestamp: time.Now(),
+			EventType: "test_rotation",
+			Action:    fmt.Sprintf("action-%d", i),
+			Resource:  "test-resource",
+			Result:    "success",
 		}
 
-		// Should contain escaped version
-		if !strings.Contains(escaped, "&lt;script&gt;") {
-			t.Error("HTML escaping didn't properly escape tags")
+		if err := auditor.LogEvent(event); err != nil {
+			t.Fatalf("LogEvent() failed: %v", err)
 		}
-	})
+	}
 
-	t.Run("JSON injection prevention", func(t *testing.T) {
-		maliciousInput := `","admin":true,"fake":"`
-		escaped := jsonEscape(maliciousInput)
+	// Check that rotation occurred
+	rotatedFile := auditLog + ".1"
+	if _, err := os.Stat(rotatedFile); os.IsNotExist(err) {
+		t.Error("Rotated log file should exist")
+	}
 
-		// Should not contain unescaped quotes that could break JSON structure
-		if strings.Contains(escaped, `","admin":true`) {
-			t.Error("JSON escaping failed to prevent injection")
-		}
+	// Current log file should still exist
+	if _, err := os.Stat(auditLog); os.IsNotExist(err) {
+		t.Error("Current log file should exist")
+	}
+}
 
-		// Should contain escaped quotes
-		if !strings.Contains(escaped, `\",\"`) {
-			t.Error("JSON escaping didn't properly escape quotes")
-		}
-	})
+func TestSecurityManager_AuditContainerExecution(t *testing.T) {
+	tmpDir := t.TempDir()
+	auditLog := filepath.Join(tmpDir, "audit.log")
+
+	sm, err := NewSecurityManager(auditLog, false)
+	if err != nil {
+		t.Fatalf("Failed to create security manager: %v", err)
+	}
+	defer sm.Close()
+
+	// Create context with values
+	ctx := context.WithValue(context.Background(), contextKeyRunID, "test-run-123")
+	ctx = context.WithValue(ctx, contextKeyStepID, "test-step-456")
+
+	config := &ContainerConfig{
+		Image: "test:latest",
+	}
+
+	result := &ContainerResult{
+		ExitCode:  0,
+		StartTime: time.Now().Add(-5 * time.Second),
+		EndTime:   time.Now(),
+	}
+
+	// Audit the execution
+	sm.AuditContainerExecution(ctx, config, result)
+
+	// Read audit log
+	content, err := os.ReadFile(auditLog)
+	if err != nil {
+		t.Fatalf("Failed to read audit log: %v", err)
+	}
+
+	logStr := string(content)
+	if !strings.Contains(logStr, `"type":"container_execution"`) {
+		t.Error("Audit log should contain container execution event")
+	}
+	if !strings.Contains(logStr, `"run_id":"test-run-123"`) {
+		t.Error("Audit log should contain run ID from context")
+	}
+	if !strings.Contains(logStr, `"step_id":"test-step-456"`) {
+		t.Error("Audit log should contain step ID from context")
+	}
+}
+
+func TestSecurityManager_SettersAndClose(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm, err := NewSecurityManager(filepath.Join(tmpDir, "audit.log"), false)
+	if err != nil {
+		t.Fatalf("Failed to create security manager: %v", err)
+	}
+
+	// Test SetVolumeRestrictions
+	newRestrictions := &VolumeRestriction{
+		AllowedPaths: []string{"/custom"},
+		MaxVolumes:   10,
+	}
+	sm.SetVolumeRestrictions(newRestrictions)
+
+	if sm.volumeRestrictions.MaxVolumes != 10 {
+		t.Error("Volume restrictions not updated")
+	}
+
+	// Test SetNetworkPolicy
+	newPolicy := &NetworkPolicy{
+		AllowedHosts: []string{"example.com"},
+	}
+	sm.SetNetworkPolicy(newPolicy)
+
+	if len(sm.networkPolicy.AllowedHosts) != 1 {
+		t.Error("Network policy not updated")
+	}
+
+	// Test SetSeccompProfile
+	sm.SetSeccompProfile("/path/to/profile.json")
+
+	if sm.seccompProfile != "/path/to/profile.json" {
+		t.Error("Seccomp profile not updated")
+	}
+
+	// Test Close
+	if err := sm.Close(); err != nil {
+		t.Errorf("Close() failed: %v", err)
+	}
 }

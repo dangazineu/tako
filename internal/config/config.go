@@ -54,19 +54,29 @@ type WorkflowInputValidation struct {
 }
 
 type WorkflowStep struct {
-	ID            string                 `yaml:"id,omitempty"`
-	If            string                 `yaml:"if,omitempty"`
-	Run           string                 `yaml:"run,omitempty"`
-	Uses          string                 `yaml:"uses,omitempty"`
-	With          map[string]interface{} `yaml:"with,omitempty"`
-	Image         string                 `yaml:"image,omitempty"`
-	LongRunning   bool                   `yaml:"long_running,omitempty"`
-	Network       string                 `yaml:"network,omitempty"`
-	Capabilities  []string               `yaml:"capabilities,omitempty"`
-	CacheKeyFiles string                 `yaml:"cache_key_files,omitempty"`
-	Env           map[string]string      `yaml:"env,omitempty"`
-	Produces      *WorkflowStepProduces  `yaml:"produces,omitempty"`
-	OnFailure     []WorkflowStep         `yaml:"on_failure,omitempty"`
+	ID              string                 `yaml:"id,omitempty"`
+	If              string                 `yaml:"if,omitempty"`
+	Run             string                 `yaml:"run,omitempty"`
+	Uses            string                 `yaml:"uses,omitempty"`
+	With            map[string]interface{} `yaml:"with,omitempty"`
+	Image           string                 `yaml:"image,omitempty"`
+	LongRunning     bool                   `yaml:"long_running,omitempty"`
+	Network         string                 `yaml:"network,omitempty"`
+	Capabilities    []string               `yaml:"capabilities,omitempty"`
+	SecurityProfile string                 `yaml:"security_profile,omitempty"`
+	Volumes         []VolumeMount          `yaml:"volumes,omitempty"`
+	CacheKeyFiles   string                 `yaml:"cache_key_files,omitempty"`
+	Env             map[string]string      `yaml:"env,omitempty"`
+	Resources       *Resources             `yaml:"resources,omitempty"`
+	Produces        *WorkflowStepProduces  `yaml:"produces,omitempty"`
+	OnFailure       []WorkflowStep         `yaml:"on_failure,omitempty"`
+}
+
+// VolumeMount represents a volume mount for containerized steps.
+type VolumeMount struct {
+	Source      string `yaml:"source"`
+	Destination string `yaml:"destination"`
+	ReadOnly    bool   `yaml:"read_only,omitempty"`
 }
 
 type WorkflowStepProduces struct {

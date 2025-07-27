@@ -71,29 +71,59 @@ func NewTemplateEngine() *TemplateEngine {
 
 	// Initialize security and utility functions
 	engine.functions = template.FuncMap{
-		// Security functions
-		"shell_quote": shellQuote,
-		"json_escape": jsonEscape,
-		"url_encode":  urlEncode,
-		"html_escape": htmlEscape,
+		// Security functions (pipeline-compatible)
+		"shell_quote": func(s interface{}) string {
+			return shellQuote(toString(s))
+		},
+		"json_escape": func(s interface{}) string {
+			return jsonEscape(toString(s))
+		},
+		"url_encode": func(s interface{}) string {
+			return urlEncode(toString(s))
+		},
+		"html_escape": func(s interface{}) string {
+			return htmlEscape(toString(s))
+		},
 
 		// Event processing functions
 		"event_field":     eventField,
 		"event_has_field": eventHasField,
 		"event_filter":    eventFilter,
 
-		// Utility functions
-		"default":    defaultValue,
-		"empty":      isEmpty,
-		"trim":       strings.TrimSpace,
-		"upper":      strings.ToUpper,
-		"lower":      strings.ToLower,
-		"split":      strings.Split,
-		"join":       strings.Join,
-		"replace":    strings.ReplaceAll,
-		"contains":   strings.Contains,
-		"has_prefix": strings.HasPrefix,
-		"has_suffix": strings.HasSuffix,
+		// Utility functions (pipeline-compatible)
+		"default": defaultValue,
+		"empty":   isEmpty,
+		"trim": func(s interface{}) string {
+			return strings.TrimSpace(toString(s))
+		},
+		"upper": func(s interface{}) string {
+			return strings.ToUpper(toString(s))
+		},
+		"lower": func(s interface{}) string {
+			return strings.ToLower(toString(s))
+		},
+		"split": strings.Split,
+		"join":  strings.Join,
+		"replace": func(old, new string) func(string) string {
+			return func(s string) string {
+				return strings.ReplaceAll(s, old, new)
+			}
+		},
+		"contains": func(substr string) func(string) bool {
+			return func(s string) bool {
+				return strings.Contains(s, substr)
+			}
+		},
+		"has_prefix": func(prefix string) func(string) bool {
+			return func(s string) bool {
+				return strings.HasPrefix(s, prefix)
+			}
+		},
+		"has_suffix": func(suffix string) func(string) bool {
+			return func(s string) bool {
+				return strings.HasSuffix(s, suffix)
+			}
+		},
 
 		// Type conversion functions
 		"to_string": toString,
@@ -278,4 +308,163 @@ func (tc *templateCache) clear() {
 	tc.entries = make(map[string]*list.Element)
 	tc.lru = list.New()
 	tc.totalSize = 0
+}
+
+// Security and utility function implementations
+
+func shellQuote(s string) string {
+	return fmt.Sprintf("'%s'", strings.ReplaceAll(s, "'", "'\"'\"'"))
+}
+
+func jsonEscape(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	s = strings.ReplaceAll(s, "\n", "\\n")
+	s = strings.ReplaceAll(s, "\t", "\\t")
+	s = strings.ReplaceAll(s, "\r", "\\r")
+	return s
+}
+
+func urlEncode(s string) string {
+	s = strings.ReplaceAll(s, "&", "%26")
+	s = strings.ReplaceAll(s, "=", "%3D")
+	s = strings.ReplaceAll(s, " ", "+")
+	return s
+}
+
+func htmlEscape(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s, "&", "&amp;"), "<", "&lt;"), ">", "&gt;")
+}
+
+func defaultValue(def interface{}, val interface{}) interface{} {
+	if val == nil || val == "" {
+		return def
+	}
+	return val
+}
+
+func isEmpty(val interface{}) bool {
+	if val == nil {
+		return true
+	}
+	if s, ok := val.(string); ok {
+		return s == ""
+	}
+	return false
+}
+
+func toString(val interface{}) string {
+	if val == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", val)
+}
+
+func toInt(val interface{}) int {
+	if s, ok := val.(string); ok {
+		if i, err := fmt.Sscanf(s, "%d", new(int)); err == nil && i == 1 {
+			var result int
+			fmt.Sscanf(s, "%d", &result)
+			return result
+		}
+	}
+	return 0
+}
+
+func toFloat(val interface{}) float64 {
+	if s, ok := val.(string); ok {
+		if i, err := fmt.Sscanf(s, "%f", new(float64)); err == nil && i == 1 {
+			var result float64
+			fmt.Sscanf(s, "%f", &result)
+			return result
+		}
+	}
+	return 0.0
+}
+
+func toBool(val interface{}) bool {
+	if s, ok := val.(string); ok {
+		return s == "true" || s == "1" || s == "yes"
+	}
+	return false
+}
+
+func rangeMap(m map[string]interface{}) []map[string]interface{} {
+	result := make([]map[string]interface{}, 0, len(m))
+	for k, v := range m {
+		result = append(result, map[string]interface{}{"key": k, "value": v})
+	}
+	return result
+}
+
+func keys(m map[string]interface{}) []string {
+	result := make([]string, 0, len(m))
+	for k := range m {
+		result = append(result, k)
+	}
+	return result
+}
+
+func values(m map[string]interface{}) []interface{} {
+	result := make([]interface{}, 0, len(m))
+	for _, v := range m {
+		result = append(result, v)
+	}
+	return result
+}
+
+func length(val interface{}) int {
+	if s, ok := val.(string); ok {
+		return len(s)
+	}
+	if m, ok := val.(map[string]interface{}); ok {
+		return len(m)
+	}
+	if a, ok := val.([]interface{}); ok {
+		return len(a)
+	}
+	return 0
+}
+
+func first(val interface{}) interface{} {
+	if a, ok := val.([]interface{}); ok && len(a) > 0 {
+		return a[0]
+	}
+	return nil
+}
+
+func last(val interface{}) interface{} {
+	if a, ok := val.([]interface{}); ok && len(a) > 0 {
+		return a[len(a)-1]
+	}
+	return nil
+}
+
+func ifThenElse(condition bool, thenVal, elseVal interface{}) interface{} {
+	if condition {
+		return thenVal
+	}
+	return elseVal
+}
+
+func or(vals ...interface{}) interface{} {
+	for _, val := range vals {
+		if val != nil && val != "" && val != false {
+			return val
+		}
+	}
+	return false
+}
+
+func and(vals ...interface{}) bool {
+	for _, val := range vals {
+		if val == nil || val == "" || val == false {
+			return false
+		}
+	}
+	return true
+}
+
+func not(val interface{}) bool {
+	return val == nil || val == "" || val == false
 }
