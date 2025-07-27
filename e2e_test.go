@@ -212,20 +212,20 @@ func setupEnvironment(t *testing.T, takotestPath, envName, mode string, withRepo
 	var setupOut bytes.Buffer
 	setupCmd.Stdout = &setupOut
 	setupCmd.Stderr = &setupOut
-	
+
 	// Use longer timeout for setup in remote mode (especially for Maven builds)
 	timeout := 5 * time.Minute
 	if mode == "remote" {
 		timeout = 15 * time.Minute
 	}
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	
+
 	setupCmd = exec.CommandContext(ctx, setupCmd.Path, setupCmd.Args[1:]...)
 	setupCmd.Stdout = &setupOut
 	setupCmd.Stderr = &setupOut
-	
+
 	if err := setupCmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			t.Fatalf("setup timed out after %v: %s\nOutput:\n%s", timeout, strings.Join(setupCmd.Args, " "), setupOut.String())
@@ -332,21 +332,21 @@ func runSteps(t *testing.T, steps []e2e.Step, workDir, cacheDir, mode string, wi
 			if step.Command == "mvn" || (step.Command == "tako" && len(step.Args) > 1 && strings.Contains(step.Args[1], "mvn")) {
 				timeout = 15 * time.Minute // Longer timeout for Maven builds
 			}
-			
+
 			// Create context with timeout
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			
+
 			// Create new command with context
 			cmdWithTimeout := exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
 			cmdWithTimeout.Dir = cmd.Dir
 			cmdWithTimeout.Env = cmd.Env
-			
+
 			var out bytes.Buffer
 			cmdWithTimeout.Stdout = &out
 			cmdWithTimeout.Stderr = &out
 			err := cmdWithTimeout.Run()
-			
+
 			if ctx.Err() == context.DeadlineExceeded {
 				t.Fatalf("command timed out after %v: %s\nOutput:\n%s", timeout, strings.Join(cmd.Args, " "), out.String())
 			}
@@ -388,21 +388,21 @@ func runCmdWithTimeout(t *testing.T, cmd *exec.Cmd, dir string, timeout time.Dur
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	
+
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	
+
 	// Set context on command
 	cmd = exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	
+
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	
+
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			t.Fatalf("command timed out after %v: %s\nOutput:\n%s", timeout, strings.Join(cmd.Args, " "), out.String())
