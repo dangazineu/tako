@@ -59,6 +59,9 @@ type Runner struct {
 	// Template processing
 	templateEngine *TemplateEngine
 
+	// Container management
+	containerManager *ContainerManager
+
 	// Configuration
 	maxConcurrentRepos int
 	dryRun             bool
@@ -97,6 +100,16 @@ func NewRunner(opts RunnerOptions) (*Runner, error) {
 		return nil, fmt.Errorf("failed to initialize lock manager: %v", err)
 	}
 
+	// Initialize container manager (optional - only log warning if unavailable)
+	containerManager, err := NewContainerManager(opts.Debug)
+	if err != nil {
+		// Container runtime is optional - log warning but continue
+		if opts.Debug {
+			fmt.Printf("Warning: Container runtime not available: %v\n", err)
+		}
+		containerManager = nil
+	}
+
 	mode := ExecutionModeNormal
 	if opts.DryRun {
 		mode = ExecutionModeDryRun
@@ -112,6 +125,7 @@ func NewRunner(opts RunnerOptions) (*Runner, error) {
 		state:              state,
 		locks:              locks,
 		templateEngine:     NewTemplateEngine(),
+		containerManager:   containerManager,
 		maxConcurrentRepos: opts.MaxConcurrentRepos,
 		dryRun:             opts.DryRun,
 		debug:              opts.Debug,
@@ -384,6 +398,11 @@ func (r *Runner) executeStep(ctx context.Context, step config.WorkflowStep, work
 		return r.executeBuiltinStep(step, stepID, startTime)
 	}
 
+	// Check if this is a container step (image: field)
+	if IsContainerStep(step) {
+		return r.executeContainerStep(ctx, step, stepID, workDir, inputs, stepOutputs, startTime)
+	}
+
 	// Execute shell command
 	return r.executeShellStep(ctx, step, stepID, workDir, inputs, stepOutputs, startTime)
 }
@@ -501,6 +520,149 @@ func (r *Runner) executeBuiltinStep(step config.WorkflowStep, stepID string, sta
 		StartTime: startTime,
 		EndTime:   time.Now(),
 	}, err
+}
+
+// executeContainerStep executes a step in a container.
+func (r *Runner) executeContainerStep(ctx context.Context, step config.WorkflowStep, stepID, workDir string, inputs map[string]string, stepOutputs map[string]map[string]string, startTime time.Time) (StepResult, error) {
+	// Check if container manager is available
+	if r.containerManager == nil {
+		err := fmt.Errorf("container execution requested but no container runtime is available")
+		r.state.FailStep(stepID, err.Error())
+		return StepResult{
+			ID:        stepID,
+			Success:   false,
+			Error:     err,
+			StartTime: startTime,
+			EndTime:   time.Now(),
+		}, err
+	}
+
+	// Expand template variables in the command
+	command := step.Run
+	if command != "" {
+		expandedCommand, err := r.expandTemplate(command, inputs, stepOutputs)
+		if err != nil {
+			r.state.FailStep(stepID, fmt.Sprintf("template expansion failed: %v", err))
+			return StepResult{
+				ID:        stepID,
+				Success:   false,
+				Error:     fmt.Errorf("template expansion failed: %v", err),
+				StartTime: startTime,
+				EndTime:   time.Now(),
+			}, err
+		}
+		command = expandedCommand
+	}
+
+	// Create a modified step with expanded command for container config
+	containerStep := step
+	containerStep.Run = command
+
+	// Build container configuration
+	env := r.getEnvironment()
+	envMap := make(map[string]string)
+	for _, envVar := range env {
+		if parts := strings.SplitN(envVar, "=", 2); len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+
+	// Add Tako-specific environment variables
+	envMap["TAKO_RUN_ID"] = r.runID
+	envMap["TAKO_STEP_ID"] = stepID
+	envMap["TAKO_WORKSPACE"] = r.workspaceRoot
+
+	// Add inputs as environment variables
+	for key, value := range inputs {
+		envMap[fmt.Sprintf("TAKO_INPUT_%s", strings.ToUpper(key))] = value
+	}
+
+	containerConfig, err := r.containerManager.BuildContainerConfig(containerStep, workDir, envMap)
+	if err != nil {
+		r.state.FailStep(stepID, fmt.Sprintf("container configuration failed: %v", err))
+		return StepResult{
+			ID:        stepID,
+			Success:   false,
+			Error:     fmt.Errorf("container configuration failed: %v", err),
+			StartTime: startTime,
+			EndTime:   time.Now(),
+		}, err
+	}
+
+	// Pull image if needed (with retry for network issues)
+	pullCtx, pullCancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer pullCancel()
+
+	if err := r.containerManager.PullImage(pullCtx, step.Image); err != nil {
+		// Log warning but continue if image might be available locally
+		if r.debug {
+			fmt.Printf("Warning: failed to pull image %s: %v\n", step.Image, err)
+		}
+	}
+
+	// Execute container
+	result, err := r.containerManager.RunContainer(ctx, containerConfig, stepID)
+	endTime := time.Now()
+
+	if err != nil {
+		r.state.FailStep(stepID, fmt.Sprintf("container execution failed: %v", err))
+		return StepResult{
+			ID:        stepID,
+			Success:   false,
+			Error:     fmt.Errorf("container execution failed: %v", err),
+			StartTime: startTime,
+			EndTime:   endTime,
+			Output:    result.Stderr, // Include stderr in output for debugging
+		}, err
+	}
+
+	// Combine stdout and stderr for output
+	output := result.Stdout
+	if result.Stderr != "" {
+		output = fmt.Sprintf("%s\nSTDERR:\n%s", result.Stdout, result.Stderr)
+	}
+
+	// Check exit code
+	if result.ExitCode != 0 {
+		err := fmt.Errorf("container exited with code %d", result.ExitCode)
+		r.state.FailStep(stepID, fmt.Sprintf("container failed with exit code %d", result.ExitCode))
+		return StepResult{
+			ID:        stepID,
+			Success:   false,
+			Error:     err,
+			StartTime: startTime,
+			EndTime:   endTime,
+			Output:    output,
+		}, err
+	}
+
+	// Process outputs if configured
+	stepOutputValues := make(map[string]string)
+	if step.Produces != nil && step.Produces.Outputs != nil {
+		for outputName, outputType := range step.Produces.Outputs {
+			switch outputType {
+			case "from_stdout":
+				stepOutputValues[outputName] = strings.TrimSpace(result.Stdout)
+			case "from_stderr":
+				stepOutputValues[outputName] = strings.TrimSpace(result.Stderr)
+			default:
+				// For other output types, would need to implement file reading, etc.
+				stepOutputValues[outputName] = strings.TrimSpace(result.Stdout)
+			}
+		}
+	}
+
+	// Step succeeded
+	r.state.CompleteStep(stepID, output, stepOutputValues)
+
+	return StepResult{
+		ID:        stepID,
+		Success:   true,
+		StartTime: startTime,
+		EndTime:   endTime,
+		Output:    output,
+		Outputs:   stepOutputValues,
+	}, nil
 }
 
 // expandTemplate expands template variables in a string using the enhanced template engine.
