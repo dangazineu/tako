@@ -61,8 +61,11 @@ type SecurityConfig struct {
 
 // ContainerManager handles container operations with security hardening
 type ContainerManager struct {
-	runtime ContainerRuntime
-	debug   bool
+	runtime         ContainerRuntime
+	securityManager *SecurityManager
+	registryManager *RegistryManager
+	defaultProfile  SecurityProfile
+	debug           bool
 }
 
 // NewContainerManager creates a new container manager with runtime auto-detection
@@ -77,9 +80,22 @@ func NewContainerManager(debug bool) (*ContainerManager, error) {
 	}
 
 	return &ContainerManager{
-		runtime: runtime,
-		debug:   debug,
+		runtime:        runtime,
+		defaultProfile: SecurityProfileModerate,
+		debug:          debug,
 	}, nil
+}
+
+// WithSecurityManager sets the security manager
+func (cm *ContainerManager) WithSecurityManager(sm *SecurityManager) *ContainerManager {
+	cm.securityManager = sm
+	return cm
+}
+
+// WithRegistryManager sets the registry manager
+func (cm *ContainerManager) WithRegistryManager(rm *RegistryManager) *ContainerManager {
+	cm.registryManager = rm
+	return cm
 }
 
 // detectContainerRuntime auto-detects available container runtime
@@ -234,6 +250,22 @@ func (cm *ContainerManager) BuildContainerConfig(step config.WorkflowStep, workD
 		},
 	}
 
+	// Add any additional volumes from step configuration
+	for _, vol := range step.Volumes {
+		config.Volumes = append(config.Volumes, VolumeMount{
+			Source:      vol.Source,
+			Destination: vol.Destination,
+			ReadOnly:    vol.ReadOnly,
+		})
+	}
+
+	// Validate volumes with security manager if available
+	if cm.securityManager != nil {
+		if err := cm.securityManager.ValidateVolumeMounts(config.Volumes); err != nil {
+			return nil, fmt.Errorf("volume validation failed: %w", err)
+		}
+	}
+
 	// Configure network (isolated by default for security)
 	config.Network = "none" // Default: no network access
 	if step.Network != "" {
@@ -252,6 +284,23 @@ func (cm *ContainerManager) BuildContainerConfig(step config.WorkflowStep, workD
 	// Allow specific capabilities if requested
 	if len(step.Capabilities) > 0 {
 		config.Security.AddCapabilities = step.Capabilities
+	}
+
+	// Apply security profile if security manager is available
+	if cm.securityManager != nil {
+		// Use the profile specified in step or default profile
+		profile := cm.defaultProfile
+		if step.SecurityProfile != "" {
+			profile = SecurityProfile(step.SecurityProfile)
+		}
+		if err := cm.securityManager.ApplySecurityProfile(config, profile); err != nil {
+			return nil, fmt.Errorf("failed to apply security profile: %w", err)
+		}
+
+		// Validate network access
+		if err := cm.securityManager.ValidateNetworkAccess(config.Network, config); err != nil {
+			return nil, fmt.Errorf("network access validation failed: %w", err)
+		}
 	}
 
 	// Configure resource limits if provided
@@ -276,8 +325,18 @@ func (cm *ContainerManager) BuildContainerConfig(step config.WorkflowStep, workD
 func (cm *ContainerManager) RunContainer(ctx context.Context, containerConfig *ContainerConfig, stepID string) (*ContainerResult, error) {
 	startTime := time.Now()
 
-	// Generate unique container name
-	containerName := fmt.Sprintf("tako-%s-%d", stepID, startTime.Unix())
+	// Generate secure container name if security manager is available
+	var containerName string
+	var err error
+	if cm.securityManager != nil {
+		containerName, err = GenerateSecureContainerName(fmt.Sprintf("tako-%s", stepID))
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate secure container name: %w", err)
+		}
+	} else {
+		// Fallback to simple name generation
+		containerName = fmt.Sprintf("tako-%s-%d", stepID, startTime.Unix())
+	}
 
 	// Build container run command
 	args, err := cm.buildRunCommand(containerName, containerConfig)
@@ -315,6 +374,11 @@ func (cm *ContainerManager) RunContainer(ctx context.Context, containerConfig *C
 		} else {
 			return nil, fmt.Errorf("failed to run container: %w", err)
 		}
+	}
+
+	// Audit container execution if security manager is available
+	if cm.securityManager != nil {
+		cm.securityManager.AuditContainerExecution(ctx, containerConfig, result)
 	}
 
 	// Clean up container if it still exists
@@ -419,11 +483,55 @@ func (cm *ContainerManager) cleanupContainer(containerName string) error {
 
 // PullImage pulls a container image if not already present
 func (cm *ContainerManager) PullImage(ctx context.Context, image string) error {
+	// Check cache first if registry manager is available
+	if cm.registryManager != nil && cm.registryManager.imageCache != nil {
+		_, _, _, tag := ParseImageName(image)
+		if _, exists := cm.registryManager.imageCache.GetCachedImage(image, tag); exists {
+			if cm.debug {
+				fmt.Printf("Using cached image: %s\n", image)
+			}
+			return nil
+		}
+	}
+
 	if cm.debug {
 		fmt.Printf("Pulling container image: %s\n", image)
 	}
 
-	cmd := exec.CommandContext(ctx, string(cm.runtime), "pull", image)
+	// Build pull command
+	args := []string{"pull"}
+
+	// Add authentication if registry manager is available
+	if cm.registryManager != nil {
+		registry, _, _, _ := ParseImageName(image)
+		authStr, err := cm.registryManager.GetAuthString(registry)
+		if err == nil && authStr != "" {
+			// For Docker, use --auth flag; for Podman use --creds
+			if cm.runtime == RuntimeDocker {
+				// Docker doesn't support inline auth, we need to login first
+				creds, _ := cm.registryManager.GetCredentials(registry)
+				if creds != nil && creds.Username != "" && creds.Password != "" {
+					// Login to registry
+					loginCmd := exec.CommandContext(ctx, string(cm.runtime), "login",
+						"--username", creds.Username,
+						"--password-stdin", registry)
+					loginCmd.Stdin = strings.NewReader(creds.Password)
+					if err := loginCmd.Run(); err != nil && cm.debug {
+						fmt.Printf("Warning: failed to login to registry %s: %v\n", registry, err)
+					}
+				}
+			} else if cm.runtime == RuntimePodman {
+				// Podman supports inline credentials
+				creds, _ := cm.registryManager.GetCredentials(registry)
+				if creds != nil && creds.Username != "" && creds.Password != "" {
+					args = append(args, "--creds", fmt.Sprintf("%s:%s", creds.Username, creds.Password))
+				}
+			}
+		}
+	}
+
+	args = append(args, image)
+	cmd := exec.CommandContext(ctx, string(cm.runtime), args...)
 
 	// Capture output for debugging
 	output, err := cmd.CombinedOutput()
@@ -433,6 +541,19 @@ func (cm *ContainerManager) PullImage(ctx context.Context, image string) error {
 
 	if cm.debug {
 		fmt.Printf("Successfully pulled image: %s\n", image)
+	}
+
+	// Cache the image if registry manager is available
+	if cm.registryManager != nil && cm.registryManager.imageCache != nil {
+		registry, _, _, tag := ParseImageName(image)
+		entry := &ImageCacheEntry{
+			Image:    image,
+			Registry: registry,
+			Tag:      tag,
+			PullTime: time.Now(),
+			LastUsed: time.Now(),
+		}
+		cm.registryManager.imageCache.CacheImage(entry)
 	}
 
 	return nil

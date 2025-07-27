@@ -1,334 +1,412 @@
 package engine
 
 import (
-	"encoding/json"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
-	"html"
-	"net/url"
-	"regexp"
-	"strconv"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 )
 
-// shellQuote safely quotes a string for use in shell commands.
-// This prevents command injection by properly escaping shell metacharacters.
-func shellQuote(s interface{}) string {
-	str := toString(s)
-	if str == "" {
-		return "''"
-	}
-
-	// If the string contains only safe characters, return as-is
-	safePat := regexp.MustCompile(`^[a-zA-Z0-9_./:-]+$`)
-	if safePat.MatchString(str) {
-		return str
-	}
-
-	// For other strings, use single quotes and escape any single quotes
-	escaped := strings.ReplaceAll(str, "'", "'\"'\"'")
-	return "'" + escaped + "'"
+// SecurityAuditor handles security audit logging and monitoring
+type SecurityAuditor struct {
+	logFile     string
+	writer      io.Writer
+	mu          sync.Mutex
+	debug       bool
+	rotateSize  int64
+	maxLogFiles int
+	currentSize int64
 }
 
-// jsonEscape escapes a string for safe inclusion in JSON.
-func jsonEscape(s interface{}) string {
-	str := toString(s)
+// AuditEvent represents a security-relevant event
+type AuditEvent struct {
+	Timestamp time.Time
+	EventType string
+	RunID     string
+	StepID    string
+	User      string
+	Action    string
+	Resource  string
+	Result    string
+	Details   map[string]string
+}
 
-	// Use Go's JSON marshaling for proper escaping
-	data, err := json.Marshal(str)
+// SecurityProfile defines container security profiles
+type SecurityProfile string
+
+const (
+	SecurityProfileStrict   SecurityProfile = "strict"   // Maximum security restrictions
+	SecurityProfileModerate SecurityProfile = "moderate" // Balanced security
+	SecurityProfileMinimal  SecurityProfile = "minimal"  // Minimal restrictions (testing only)
+)
+
+// NetworkPolicy defines network access policies
+type NetworkPolicy struct {
+	AllowedHosts   []string // Specific hosts that can be accessed
+	AllowedPorts   []int    // Specific ports that can be accessed
+	BlockedHosts   []string // Hosts that must be blocked
+	DNSPolicy      string   // DNS resolution policy
+	AllowLocalhost bool     // Allow localhost connections
+}
+
+// VolumeRestriction defines volume mount restrictions
+type VolumeRestriction struct {
+	AllowedPaths     []string // Paths that can be mounted
+	BlockedPaths     []string // Paths that must not be mounted
+	ReadOnlyPaths    []string // Paths that must be read-only
+	MaxVolumes       int      // Maximum number of volumes
+	AllowTempVolumes bool     // Allow temporary volumes
+}
+
+// SecurityManager handles advanced security features
+type SecurityManager struct {
+	auditor            *SecurityAuditor
+	volumeRestrictions *VolumeRestriction
+	networkPolicy      *NetworkPolicy
+	seccompProfile     string
+	apparmorProfile    string
+	selinuxContext     string
+	enableAudit        bool
+	debug              bool
+	mu                 sync.RWMutex
+}
+
+// NewSecurityManager creates a new security manager
+func NewSecurityManager(auditLogPath string, debug bool) (*SecurityManager, error) {
+	auditor, err := NewSecurityAuditor(auditLogPath, debug)
 	if err != nil {
-		// Fallback to manual escaping
-		return manualJSONEscape(str)
+		return nil, fmt.Errorf("failed to create security auditor: %w", err)
 	}
 
-	// Remove the surrounding quotes from JSON marshaling
-	result := string(data)
-	if len(result) >= 2 && result[0] == '"' && result[len(result)-1] == '"' {
-		return result[1 : len(result)-1]
+	return &SecurityManager{
+		auditor:     auditor,
+		enableAudit: true,
+		debug:       debug,
+		volumeRestrictions: &VolumeRestriction{
+			AllowedPaths: []string{"/workspace", "/tmp"},
+			BlockedPaths: []string{
+				"/etc", "/sys", "/proc", "/dev",
+				"/root", "/home", "/var/run/docker.sock",
+			},
+			ReadOnlyPaths:    []string{"/usr", "/bin", "/sbin", "/lib"},
+			MaxVolumes:       5,
+			AllowTempVolumes: true,
+		},
+		networkPolicy: &NetworkPolicy{
+			AllowedHosts:   []string{},
+			BlockedHosts:   []string{"metadata.google.internal", "169.254.169.254"},
+			DNSPolicy:      "none",
+			AllowLocalhost: false,
+		},
+	}, nil
+}
+
+// NewSecurityAuditor creates a new security auditor
+func NewSecurityAuditor(logPath string, debug bool) (*SecurityAuditor, error) {
+	// Ensure log directory exists
+	logDir := filepath.Dir(logPath)
+	if err := os.MkdirAll(logDir, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create audit log directory: %w", err)
 	}
 
-	return result
-}
-
-// manualJSONEscape provides fallback JSON escaping.
-func manualJSONEscape(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "\"", "\\\"")
-	s = strings.ReplaceAll(s, "\n", "\\n")
-	s = strings.ReplaceAll(s, "\r", "\\r")
-	s = strings.ReplaceAll(s, "\t", "\\t")
-	s = strings.ReplaceAll(s, "\b", "\\b")
-	s = strings.ReplaceAll(s, "\f", "\\f")
-	return s
-}
-
-// urlEncode URL-encodes a string for safe inclusion in URLs.
-func urlEncode(s interface{}) string {
-	str := toString(s)
-	return url.QueryEscape(str)
-}
-
-// htmlEscape escapes a string for safe inclusion in HTML.
-func htmlEscape(s interface{}) string {
-	str := toString(s)
-	return html.EscapeString(str)
-}
-
-// toString converts various types to string safely.
-func toString(v interface{}) string {
-	if v == nil {
-		return ""
+	// Open log file with secure permissions
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open audit log file: %w", err)
 	}
 
-	switch val := v.(type) {
-	case string:
-		return val
-	case int:
-		return strconv.Itoa(val)
-	case int64:
-		return strconv.FormatInt(val, 10)
-	case float64:
-		return strconv.FormatFloat(val, 'f', -1, 64)
-	case bool:
-		return strconv.FormatBool(val)
-	case fmt.Stringer:
-		return val.String()
-	default:
-		return fmt.Sprintf("%v", val)
-	}
+	return &SecurityAuditor{
+		logFile:     logPath,
+		writer:      file,
+		debug:       debug,
+		rotateSize:  10 * 1024 * 1024, // 10MB
+		maxLogFiles: 5,
+	}, nil
 }
 
-// toInt converts various types to int safely.
-func toInt(v interface{}) (int, error) {
-	switch val := v.(type) {
-	case int:
-		return val, nil
-	case int64:
-		return int(val), nil
-	case float64:
-		return int(val), nil
-	case string:
-		return strconv.Atoi(val)
-	case bool:
-		if val {
-			return 1, nil
+// LogEvent logs a security audit event
+func (sa *SecurityAuditor) LogEvent(event AuditEvent) error {
+	sa.mu.Lock()
+	defer sa.mu.Unlock()
+
+	// Format event as JSON for structured logging
+	eventStr := fmt.Sprintf(`{"timestamp":"%s","type":"%s","run_id":"%s","step_id":"%s","user":"%s","action":"%s","resource":"%s","result":"%s"`,
+		event.Timestamp.Format(time.RFC3339),
+		event.EventType,
+		event.RunID,
+		event.StepID,
+		event.User,
+		event.Action,
+		event.Resource,
+		event.Result,
+	)
+
+	// Add details if present
+	if len(event.Details) > 0 {
+		eventStr += `,"details":{`
+		first := true
+		for k, v := range event.Details {
+			if !first {
+				eventStr += ","
+			}
+			eventStr += fmt.Sprintf(`"%s":"%s"`, k, v)
+			first = false
 		}
-		return 0, nil
-	default:
-		return 0, fmt.Errorf("cannot convert %T to int", v)
+		eventStr += "}"
 	}
-}
+	eventStr += "}\n"
 
-// toFloat converts various types to float64 safely.
-func toFloat(v interface{}) (float64, error) {
-	switch val := v.(type) {
-	case float64:
-		return val, nil
-	case int:
-		return float64(val), nil
-	case int64:
-		return float64(val), nil
-	case string:
-		return strconv.ParseFloat(val, 64)
-	case bool:
-		if val {
-			return 1.0, nil
-		}
-		return 0.0, nil
-	default:
-		return 0.0, fmt.Errorf("cannot convert %T to float64", v)
-	}
-}
-
-// toBool converts various types to bool safely.
-func toBool(v interface{}) (bool, error) {
-	switch val := v.(type) {
-	case bool:
-		return val, nil
-	case int:
-		return val != 0, nil
-	case int64:
-		return val != 0, nil
-	case float64:
-		return val != 0.0, nil
-	case string:
-		return strconv.ParseBool(val)
-	default:
-		return false, fmt.Errorf("cannot convert %T to bool", v)
-	}
-}
-
-// defaultValue returns the default value if the input is empty/nil.
-func defaultValue(defaultVal, value interface{}) interface{} {
-	if isEmpty(value) {
-		return defaultVal
-	}
-	return value
-}
-
-// isEmpty checks if a value is empty/nil.
-func isEmpty(v interface{}) bool {
-	if v == nil {
-		return true
+	// Write to log
+	n, err := sa.writer.Write([]byte(eventStr))
+	if err != nil {
+		return fmt.Errorf("failed to write audit event: %w", err)
 	}
 
-	switch val := v.(type) {
-	case string:
-		return val == ""
-	case []interface{}:
-		return len(val) == 0
-	case map[string]interface{}:
-		return len(val) == 0
-	case int:
-		return val == 0
-	case int64:
-		return val == 0
-	case float64:
-		return val == 0.0
-	case bool:
-		return !val
-	default:
-		return false
-	}
-}
+	sa.currentSize += int64(n)
 
-// length returns the length of various types.
-func length(v interface{}) int {
-	if v == nil {
-		return 0
-	}
-
-	switch val := v.(type) {
-	case string:
-		return len(val)
-	case []interface{}:
-		return len(val)
-	case map[string]interface{}:
-		return len(val)
-	default:
-		return 0
-	}
-}
-
-// first returns the first element of a slice or string.
-func first(v interface{}) interface{} {
-	switch val := v.(type) {
-	case []interface{}:
-		if len(val) > 0 {
-			return val[0]
-		}
-	case string:
-		if len(val) > 0 {
-			return string(val[0])
+	// Check if rotation is needed
+	if sa.currentSize > sa.rotateSize {
+		if err := sa.rotateLog(); err != nil {
+			return fmt.Errorf("failed to rotate audit log: %w", err)
 		}
 	}
+
 	return nil
 }
 
-// last returns the last element of a slice or string.
-func last(v interface{}) interface{} {
-	switch val := v.(type) {
-	case []interface{}:
-		if len(val) > 0 {
-			return val[len(val)-1]
-		}
-	case string:
-		if len(val) > 0 {
-			return string(val[len(val)-1])
-		}
+// rotateLog rotates the audit log file
+func (sa *SecurityAuditor) rotateLog() error {
+	// Close current file
+	if closer, ok := sa.writer.(io.Closer); ok {
+		closer.Close()
 	}
+
+	// Rotate existing files
+	for i := sa.maxLogFiles - 1; i > 0; i-- {
+		oldPath := fmt.Sprintf("%s.%d", sa.logFile, i)
+		newPath := fmt.Sprintf("%s.%d", sa.logFile, i+1)
+		os.Rename(oldPath, newPath)
+	}
+
+	// Rename current file
+	os.Rename(sa.logFile, sa.logFile+".1")
+
+	// Create new file
+	file, err := os.OpenFile(sa.logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+
+	sa.writer = file
+	sa.currentSize = 0
 	return nil
 }
 
-// keys returns the keys of a map.
-func keys(v interface{}) []string {
-	switch val := v.(type) {
-	case map[string]interface{}:
-		result := make([]string, 0, len(val))
-		for k := range val {
-			result = append(result, k)
+// ValidateVolumeMounts validates volume mounts against security restrictions
+func (sm *SecurityManager) ValidateVolumeMounts(volumes []VolumeMount) error {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	if len(volumes) > sm.volumeRestrictions.MaxVolumes {
+		return fmt.Errorf("too many volume mounts: %d (max: %d)",
+			len(volumes), sm.volumeRestrictions.MaxVolumes)
+	}
+
+	for _, vol := range volumes {
+		// Check if path is blocked
+		for _, blocked := range sm.volumeRestrictions.BlockedPaths {
+			if strings.HasPrefix(vol.Source, blocked) {
+				return fmt.Errorf("volume mount blocked: %s is in restricted path %s",
+					vol.Source, blocked)
+			}
 		}
-		return result
-	default:
-		return []string{}
-	}
-}
 
-// values returns the values of a map.
-func values(v interface{}) []interface{} {
-	switch val := v.(type) {
-	case map[string]interface{}:
-		result := make([]interface{}, 0, len(val))
-		for _, v := range val {
-			result = append(result, v)
+		// Check if path is allowed
+		allowed := false
+		for _, allowedPath := range sm.volumeRestrictions.AllowedPaths {
+			if strings.HasPrefix(vol.Source, allowedPath) {
+				allowed = true
+				break
+			}
 		}
-		return result
-	default:
-		return []interface{}{}
-	}
-}
 
-// rangeMap enables iteration over maps in templates.
-func rangeMap(m interface{}) []map[string]interface{} {
-	switch val := m.(type) {
-	case map[string]interface{}:
-		result := make([]map[string]interface{}, 0, len(val))
-		for k, v := range val {
-			result = append(result, map[string]interface{}{
-				"key":   k,
-				"value": v,
-			})
+		if !allowed && !sm.volumeRestrictions.AllowTempVolumes {
+			return fmt.Errorf("volume mount not allowed: %s is not in allowed paths", vol.Source)
 		}
-		return result
+
+		// Check read-only requirements
+		for _, roPath := range sm.volumeRestrictions.ReadOnlyPaths {
+			if strings.HasPrefix(vol.Source, roPath) && !vol.ReadOnly {
+				return fmt.Errorf("volume mount must be read-only: %s", vol.Source)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ApplySecurityProfile applies a security profile to container configuration
+func (sm *SecurityManager) ApplySecurityProfile(config *ContainerConfig, profile SecurityProfile) error {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	switch profile {
+	case SecurityProfileStrict:
+		// Maximum security restrictions
+		config.Security.NoNewPrivileges = true
+		config.Security.ReadOnlyRootFS = true
+		config.Security.DropCapabilities = []string{"ALL"}
+		config.Security.AddCapabilities = []string{} // No capabilities
+		config.Security.SeccompProfile = "runtime/default"
+		config.Security.NetworkIsolation = true
+		config.Network = "none"
+
+	case SecurityProfileModerate:
+		// Balanced security
+		config.Security.NoNewPrivileges = true
+		config.Security.ReadOnlyRootFS = true
+		config.Security.DropCapabilities = []string{"ALL"}
+		config.Security.AddCapabilities = []string{"CHOWN", "SETUID", "SETGID"}
+		config.Security.SeccompProfile = "runtime/default"
+		if config.Network == "" {
+			config.Network = "none"
+		}
+
+	case SecurityProfileMinimal:
+		// Minimal restrictions (testing only)
+		config.Security.NoNewPrivileges = true
+		config.Security.DropCapabilities = []string{"NET_RAW", "SYS_ADMIN"}
+		if config.Network == "" {
+			config.Network = "bridge"
+		}
+
 	default:
-		return []map[string]interface{}{}
-	}
-}
-
-// ifThenElse implements ternary operator functionality.
-func ifThenElse(condition interface{}, trueVal, falseVal interface{}) interface{} {
-	if isTruthy(condition) {
-		return trueVal
-	}
-	return falseVal
-}
-
-// or implements logical OR.
-func or(a, b interface{}) bool {
-	return isTruthy(a) || isTruthy(b)
-}
-
-// and implements logical AND.
-func and(a, b interface{}) bool {
-	return isTruthy(a) && isTruthy(b)
-}
-
-// not implements logical NOT.
-func not(a interface{}) bool {
-	return !isTruthy(a)
-}
-
-// isTruthy determines if a value is "truthy" in template context.
-func isTruthy(v interface{}) bool {
-	if v == nil {
-		return false
+		return fmt.Errorf("unknown security profile: %s", profile)
 	}
 
-	switch val := v.(type) {
-	case bool:
-		return val
-	case string:
-		return val != ""
-	case int:
-		return val != 0
-	case int64:
-		return val != 0
-	case float64:
-		return val != 0.0
-	case []interface{}:
-		return len(val) > 0
-	case map[string]interface{}:
-		return len(val) > 0
-	default:
-		return true
+	// Apply additional security settings
+	if sm.seccompProfile != "" {
+		config.Security.SeccompProfile = sm.seccompProfile
 	}
+
+	// Log security profile application
+	if sm.enableAudit {
+		event := AuditEvent{
+			Timestamp: time.Now(),
+			EventType: "security_profile",
+			Action:    "apply",
+			Resource:  string(profile),
+			Result:    "success",
+			Details: map[string]string{
+				"image": config.Image,
+			},
+		}
+		sm.auditor.LogEvent(event)
+	}
+
+	return nil
+}
+
+// GenerateSecureContainerName generates a cryptographically secure container name
+func GenerateSecureContainerName(prefix string) (string, error) {
+	bytes := make([]byte, 8)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("failed to generate random bytes: %w", err)
+	}
+
+	return fmt.Sprintf("%s-%s-%d", prefix, hex.EncodeToString(bytes), time.Now().Unix()), nil
+}
+
+// ValidateNetworkAccess validates network configuration against policy
+func (sm *SecurityManager) ValidateNetworkAccess(network string, config *ContainerConfig) error {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	// Check if network access is allowed at all
+	if network != "none" && !sm.isNetworkAllowed() {
+		return fmt.Errorf("network access not allowed by security policy")
+	}
+
+	// Apply network isolation for security
+	if config.Security != nil {
+		config.Security.NetworkIsolation = (network == "none")
+	}
+
+	return nil
+}
+
+// isNetworkAllowed checks if network access is permitted
+func (sm *SecurityManager) isNetworkAllowed() bool {
+	// In strict mode, no network access is allowed
+	return len(sm.networkPolicy.AllowedHosts) > 0 || sm.networkPolicy.AllowLocalhost
+}
+
+// AuditContainerExecution logs container execution for audit
+func (sm *SecurityManager) AuditContainerExecution(ctx context.Context, config *ContainerConfig, result *ContainerResult) {
+	if !sm.enableAudit {
+		return
+	}
+
+	event := AuditEvent{
+		Timestamp: time.Now(),
+		EventType: "container_execution",
+		Action:    "execute",
+		Resource:  config.Image,
+		Result:    "success",
+		Details: map[string]string{
+			"exit_code":   fmt.Sprintf("%d", result.ExitCode),
+			"duration_ms": fmt.Sprintf("%d", result.EndTime.Sub(result.StartTime).Milliseconds()),
+		},
+	}
+
+	if result.ExitCode != 0 {
+		event.Result = "failure"
+	}
+
+	// Extract run context from context
+	if runID, ok := ctx.Value("run_id").(string); ok {
+		event.RunID = runID
+	}
+	if stepID, ok := ctx.Value("step_id").(string); ok {
+		event.StepID = stepID
+	}
+
+	sm.auditor.LogEvent(event)
+}
+
+// SetVolumeRestrictions updates volume mount restrictions
+func (sm *SecurityManager) SetVolumeRestrictions(restrictions *VolumeRestriction) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.volumeRestrictions = restrictions
+}
+
+// SetNetworkPolicy updates network access policy
+func (sm *SecurityManager) SetNetworkPolicy(policy *NetworkPolicy) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.networkPolicy = policy
+}
+
+// SetSeccompProfile sets the seccomp profile path
+func (sm *SecurityManager) SetSeccompProfile(profile string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.seccompProfile = profile
+}
+
+// Close closes the security manager and its resources
+func (sm *SecurityManager) Close() error {
+	if sm.auditor != nil {
+		if closer, ok := sm.auditor.writer.(io.Closer); ok {
+			return closer.Close()
+		}
+	}
+	return nil
 }

@@ -528,13 +528,13 @@ echo "Deployment completed successfully"`
 
 	// Verify key components are properly substituted
 	expectedContains := []string{
-		"SERVICE=api",
-		"VERSION=2.1.0",
-		"ENVIRONMENT=prod",
-		"ARTIFACT=api-2.1.0.jar",
-		"TARGET=prod-cluster",
+		"SERVICE='api'",
+		"VERSION='2.1.0'",
+		"ENVIRONMENT='prod'",
+		"ARTIFACT='api-2.1.0.jar'",
+		"TARGET='prod-cluster'",
 		"REPLICAS=3",
-		"STRATEGY=rolling",
+		"STRATEGY='rolling'",
 		"Production deployment - enabling additional checks",
 		"Deployment completed successfully",
 	}
