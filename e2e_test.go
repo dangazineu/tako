@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -12,7 +13,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/dangazineu/tako/test/e2e"
 )
@@ -24,6 +27,9 @@ var (
 	remote      = flag.Bool("remote", false, "run remote tests")
 	entrypoint  = flag.String("entrypoint", "all", "entrypoint mode to run tests in (all, path, repo)")
 	preserveTmp = flag.Bool("preserve-tmp", false, "preserve temporary directories")
+
+	// Global mutex to serialize remote test setups to avoid overwhelming GitHub API
+	remoteSetupMutex sync.Mutex
 )
 
 func findProjectRoot(start string) string {
@@ -210,8 +216,63 @@ func setupEnvironment(t *testing.T, takotestPath, envName, mode string, withRepo
 	var setupOut bytes.Buffer
 	setupCmd.Stdout = &setupOut
 	setupCmd.Stderr = &setupOut
-	if err := setupCmd.Run(); err != nil {
-		t.Fatalf("failed to setup environment: %v\nOutput:\n%s", err, setupOut.String())
+
+	// Use longer timeout for setup in remote mode (especially for Maven builds and GitHub API delays)
+	timeout := 5 * time.Minute
+	if mode == "remote" {
+		timeout = 20 * time.Minute // Increased timeout for GitHub API rate limits
+		// Serialize remote setups to avoid overwhelming GitHub API
+		remoteSetupMutex.Lock()
+		defer remoteSetupMutex.Unlock()
+		// Add delay between remote test setups to respect GitHub rate limits
+		time.Sleep(5 * time.Second)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	setupCmd = exec.CommandContext(ctx, setupCmd.Path, setupCmd.Args[1:]...)
+	setupCmd.Stdout = &setupOut
+	setupCmd.Stderr = &setupOut
+
+	// Add retry logic for remote setup failures
+	maxRetries := 2 // Reduce retries since we'll use longer wait times
+	var err error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err = setupCmd.Run()
+		if err == nil {
+			break
+		}
+
+		// Check if it's a rate limit error
+		if mode == "remote" && strings.Contains(setupOut.String(), "rate limit") {
+			if attempt < maxRetries {
+				// For secondary rate limits, GitHub typically blocks for 1-5 minutes
+				// Use progressively longer wait times
+				waitTime := time.Duration(attempt*2) * time.Minute
+				t.Logf("Setup failed due to GitHub secondary rate limit (attempt %d/%d), waiting %v for rate limit to reset", attempt, maxRetries, waitTime)
+				time.Sleep(waitTime)
+
+				// Reset the command and output buffer for retry
+				setupOut.Reset()
+				setupCmd = exec.CommandContext(ctx, takotestPath, append([]string{"setup"}, setupArgs...)...)
+				setupCmd.Stdout = &setupOut
+				setupCmd.Stderr = &setupOut
+				continue
+			} else {
+				// On final attempt, provide helpful information
+				t.Logf("Remote tests are currently blocked by GitHub's secondary rate limit. This is expected when running multiple remote tests in succession.")
+				t.Logf("Consider running tests with longer intervals or focus on local tests which don't have this limitation.")
+			}
+		}
+		break
+	}
+
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			t.Fatalf("setup timed out after %v: %s\nOutput:\n%s", timeout, strings.Join(setupCmd.Args, " "), setupOut.String())
+		}
+		t.Fatalf("failed to setup environment after %d attempts: %v\nOutput:\n%s", maxRetries, err, setupOut.String())
 	}
 	var setupData setupOutput
 	if err := json.Unmarshal(setupOut.Bytes(), &setupData); err != nil {
@@ -308,10 +369,29 @@ func runSteps(t *testing.T, steps []e2e.Step, workDir, cacheDir, mode string, wi
 			mavenRepoDir := filepath.Join(filepath.Dir(workDir), "maven-repo")
 			cmd.Env = append(os.Environ(), fmt.Sprintf("PATH=%s", newPath), fmt.Sprintf("MAVEN_REPO_DIR=%s", mavenRepoDir))
 
+			// Determine timeout based on command type
+			timeout := 5 * time.Minute
+			if step.Command == "mvn" || (step.Command == "tako" && len(step.Args) > 1 && strings.Contains(step.Args[1], "mvn")) {
+				timeout = 15 * time.Minute // Longer timeout for Maven builds
+			}
+
+			// Create context with timeout
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+
+			// Create new command with context
+			cmdWithTimeout := exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
+			cmdWithTimeout.Dir = cmd.Dir
+			cmdWithTimeout.Env = cmd.Env
+
 			var out bytes.Buffer
-			cmd.Stdout = &out
-			cmd.Stderr = &out
-			err := cmd.Run()
+			cmdWithTimeout.Stdout = &out
+			cmdWithTimeout.Stderr = &out
+			err := cmdWithTimeout.Run()
+
+			if ctx.Err() == context.DeadlineExceeded {
+				t.Fatalf("command timed out after %v: %s\nOutput:\n%s", timeout, strings.Join(cmd.Args, " "), out.String())
+			}
 
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				if exitErr.ExitCode() != step.ExpectedExitCode {
@@ -343,13 +423,32 @@ func runSteps(t *testing.T, steps []e2e.Step, workDir, cacheDir, mode string, wi
 }
 
 func runCmd(t *testing.T, cmd *exec.Cmd, dir string) {
+	runCmdWithTimeout(t, cmd, dir, 5*time.Minute) // Default 5 minute timeout
+}
+
+func runCmdWithTimeout(t *testing.T, cmd *exec.Cmd, dir string, timeout time.Duration) {
 	if dir != "" {
 		cmd.Dir = dir
 	}
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Set context on command
+	cmd = exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
+
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			t.Fatalf("command timed out after %v: %s\nOutput:\n%s", timeout, strings.Join(cmd.Args, " "), out.String())
+		}
 		t.Fatalf("command failed: %v\nOutput:\n%s", err, out.String())
 	}
 }

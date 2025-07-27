@@ -95,5 +95,32 @@ func GetEnvironments(owner string) map[string]TestEnvironmentDef {
 				},
 			},
 		},
+		"single-repo-workflow": {
+			Name: "single-repo-workflow",
+			Repositories: []RepositoryDef{
+				{
+					Name:   "test-repo",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "scripts/prepare.sh", Template: "single-repo-workflow/scripts/prepare.sh"},
+						{Path: "scripts/long-process.sh", Template: "single-repo-workflow/scripts/long-process.sh"},
+						{Path: "scripts/finalize.sh", Template: "single-repo-workflow/scripts/finalize.sh"},
+						{Path: "test-file.txt", Template: "single-repo-workflow/test-file.txt"},
+					},
+				},
+			},
+		},
+		"malformed-config": {
+			Name: "malformed-config",
+			Repositories: []RepositoryDef{
+				{
+					Name:   "bad-config-repo",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "malformed-tako.yml", Template: "malformed-config/malformed-tako.yml"},
+					},
+				},
+			},
+		},
 	}
 }
