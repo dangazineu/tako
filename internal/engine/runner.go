@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/dangazineu/tako/internal/config"
+	"github.com/dangazineu/tako/internal/interfaces"
+	"github.com/dangazineu/tako/internal/steps"
 )
 
 // ExecutionMode defines how the workflow should be executed.
@@ -65,6 +67,9 @@ type Runner struct {
 	// Resource management
 	resourceManager *ResourceManager
 
+	// Multi-repository orchestration
+	orchestrator *Orchestrator
+
 	// Configuration
 	maxConcurrentRepos int
 	dryRun             bool
@@ -75,6 +80,9 @@ type Runner struct {
 	// Synchronization
 	mu sync.RWMutex
 }
+
+// Ensure Runner implements WorkflowRunner interface for fan-out steps
+var _ interfaces.WorkflowRunner = (*Runner)(nil)
 
 // NewRunner creates a new execution runner with the specified configuration.
 func NewRunner(opts RunnerOptions) (*Runner, error) {
@@ -122,6 +130,9 @@ func NewRunner(opts RunnerOptions) (*Runner, error) {
 	}
 	resourceManager := NewResourceManager(resourceConfig)
 
+	// Initialize orchestrator
+	orchestrator := NewOrchestrator(workspaceRoot, opts.CacheDir)
+
 	mode := ExecutionModeNormal
 	if opts.DryRun {
 		mode = ExecutionModeDryRun
@@ -139,6 +150,7 @@ func NewRunner(opts RunnerOptions) (*Runner, error) {
 		templateEngine:     NewTemplateEngine(),
 		containerManager:   containerManager,
 		resourceManager:    resourceManager,
+		orchestrator:       orchestrator,
 		maxConcurrentRepos: opts.MaxConcurrentRepos,
 		dryRun:             opts.DryRun,
 		debug:              opts.Debug,
@@ -520,19 +532,96 @@ func (r *Runner) executeShellStep(ctx context.Context, step config.WorkflowStep,
 
 // executeBuiltinStep executes a built-in Tako step.
 func (r *Runner) executeBuiltinStep(step config.WorkflowStep, stepID string, startTime time.Time) (StepResult, error) {
-	// TODO: Implement built-in steps like tako/fan-out@v1
-	// For now, return not implemented
+	// Parse step name and version
+	stepParts := strings.Split(step.Uses, "@")
+	if len(stepParts) != 2 {
+		err := fmt.Errorf("invalid built-in step format: %s", step.Uses)
+		r.state.FailStep(stepID, err.Error())
+		return StepResult{
+			ID:        stepID,
+			Success:   false,
+			Error:     err,
+			StartTime: startTime,
+			EndTime:   time.Now(),
+		}, err
+	}
 
-	err := fmt.Errorf("built-in steps not yet implemented: %s", step.Uses)
-	r.state.FailStep(stepID, err.Error())
+	stepName := stepParts[0]
+	stepVersion := stepParts[1]
+
+	switch stepName {
+	case "tako/fan-out":
+		if stepVersion == "v1" {
+			return r.executeFanOutStep(step, stepID, startTime)
+		}
+		err := fmt.Errorf("unsupported fan-out step version: %s", stepVersion)
+		r.state.FailStep(stepID, err.Error())
+		return StepResult{
+			ID:        stepID,
+			Success:   false,
+			Error:     err,
+			StartTime: startTime,
+			EndTime:   time.Now(),
+		}, err
+
+	default:
+		err := fmt.Errorf("built-in step not yet implemented: %s", step.Uses)
+		r.state.FailStep(stepID, err.Error())
+		return StepResult{
+			ID:        stepID,
+			Success:   false,
+			Error:     err,
+			StartTime: startTime,
+			EndTime:   time.Now(),
+		}, err
+	}
+}
+
+// executeFanOutStep executes a tako/fan-out@v1 step.
+func (r *Runner) executeFanOutStep(step config.WorkflowStep, stepID string, startTime time.Time) (StepResult, error) {
+	// Create fan-out executor
+	fanOutExecutor := steps.NewFanOutExecutor(r.orchestrator, r)
+
+	// For now, we need to determine the artifact reference and event payload
+	// In a real implementation, this would come from the workflow context
+	// TODO: Extract artifact reference from current repository context
+	artifactRef := "placeholder/artifact:placeholder" // This should be determined from context
+	eventPayload := map[string]string{}               // This should come from step outputs and inputs
+
+	// Execute the fan-out step
+	ctx := context.Background() // TODO: Use proper context from execution
+	result, err := fanOutExecutor.Execute(ctx, step, artifactRef, eventPayload)
+	if err != nil {
+		r.state.FailStep(stepID, err.Error())
+		return StepResult{
+			ID:        stepID,
+			Success:   false,
+			Error:     err,
+			StartTime: startTime,
+			EndTime:   time.Now(),
+		}, err
+	}
+
+	// Mark step as successful
+	output := fmt.Sprintf("Fan-out completed: emitted event, triggered %d workflows", len(result.TriggeredWorkflows))
+	r.state.CompleteStep(stepID, output, map[string]string{
+		"event_emitted":       fmt.Sprintf("%t", result.EventEmitted),
+		"triggered_workflows": fmt.Sprintf("%d", len(result.TriggeredWorkflows)),
+		"child_run_ids":       strings.Join(result.ChildRunIDs, ","),
+	})
 
 	return StepResult{
 		ID:        stepID,
-		Success:   false,
-		Error:     err,
+		Success:   true,
 		StartTime: startTime,
 		EndTime:   time.Now(),
-	}, err
+		Output:    fmt.Sprintf("Fan-out completed: emitted event, triggered %d workflows", len(result.TriggeredWorkflows)),
+		Outputs: map[string]string{
+			"event_emitted":       fmt.Sprintf("%t", result.EventEmitted),
+			"triggered_workflows": fmt.Sprintf("%d", len(result.TriggeredWorkflows)),
+			"child_run_ids":       strings.Join(result.ChildRunIDs, ","),
+		},
+	}, nil
 }
 
 // executeContainerStep executes a step in a container.
@@ -762,6 +851,17 @@ func (r *Runner) getRepositoryNameFromPath(workDir string) string {
 	}
 
 	return "default"
+}
+
+// ExecuteChildWorkflow implements WorkflowRunner interface for fan-out step execution.
+func (r *Runner) ExecuteChildWorkflow(ctx context.Context, repoPath, workflowName string, inputs map[string]string) (string, error) {
+	// Call the existing ExecuteWorkflow method but return just the run ID
+	result, err := r.ExecuteWorkflow(ctx, workflowName, inputs, repoPath)
+	if err != nil {
+		return "", err
+	}
+
+	return result.RunID, nil
 }
 
 // Close cleans up the runner resources.
