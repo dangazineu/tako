@@ -27,11 +27,11 @@ func createTestWorkflow() config.Workflow {
 		Steps: []config.WorkflowStep{
 			{
 				ID:  "validate_input",
-				Run: "echo 'Deploying to {{ .inputs.environment }}'",
+				Run: "echo 'Deploying to {{ .Inputs.environment }}'",
 			},
 			{
 				ID:  "process_output",
-				Run: "echo 'processed-{{ .steps.validate_input.outputs.result }}'",
+				Run: "echo 'processed-{{ .Steps.validate_input.result }}'",
 				Produces: &config.WorkflowStepProduces{
 					Outputs: map[string]string{
 						"final_result": "from_stdout",
@@ -62,9 +62,9 @@ workflows:
         default: "1.0.0"
     steps:
       - id: validate_input
-        run: echo 'Deploying to {{ .inputs.environment }}'
+        run: echo 'Deploying to {{ .Inputs.environment }}'
       - id: process_output
-        run: echo 'processed-{{ .steps.validate_input.outputs.result }}'
+        run: echo 'processed-{{ .Steps.validate_input.result }}'
         produces:
           outputs:
             final_result: from_stdout
