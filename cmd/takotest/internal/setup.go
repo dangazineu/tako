@@ -321,7 +321,7 @@ func buildTakoConfig(envName, owner string, repoDef *e2e.RepositoryDef) *config.
 	}
 
 	if envName == "single-repo-workflow" {
-		// Advanced workflow with input validation and type conversion
+		// advanced-input-workflow: Tests input validation, enum constraints, and template security functions
 		takoConfig.Workflows["advanced-input-workflow"] = config.Workflow{
 			Inputs: map[string]config.WorkflowInput{
 				"environment": {
@@ -370,7 +370,7 @@ func buildTakoConfig(envName, owner string, repoDef *e2e.RepositoryDef) *config.
 			},
 		}
 
-		// Basic step output testing workflow
+		// step-output-workflow: Tests step output capture and passing between sequential steps
 		takoConfig.Workflows["step-output-workflow"] = config.Workflow{
 			Steps: []config.WorkflowStep{
 				{
@@ -398,7 +398,7 @@ func buildTakoConfig(envName, owner string, repoDef *e2e.RepositoryDef) *config.
 			},
 		}
 
-		// Error handling workflow
+		// error-handling-workflow: Tests workflow failure scenarios and step execution halting
 		takoConfig.Workflows["error-handling-workflow"] = config.Workflow{
 			Steps: []config.WorkflowStep{
 				{
@@ -416,7 +416,7 @@ func buildTakoConfig(envName, owner string, repoDef *e2e.RepositoryDef) *config.
 			},
 		}
 
-		// Template variable resolution workflow
+		// template-variable-workflow: Tests template variable resolution with default/custom values and security functions
 		takoConfig.Workflows["template-variable-workflow"] = config.Workflow{
 			Inputs: map[string]config.WorkflowInput{
 				"message": {
@@ -445,7 +445,7 @@ func buildTakoConfig(envName, owner string, repoDef *e2e.RepositoryDef) *config.
 			},
 		}
 
-		// Long-running workflow (for future resume testing)
+		// long-running-workflow: Tests multi-step execution with file operations (foundation for future resume testing)
 		takoConfig.Workflows["long-running-workflow"] = config.Workflow{
 			Steps: []config.WorkflowStep{
 				{

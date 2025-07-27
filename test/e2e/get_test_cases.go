@@ -355,5 +355,22 @@ func GetTestCases() []TestCase {
 				},
 			},
 		},
+		{
+			Name:        "exec-security-functions",
+			Environment: "single-repo-workflow",
+			ReadOnly:    true,
+			Test: []Step{
+				{
+					Name:    "tako exec template security functions with special characters",
+					Command: "tako",
+					Args:    []string{"exec", "template-variable-workflow", "--inputs.message=test'; rm -rf /; echo 'pwned"},
+					AssertOutputContains: []string{
+						"Executing workflow 'template-variable-workflow'",
+						"Success: true",
+						"test_security_functions",
+					},
+				},
+			},
+		},
 	}
 }
