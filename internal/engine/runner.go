@@ -62,6 +62,9 @@ type Runner struct {
 	// Container management
 	containerManager *ContainerManager
 
+	// Resource management
+	resourceManager *ResourceManager
+
 	// Configuration
 	maxConcurrentRepos int
 	dryRun             bool
@@ -110,6 +113,15 @@ func NewRunner(opts RunnerOptions) (*Runner, error) {
 		containerManager = nil
 	}
 
+	// Initialize resource manager
+	resourceConfig := &ResourceManagerConfig{
+		WarningThreshold:   0.9, // 90% warning threshold
+		MonitoringInterval: 30 * time.Second,
+		MaxHistoryEntries:  100,
+		Debug:              opts.Debug,
+	}
+	resourceManager := NewResourceManager(resourceConfig)
+
 	mode := ExecutionModeNormal
 	if opts.DryRun {
 		mode = ExecutionModeDryRun
@@ -126,6 +138,7 @@ func NewRunner(opts RunnerOptions) (*Runner, error) {
 		locks:              locks,
 		templateEngine:     NewTemplateEngine(),
 		containerManager:   containerManager,
+		resourceManager:    resourceManager,
 		maxConcurrentRepos: opts.MaxConcurrentRepos,
 		dryRun:             opts.DryRun,
 		debug:              opts.Debug,
@@ -577,7 +590,41 @@ func (r *Runner) executeContainerStep(ctx context.Context, step config.WorkflowS
 		envMap[fmt.Sprintf("TAKO_INPUT_%s", strings.ToUpper(key))] = value
 	}
 
-	containerConfig, err := r.containerManager.BuildContainerConfig(containerStep, workDir, envMap)
+	// Get repository name from work directory for resource validation
+	repoName := r.getRepositoryNameFromPath(workDir)
+
+	// Validate resource requests if resource manager is available
+	if r.resourceManager != nil {
+		// Extract resource requests from step (if any)
+		cpuRequest := ""
+		memoryRequest := ""
+
+		// Parse resource requirements if specified in step configuration
+		if step.Resources != nil {
+			cpuRequest = step.Resources.CPULimit
+			memoryRequest = step.Resources.MemLimit
+		}
+
+		// Validate resource request against hierarchical limits
+		if err := r.resourceManager.ValidateResourceRequest(repoName, stepID, cpuRequest, memoryRequest); err != nil {
+			r.state.FailStep(stepID, fmt.Sprintf("resource validation failed: %v", err))
+			return StepResult{
+				ID:        stepID,
+				Success:   false,
+				Error:     fmt.Errorf("resource validation failed: %v", err),
+				StartTime: startTime,
+				EndTime:   time.Now(),
+			}, err
+		}
+	}
+
+	// Build container configuration with resource limits
+	var resources *config.Resources
+	if step.Resources != nil {
+		resources = step.Resources
+	}
+
+	containerConfig, err := r.containerManager.BuildContainerConfig(containerStep, workDir, envMap, resources)
 	if err != nil {
 		r.state.FailStep(stepID, fmt.Sprintf("container configuration failed: %v", err))
 		return StepResult{
@@ -694,6 +741,27 @@ func (r *Runner) getEnvironment() []string {
 	}
 	// Return an empty environment if none provided
 	return []string{}
+}
+
+// getRepositoryNameFromPath extracts repository name from work directory path
+func (r *Runner) getRepositoryNameFromPath(workDir string) string {
+	// Extract repository name from path like /cache/repos/owner/repo/branch
+	// or use a fallback based on the work directory
+	parts := strings.Split(filepath.Clean(workDir), string(filepath.Separator))
+
+	// Look for the pattern .../repos/owner/repo/...
+	for i, part := range parts {
+		if part == "repos" && i+2 < len(parts) {
+			return fmt.Sprintf("%s/%s", parts[i+1], parts[i+2])
+		}
+	}
+
+	// Fallback: use the last directory name or "default"
+	if len(parts) > 0 && parts[len(parts)-1] != "" {
+		return parts[len(parts)-1]
+	}
+
+	return "default"
 }
 
 // Close cleans up the runner resources.

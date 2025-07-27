@@ -163,8 +163,8 @@ func isValidNetworkName(network string) bool {
 			return true
 		}
 	}
-	// Allow custom network names (basic validation)
-	networkRegex := regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+	// Allow custom network names (basic validation - must start with letter)
+	networkRegex := regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_.-]*$`)
 	return networkRegex.MatchString(network)
 }
 
@@ -194,7 +194,7 @@ func isValidCapability(capability string) bool {
 }
 
 // BuildContainerConfig creates container configuration from workflow step
-func (cm *ContainerManager) BuildContainerConfig(step config.WorkflowStep, workDir string, env map[string]string) (*ContainerConfig, error) {
+func (cm *ContainerManager) BuildContainerConfig(step config.WorkflowStep, workDir string, env map[string]string, resources *config.Resources) (*ContainerConfig, error) {
 	// Validate first
 	if err := cm.ValidateContainerConfig(step); err != nil {
 		return nil, err
@@ -252,6 +252,21 @@ func (cm *ContainerManager) BuildContainerConfig(step config.WorkflowStep, workD
 	// Allow specific capabilities if requested
 	if len(step.Capabilities) > 0 {
 		config.Security.AddCapabilities = step.Capabilities
+	}
+
+	// Configure resource limits if provided
+	if resources != nil {
+		config.Resources = &ResourceLimits{}
+
+		if resources.CPULimit != "" {
+			config.Resources.CPULimit = resources.CPULimit
+		}
+		if resources.MemLimit != "" {
+			config.Resources.MemoryLimit = resources.MemLimit
+		}
+		if resources.DiskLimit != "" {
+			config.Resources.DiskLimit = resources.DiskLimit
+		}
 	}
 
 	return config, nil

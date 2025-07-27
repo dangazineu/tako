@@ -65,6 +65,7 @@ type WorkflowStep struct {
 	Capabilities  []string               `yaml:"capabilities,omitempty"`
 	CacheKeyFiles string                 `yaml:"cache_key_files,omitempty"`
 	Env           map[string]string      `yaml:"env,omitempty"`
+	Resources     *Resources             `yaml:"resources,omitempty"`
 	Produces      *WorkflowStepProduces  `yaml:"produces,omitempty"`
 	OnFailure     []WorkflowStep         `yaml:"on_failure,omitempty"`
 }

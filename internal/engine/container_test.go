@@ -326,7 +326,7 @@ func TestBuildContainerConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config, err := cm.BuildContainerConfig(tt.step, tt.workDir, tt.env)
+			config, err := cm.BuildContainerConfig(tt.step, tt.workDir, tt.env, nil)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("BuildContainerConfig() error = %v, wantErr %v", err, tt.wantErr)
@@ -506,7 +506,7 @@ func TestContainerManagerIntegration(t *testing.T) {
 		Run:   "echo 'Hello from container'",
 	}
 
-	config, err := cm.BuildContainerConfig(step, "/tmp", map[string]string{"TEST_VAR": "test_value"})
+	config, err := cm.BuildContainerConfig(step, "/tmp", map[string]string{"TEST_VAR": "test_value"}, nil)
 	if err != nil {
 		t.Fatalf("BuildContainerConfig() failed: %v", err)
 	}
