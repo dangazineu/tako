@@ -193,7 +193,7 @@ func TestRunner_executeBuiltinStep(t *testing.T) {
 		t.Error("Expected error for unimplemented built-in step")
 	}
 
-	expectedErrMsg := "built-in steps not yet implemented: tako/fan-out@v1"
+	expectedErrMsg := "failed to parse fan-out parameters: event_type parameter is required"
 	if err.Error() != expectedErrMsg {
 		t.Errorf("Expected error message %q, got %q", expectedErrMsg, err.Error())
 	}
@@ -257,7 +257,14 @@ func TestRunner_executeBuiltinStep_DifferentBuiltins(t *testing.T) {
 				t.Error("Expected error for unimplemented built-in step")
 			}
 
-			expectedErrMsg := "built-in steps not yet implemented: " + builtin
+			var expectedErrMsg string
+			if builtin == "tako/fan-out@v1" {
+				// Fan-out step is implemented but requires parameters
+				expectedErrMsg = "failed to parse fan-out parameters: event_type parameter is required"
+			} else {
+				// Other steps are not yet implemented
+				expectedErrMsg = "built-in step not yet implemented: " + builtin
+			}
 			if err.Error() != expectedErrMsg {
 				t.Errorf("Expected error message %q, got %q", expectedErrMsg, err.Error())
 			}
