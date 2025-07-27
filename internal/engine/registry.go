@@ -70,13 +70,17 @@ type RegistryManager struct {
 
 // NewRegistryManager creates a new registry manager.
 func NewRegistryManager(cacheDir string, debug bool) (*RegistryManager, error) {
-	// Default docker config path
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get home directory: %w", err)
-	}
+	return NewRegistryManagerWithConfig(cacheDir, "", debug)
+}
 
-	configPath := filepath.Join(homeDir, ".docker", "config.json")
+// NewRegistryManagerWithConfig creates a new registry manager with custom docker config path.
+func NewRegistryManagerWithConfig(cacheDir, dockerConfigPath string, debug bool) (*RegistryManager, error) {
+	// Use default docker config path if not provided
+	configPath := dockerConfigPath
+	if configPath == "" {
+		// Default path - this will be overridden by cmd packages when needed
+		configPath = filepath.Join("~", ".docker", "config.json")
+	}
 
 	// Create image cache
 	imageCache, err := NewImageCache(cacheDir, debug)
@@ -119,6 +123,14 @@ func NewImageCache(cacheDir string, debug bool) (*ImageCache, error) {
 func (rm *RegistryManager) LoadDockerConfig() error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
+
+	// Skip loading if config path starts with ~ (requires home dir expansion by caller)
+	if strings.HasPrefix(rm.configPath, "~") {
+		if rm.debug {
+			fmt.Printf("Skipping docker config load - path needs home dir expansion: %s\n", rm.configPath)
+		}
+		return nil
+	}
 
 	data, err := os.ReadFile(rm.configPath)
 	if err != nil {
