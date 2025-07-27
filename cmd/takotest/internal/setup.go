@@ -305,11 +305,11 @@ func buildTakoConfig(envName, owner string, repoDef *e2e.RepositoryDef) *config.
 			Steps: []config.WorkflowStep{
 				{
 					ID:  "validate_input",
-					Run: "echo 'Deploying to {{ .inputs.environment }}'",
+					Run: "echo 'Deploying to {{ .Inputs.environment }}'",
 				},
 				{
 					ID:  "process_output",
-					Run: "echo 'processed-{{ .steps.validate_input.outputs.result }}'",
+					Run: "echo 'processed-{{ .Steps.validate_input.result }}'",
 					Produces: &config.WorkflowStepProduces{
 						Outputs: map[string]string{
 							"final_result": "from_stdout",
