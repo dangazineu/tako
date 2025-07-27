@@ -216,12 +216,27 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 		return err
 	}
 
-	// Clone the entrypoint repo for path mode
+	// Clone repositories based on entrypoint mode
 	if !withRepoEntrypoint {
+		// Clone entrypoint repo for path mode
 		repoName := fmt.Sprintf("%s-%s", env.Name, env.Repositories[0].Name)
 		cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", owner, repoName)
 		if err := git.Clone(cloneURL, filepath.Join(tmpDir, repoName)); err != nil {
 			return err
+		}
+	} else {
+		// Clone all repos to cache for repo entrypoint mode
+		cacheDir := filepath.Join(tmpDir, "cache")
+		for _, repoDef := range env.Repositories {
+			repoName := fmt.Sprintf("%s-%s", env.Name, repoDef.Name)
+			cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", owner, repoName)
+			repoPath := filepath.Join(cacheDir, "repos", owner, repoName, repoDef.Branch)
+			if err := os.MkdirAll(repoPath, 0755); err != nil {
+				return err
+			}
+			if err := git.Clone(cloneURL, repoPath); err != nil {
+				return err
+			}
 		}
 	}
 

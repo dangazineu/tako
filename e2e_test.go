@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dangazineu/tako/test/e2e"
 )
@@ -210,7 +212,24 @@ func setupEnvironment(t *testing.T, takotestPath, envName, mode string, withRepo
 	var setupOut bytes.Buffer
 	setupCmd.Stdout = &setupOut
 	setupCmd.Stderr = &setupOut
+	
+	// Use longer timeout for setup in remote mode (especially for Maven builds)
+	timeout := 5 * time.Minute
+	if mode == "remote" {
+		timeout = 15 * time.Minute
+	}
+	
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	
+	setupCmd = exec.CommandContext(ctx, setupCmd.Path, setupCmd.Args[1:]...)
+	setupCmd.Stdout = &setupOut
+	setupCmd.Stderr = &setupOut
+	
 	if err := setupCmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			t.Fatalf("setup timed out after %v: %s\nOutput:\n%s", timeout, strings.Join(setupCmd.Args, " "), setupOut.String())
+		}
 		t.Fatalf("failed to setup environment: %v\nOutput:\n%s", err, setupOut.String())
 	}
 	var setupData setupOutput
@@ -308,10 +327,29 @@ func runSteps(t *testing.T, steps []e2e.Step, workDir, cacheDir, mode string, wi
 			mavenRepoDir := filepath.Join(filepath.Dir(workDir), "maven-repo")
 			cmd.Env = append(os.Environ(), fmt.Sprintf("PATH=%s", newPath), fmt.Sprintf("MAVEN_REPO_DIR=%s", mavenRepoDir))
 
+			// Determine timeout based on command type
+			timeout := 5 * time.Minute
+			if step.Command == "mvn" || (step.Command == "tako" && len(step.Args) > 1 && strings.Contains(step.Args[1], "mvn")) {
+				timeout = 15 * time.Minute // Longer timeout for Maven builds
+			}
+			
+			// Create context with timeout
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			
+			// Create new command with context
+			cmdWithTimeout := exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
+			cmdWithTimeout.Dir = cmd.Dir
+			cmdWithTimeout.Env = cmd.Env
+			
 			var out bytes.Buffer
-			cmd.Stdout = &out
-			cmd.Stderr = &out
-			err := cmd.Run()
+			cmdWithTimeout.Stdout = &out
+			cmdWithTimeout.Stderr = &out
+			err := cmdWithTimeout.Run()
+			
+			if ctx.Err() == context.DeadlineExceeded {
+				t.Fatalf("command timed out after %v: %s\nOutput:\n%s", timeout, strings.Join(cmd.Args, " "), out.String())
+			}
 
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				if exitErr.ExitCode() != step.ExpectedExitCode {
@@ -343,13 +381,32 @@ func runSteps(t *testing.T, steps []e2e.Step, workDir, cacheDir, mode string, wi
 }
 
 func runCmd(t *testing.T, cmd *exec.Cmd, dir string) {
+	runCmdWithTimeout(t, cmd, dir, 5*time.Minute) // Default 5 minute timeout
+}
+
+func runCmdWithTimeout(t *testing.T, cmd *exec.Cmd, dir string, timeout time.Duration) {
 	if dir != "" {
 		cmd.Dir = dir
 	}
+	
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	
+	// Set context on command
+	cmd = exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
+	
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			t.Fatalf("command timed out after %v: %s\nOutput:\n%s", timeout, strings.Join(cmd.Args, " "), out.String())
+		}
 		t.Fatalf("command failed: %v\nOutput:\n%s", err, out.String())
 	}
 }
