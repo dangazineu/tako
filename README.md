@@ -22,7 +22,17 @@ Tako differentiates itself from existing tools by focusing on **dependency-aware
 *   **vs. Git Submodules/Scripts:** This is the manual, error-prone approach that Tako aims to replace with a structured, repeatable process.
 *   **vs. GitHub Actions:** A CI/CD platform for automation *after* code is pushed. Tako is a developer tool for the local machine, designed to ensure code is correct *before* it's pushed. Additionally, Tako can be used for automation like GHA, allowing its configuration to be reusable for multiple purposes.
 
-## 2. Core Concepts
+## 2. Getting Started
+
+### Developer Setup
+
+To ensure consistent code formatting, this project uses a `gofmt` pre-commit hook. To install the hooks, run the following command from the root of the repository:
+
+```bash
+./scripts/install-hooks.sh
+```
+
+## 3. Core Concepts
 
 ### 2.1. Workspace & Repository Management
 *   **Workspace Root:** A "workspace" is not a formal concept with a global configuration file. For any given `tako` command, the **workspace root is the repository from which the command is executed**.
