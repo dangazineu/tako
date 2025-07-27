@@ -77,7 +77,7 @@ func eventField(field string, event interface{}) interface{} {
 	if !ok || eventCtx == nil || eventCtx.Payload == nil {
 		return nil
 	}
-	
+
 	return getNestedField(eventCtx.Payload, field)
 }
 
@@ -87,7 +87,7 @@ func eventHasField(field string, event interface{}) bool {
 	if !ok || eventCtx == nil || eventCtx.Payload == nil {
 		return false
 	}
-	
+
 	return hasNestedField(eventCtx.Payload, field)
 }
 
@@ -97,7 +97,7 @@ func eventFilter(criteria string, event interface{}) map[string]interface{} {
 	if !ok || eventCtx == nil || eventCtx.Payload == nil {
 		return map[string]interface{}{}
 	}
-	
+
 	// Simple filtering based on key presence
 	result := make(map[string]interface{})
 	for key, value := range eventCtx.Payload {
@@ -105,7 +105,7 @@ func eventFilter(criteria string, event interface{}) map[string]interface{} {
 			result[key] = value
 		}
 	}
-	
+
 	return result
 }
 
@@ -114,25 +114,25 @@ func getNestedField(data map[string]interface{}, field string) interface{} {
 	if field == "" {
 		return data
 	}
-	
+
 	parts := strings.Split(field, ".")
 	current := data
-	
+
 	for i, part := range parts {
 		if current == nil {
 			return nil
 		}
-		
+
 		value, exists := current[part]
 		if !exists {
 			return nil
 		}
-		
+
 		// If this is the last part, return the value
 		if i == len(parts)-1 {
 			return value
 		}
-		
+
 		// Otherwise, continue traversing
 		if nextMap, ok := value.(map[string]interface{}); ok {
 			current = nextMap
@@ -140,7 +140,7 @@ func getNestedField(data map[string]interface{}, field string) interface{} {
 			return nil
 		}
 	}
-	
+
 	return current
 }
 
@@ -149,25 +149,25 @@ func hasNestedField(data map[string]interface{}, field string) bool {
 	if field == "" {
 		return true
 	}
-	
+
 	parts := strings.Split(field, ".")
 	current := data
-	
+
 	for i, part := range parts {
 		if current == nil {
 			return false
 		}
-		
+
 		value, exists := current[part]
 		if !exists {
 			return false
 		}
-		
+
 		// If this is the last part, field exists
 		if i == len(parts)-1 {
 			return true
 		}
-		
+
 		// Otherwise, continue traversing
 		if nextMap, ok := value.(map[string]interface{}); ok {
 			current = nextMap
@@ -175,7 +175,7 @@ func hasNestedField(data map[string]interface{}, field string) bool {
 			return false
 		}
 	}
-	
+
 	return true
 }
 
@@ -184,31 +184,31 @@ func ValidateContext(context *TemplateContext) error {
 	if context == nil {
 		return fmt.Errorf("template context cannot be nil")
 	}
-	
+
 	// Validate inputs
 	if context.Inputs == nil {
 		context.Inputs = make(map[string]string)
 	}
-	
+
 	// Validate step outputs
 	if context.Steps == nil {
 		context.Steps = make(map[string]map[string]string)
 	}
-	
+
 	// Validate event context if present
 	if context.Event != nil {
 		if err := validateEventContext(context.Event); err != nil {
 			return fmt.Errorf("invalid event context: %v", err)
 		}
 	}
-	
+
 	// Validate trigger context if present
 	if context.Trigger != nil {
 		if err := validateTriggerContext(context.Trigger); err != nil {
 			return fmt.Errorf("invalid trigger context: %v", err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -217,19 +217,19 @@ func validateEventContext(event *EventContext) error {
 	if event.Type == "" {
 		return fmt.Errorf("event type cannot be empty")
 	}
-	
+
 	if event.Source == "" {
 		return fmt.Errorf("event source cannot be empty")
 	}
-	
+
 	if event.Payload == nil {
 		event.Payload = make(map[string]interface{})
 	}
-	
+
 	if event.Timestamp.IsZero() {
 		return fmt.Errorf("event timestamp cannot be zero")
 	}
-	
+
 	return nil
 }
 
@@ -239,7 +239,7 @@ func validateTriggerContext(trigger *TriggerContext) error {
 		trigger.Artifacts = []ArtifactInfo{}
 		return nil
 	}
-	
+
 	for i, artifact := range trigger.Artifacts {
 		if artifact.Name == "" {
 			return fmt.Errorf("artifact %d: name cannot be empty", i)
@@ -248,7 +248,7 @@ func validateTriggerContext(trigger *TriggerContext) error {
 			return fmt.Errorf("artifact %d: version cannot be empty", i)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -260,22 +260,22 @@ func MergeContexts(contexts ...*TemplateContext) *TemplateContext {
 			Steps:  make(map[string]map[string]string),
 		}
 	}
-	
+
 	result := &TemplateContext{
 		Inputs: make(map[string]string),
 		Steps:  make(map[string]map[string]string),
 	}
-	
+
 	for _, ctx := range contexts {
 		if ctx == nil {
 			continue
 		}
-		
+
 		// Merge inputs
 		for k, v := range ctx.Inputs {
 			result.Inputs[k] = v
 		}
-		
+
 		// Merge step outputs
 		for stepID, outputs := range ctx.Steps {
 			if result.Steps[stepID] == nil {
@@ -285,7 +285,7 @@ func MergeContexts(contexts ...*TemplateContext) *TemplateContext {
 				result.Steps[stepID][k] = v
 			}
 		}
-		
+
 		// Event and Trigger contexts are not merged, last one wins
 		if ctx.Event != nil {
 			result.Event = ctx.Event
@@ -294,7 +294,7 @@ func MergeContexts(contexts ...*TemplateContext) *TemplateContext {
 			result.Trigger = ctx.Trigger
 		}
 	}
-	
+
 	return result
 }
 
@@ -303,17 +303,17 @@ func CloneContext(ctx *TemplateContext) *TemplateContext {
 	if ctx == nil {
 		return nil
 	}
-	
+
 	result := &TemplateContext{
 		Inputs: make(map[string]string),
 		Steps:  make(map[string]map[string]string),
 	}
-	
+
 	// Copy inputs
 	for k, v := range ctx.Inputs {
 		result.Inputs[k] = v
 	}
-	
+
 	// Copy step outputs
 	for stepID, outputs := range ctx.Steps {
 		result.Steps[stepID] = make(map[string]string)
@@ -321,7 +321,7 @@ func CloneContext(ctx *TemplateContext) *TemplateContext {
 			result.Steps[stepID][k] = v
 		}
 	}
-	
+
 	// Clone event context
 	if ctx.Event != nil {
 		result.Event = &EventContext{
@@ -332,7 +332,7 @@ func CloneContext(ctx *TemplateContext) *TemplateContext {
 			Payload:   clonePayload(ctx.Event.Payload),
 		}
 	}
-	
+
 	// Clone trigger context
 	if ctx.Trigger != nil {
 		result.Trigger = &TriggerContext{
@@ -340,7 +340,7 @@ func CloneContext(ctx *TemplateContext) *TemplateContext {
 		}
 		copy(result.Trigger.Artifacts, ctx.Trigger.Artifacts)
 	}
-	
+
 	return result
 }
 
@@ -349,7 +349,7 @@ func clonePayload(payload map[string]interface{}) map[string]interface{} {
 	if payload == nil {
 		return nil
 	}
-	
+
 	result := make(map[string]interface{})
 	for k, v := range payload {
 		result[k] = cloneValue(v)
@@ -362,7 +362,7 @@ func cloneValue(v interface{}) interface{} {
 	if v == nil {
 		return nil
 	}
-	
+
 	switch val := v.(type) {
 	case map[string]interface{}:
 		result := make(map[string]interface{})

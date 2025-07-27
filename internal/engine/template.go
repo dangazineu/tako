@@ -19,10 +19,10 @@ type TemplateEngine struct {
 
 // TemplateContext represents the complete context available in templates.
 type TemplateContext struct {
-	Inputs  map[string]string              `json:"inputs"`
-	Steps   map[string]map[string]string   `json:"steps"`
-	Event   *EventContext                  `json:"event,omitempty"`
-	Trigger *TriggerContext                `json:"trigger,omitempty"` // Legacy compatibility
+	Inputs  map[string]string            `json:"inputs"`
+	Steps   map[string]map[string]string `json:"steps"`
+	Event   *EventContext                `json:"event,omitempty"`
+	Trigger *TriggerContext              `json:"trigger,omitempty"` // Legacy compatibility
 }
 
 // EventContext provides event-specific data for subscription-triggered workflows.
@@ -72,16 +72,16 @@ func NewTemplateEngine() *TemplateEngine {
 	// Initialize security and utility functions
 	engine.functions = template.FuncMap{
 		// Security functions
-		"shell_quote":  shellQuote,
-		"json_escape":  jsonEscape,
-		"url_encode":   urlEncode,
-		"html_escape":  htmlEscape,
-		
+		"shell_quote": shellQuote,
+		"json_escape": jsonEscape,
+		"url_encode":  urlEncode,
+		"html_escape": htmlEscape,
+
 		// Event processing functions
 		"event_field":     eventField,
 		"event_has_field": eventHasField,
 		"event_filter":    eventFilter,
-		
+
 		// Utility functions
 		"default":    defaultValue,
 		"empty":      isEmpty,
@@ -94,13 +94,13 @@ func NewTemplateEngine() *TemplateEngine {
 		"contains":   strings.Contains,
 		"has_prefix": strings.HasPrefix,
 		"has_suffix": strings.HasSuffix,
-		
+
 		// Type conversion functions
 		"to_string": toString,
 		"to_int":    toInt,
 		"to_float":  toFloat,
 		"to_bool":   toBool,
-		
+
 		// Collection functions
 		"range_map": rangeMap,
 		"keys":      keys,
@@ -108,7 +108,7 @@ func NewTemplateEngine() *TemplateEngine {
 		"length":    length,
 		"first":     first,
 		"last":      last,
-		
+
 		// Conditional functions
 		"if_then_else": ifThenElse,
 		"or":           or,
@@ -187,7 +187,7 @@ func (te *TemplateEngine) ClearCache() {
 func (te *TemplateEngine) GetCacheStats() map[string]interface{} {
 	te.mu.RLock()
 	defer te.mu.RUnlock()
-	
+
 	return map[string]interface{}{
 		"entries":    len(te.cache.entries),
 		"total_size": te.cache.totalSize,
@@ -225,7 +225,7 @@ func (tc *templateCache) put(key string, tmpl *template.Template) {
 
 	// Calculate approximate size (template string length)
 	size := int64(len(key))
-	
+
 	entry := &templateCacheEntry{
 		template:  tmpl,
 		size:      size,
@@ -259,7 +259,7 @@ func (tc *templateCache) evictIfNeeded() {
 		tc.lru.Remove(elem)
 		entry := elem.Value.(*templateCacheEntry)
 		tc.totalSize -= entry.size
-		
+
 		// Find and remove from entries map
 		for key, e := range tc.entries {
 			if e == elem {
@@ -274,7 +274,7 @@ func (tc *templateCache) evictIfNeeded() {
 func (tc *templateCache) clear() {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-	
+
 	tc.entries = make(map[string]*list.Element)
 	tc.lru = list.New()
 	tc.totalSize = 0

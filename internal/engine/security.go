@@ -32,20 +32,20 @@ func shellQuote(s interface{}) string {
 // jsonEscape escapes a string for safe inclusion in JSON.
 func jsonEscape(s interface{}) string {
 	str := toString(s)
-	
+
 	// Use Go's JSON marshaling for proper escaping
 	data, err := json.Marshal(str)
 	if err != nil {
 		// Fallback to manual escaping
 		return manualJSONEscape(str)
 	}
-	
+
 	// Remove the surrounding quotes from JSON marshaling
 	result := string(data)
 	if len(result) >= 2 && result[0] == '"' && result[len(result)-1] == '"' {
 		return result[1 : len(result)-1]
 	}
-	
+
 	return result
 }
 
@@ -78,7 +78,7 @@ func toString(v interface{}) string {
 	if v == nil {
 		return ""
 	}
-	
+
 	switch val := v.(type) {
 	case string:
 		return val
@@ -170,7 +170,7 @@ func isEmpty(v interface{}) bool {
 	if v == nil {
 		return true
 	}
-	
+
 	switch val := v.(type) {
 	case string:
 		return val == ""
@@ -196,7 +196,7 @@ func length(v interface{}) int {
 	if v == nil {
 		return 0
 	}
-	
+
 	switch val := v.(type) {
 	case string:
 		return len(val)
@@ -312,7 +312,7 @@ func isTruthy(v interface{}) bool {
 	if v == nil {
 		return false
 	}
-	
+
 	switch val := v.(type) {
 	case bool:
 		return val

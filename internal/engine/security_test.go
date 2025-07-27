@@ -376,7 +376,7 @@ func TestCollectionFunctions(t *testing.T) {
 		if len(result) != 3 {
 			t.Errorf("Expected 3 keys, got %d", len(result))
 		}
-		
+
 		// Check all keys are present (order doesn't matter)
 		for _, key := range []string{"key1", "key2", "key3"} {
 			found := false
@@ -487,7 +487,7 @@ func TestLogicalFunctions(t *testing.T) {
 		for _, tt := range tests {
 			result := ifThenElse(tt.condition, tt.trueVal, tt.falseVal)
 			if result != tt.expected {
-				t.Errorf("ifThenElse(%v, %v, %v): expected %v, got %v", 
+				t.Errorf("ifThenElse(%v, %v, %v): expected %v, got %v",
 					tt.condition, tt.trueVal, tt.falseVal, tt.expected, result)
 			}
 		}
@@ -517,21 +517,21 @@ func TestLogicalFunctions(t *testing.T) {
 
 func TestSecurityIntegration(t *testing.T) {
 	// Test that security functions prevent common injection attacks
-	
+
 	t.Run("command injection prevention", func(t *testing.T) {
 		maliciousInput := "normal'; rm -rf /; echo 'pwned"
 		quoted := shellQuote(maliciousInput)
-		
+
 		// Should start and end with quotes (proper shell quoting)
 		if !strings.HasPrefix(quoted, "'") || !strings.HasSuffix(quoted, "'") {
 			t.Error("Shell quoting should wrap the string in quotes")
 		}
-		
+
 		// Should contain the escaped version of single quotes
 		if !strings.Contains(quoted, "'\"'\"'") {
 			t.Error("Shell quoting didn't properly escape single quotes")
 		}
-		
+
 		// The dangerous command should be rendered harmless (inside quotes)
 		// We verify this by checking that the quoted string can be safely used in a shell command
 		if !strings.Contains(quoted, "rm -rf /") {
@@ -542,12 +542,12 @@ func TestSecurityIntegration(t *testing.T) {
 	t.Run("XSS prevention", func(t *testing.T) {
 		maliciousInput := "<script>alert('xss')</script>"
 		escaped := htmlEscape(maliciousInput)
-		
+
 		// Should not contain actual HTML tags
 		if strings.Contains(escaped, "<script>") {
 			t.Error("HTML escaping failed to prevent XSS")
 		}
-		
+
 		// Should contain escaped version
 		if !strings.Contains(escaped, "&lt;script&gt;") {
 			t.Error("HTML escaping didn't properly escape tags")
@@ -557,12 +557,12 @@ func TestSecurityIntegration(t *testing.T) {
 	t.Run("JSON injection prevention", func(t *testing.T) {
 		maliciousInput := `","admin":true,"fake":"`
 		escaped := jsonEscape(maliciousInput)
-		
+
 		// Should not contain unescaped quotes that could break JSON structure
 		if strings.Contains(escaped, `","admin":true`) {
 			t.Error("JSON escaping failed to prevent injection")
 		}
-		
+
 		// Should contain escaped quotes
 		if !strings.Contains(escaped, `\",\"`) {
 			t.Error("JSON escaping didn't properly escape quotes")

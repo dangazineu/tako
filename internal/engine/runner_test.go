@@ -277,7 +277,7 @@ func TestRunnerResumeNotImplemented(t *testing.T) {
 	}
 }
 
-// TestRunnerWorkflowExecution tests successful workflow execution
+// TestRunnerWorkflowExecution tests successful workflow execution.
 func TestRunnerWorkflowExecution(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -360,7 +360,7 @@ func TestRunnerWorkflowExecution(t *testing.T) {
 	}
 }
 
-// TestRunnerWorkflowExecutionWithFailure tests workflow execution with failing steps
+// TestRunnerWorkflowExecutionWithFailure tests workflow execution with failing steps.
 func TestRunnerWorkflowExecutionWithFailure(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -407,7 +407,7 @@ subscriptions: []
 	}
 
 	result, err := runner.ExecuteWorkflow(ctx, "failing-workflow", inputs, tempDir)
-	
+
 	// Execution should fail
 	if err == nil {
 		t.Error("Workflow execution should fail when step fails")
@@ -440,7 +440,7 @@ subscriptions: []
 	}
 }
 
-// TestRunnerInputValidationExtensive tests comprehensive input validation scenarios
+// TestRunnerInputValidationExtensive tests comprehensive input validation scenarios.
 func TestRunnerInputValidationExtensive(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -549,7 +549,7 @@ func TestRunnerInputValidationExtensive(t *testing.T) {
 	})
 }
 
-// TestRunnerDebugMode tests debug mode execution
+// TestRunnerDebugMode tests debug mode execution.
 func TestRunnerDebugMode(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -589,7 +589,7 @@ func TestRunnerDebugMode(t *testing.T) {
 	}
 }
 
-// TestRunnerStepOutputProcessing tests step output processing with produces field
+// TestRunnerStepOutputProcessing tests step output processing with produces field.
 func TestRunnerStepOutputProcessing(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -666,7 +666,7 @@ subscriptions: []
 	if stdoutStep.ID != "stdout_step" {
 		t.Errorf("Expected stdout_step, got %q", stdoutStep.ID)
 	}
-	
+
 	if stdoutStep.Outputs["result"] != "output_from_stdout" {
 		t.Errorf("Expected stdout output 'output_from_stdout', got %q", stdoutStep.Outputs["result"])
 	}
@@ -676,7 +676,7 @@ subscriptions: []
 	if stderrStep.ID != "stderr_step" {
 		t.Errorf("Expected stderr_step, got %q", stderrStep.ID)
 	}
-	
+
 	if stderrStep.Outputs["error_result"] != "output_from_stderr" {
 		t.Errorf("Expected stderr output 'output_from_stderr', got %q", stderrStep.Outputs["error_result"])
 	}
@@ -686,18 +686,18 @@ subscriptions: []
 	if stdoutStep2.ID != "regex_step" {
 		t.Errorf("Expected regex_step, got %q", stdoutStep2.ID)
 	}
-	
+
 	expectedOutput := "Version=1.2.3 Build=456"
 	if stdoutStep2.Outputs["version"] != expectedOutput {
 		t.Errorf("Expected version output %q, got %q", expectedOutput, stdoutStep2.Outputs["version"])
 	}
-	
+
 	if stdoutStep2.Outputs["build"] != expectedOutput {
 		t.Errorf("Expected build output %q, got %q", expectedOutput, stdoutStep2.Outputs["build"])
 	}
 }
 
-// TestRunnerContextCancellation tests context cancellation during execution
+// TestRunnerContextCancellation tests context cancellation during execution.
 func TestRunnerContextCancellation(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -742,7 +742,7 @@ subscriptions: []
 	inputs := map[string]string{}
 
 	result, err := runner.ExecuteWorkflow(ctx, "long-workflow", inputs, tempDir)
-	
+
 	// Should get an error (could be context cancellation or killed signal)
 	if err == nil {
 		t.Error("Expected execution error due to timeout")
@@ -764,7 +764,7 @@ subscriptions: []
 	}
 }
 
-// TestRunnerWorkflowNotFound tests handling of non-existent workflows
+// TestRunnerWorkflowNotFound tests handling of non-existent workflows.
 func TestRunnerWorkflowNotFound(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -788,7 +788,7 @@ func TestRunnerWorkflowNotFound(t *testing.T) {
 	inputs := map[string]string{}
 
 	result, err := runner.ExecuteWorkflow(ctx, "non-existent-workflow", inputs, tempDir)
-	
+
 	// Should fail with workflow not found error
 	if err == nil {
 		t.Error("Expected workflow not found error")
@@ -804,7 +804,7 @@ func TestRunnerWorkflowNotFound(t *testing.T) {
 	}
 }
 
-// TestRunnerInvalidTakoConfig tests handling of invalid tako.yml files
+// TestRunnerInvalidTakoConfig tests handling of invalid tako.yml files.
 func TestRunnerInvalidTakoConfig(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -831,7 +831,7 @@ func TestRunnerInvalidTakoConfig(t *testing.T) {
 	inputs := map[string]string{}
 
 	result, err := runner.ExecuteWorkflow(ctx, "any-workflow", inputs, tempDir)
-	
+
 	// Should fail with config load error
 	if err == nil {
 		t.Error("Expected config load error")
@@ -849,7 +849,7 @@ func TestRunnerInvalidTakoConfig(t *testing.T) {
 	}
 }
 
-// TestRunnerEnvironmentVariables tests environment variable handling
+// TestRunnerEnvironmentVariables tests environment variable handling.
 func TestRunnerEnvironmentVariables(t *testing.T) {
 	tempDir := t.TempDir()
 

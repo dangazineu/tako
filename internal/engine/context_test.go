@@ -7,24 +7,24 @@ import (
 
 func TestContextBuilder(t *testing.T) {
 	builder := NewContextBuilder()
-	
+
 	inputs := map[string]string{
 		"env":     "prod",
 		"version": "1.0.0",
 	}
-	
+
 	stepOutputs := map[string]map[string]string{
 		"build": {
 			"artifact": "app-1.0.0.jar",
 			"status":   "success",
 		},
 	}
-	
+
 	payload := map[string]interface{}{
 		"commit": "abc123",
 		"author": "dev@company.com",
 	}
-	
+
 	artifacts := []ArtifactInfo{
 		{
 			Name:    "lib1",
@@ -32,7 +32,7 @@ func TestContextBuilder(t *testing.T) {
 			Source:  "registry.example.com",
 		},
 	}
-	
+
 	context := builder.
 		WithInputs(inputs).
 		WithStepOutputs(stepOutputs).
@@ -40,17 +40,17 @@ func TestContextBuilder(t *testing.T) {
 		WithEventVersion("1.0").
 		WithLegacyTrigger(artifacts).
 		Build()
-	
+
 	// Verify inputs
 	if context.Inputs["env"] != "prod" {
 		t.Errorf("Expected env=prod, got %s", context.Inputs["env"])
 	}
-	
+
 	// Verify step outputs
 	if context.Steps["build"]["artifact"] != "app-1.0.0.jar" {
 		t.Errorf("Expected artifact=app-1.0.0.jar, got %s", context.Steps["build"]["artifact"])
 	}
-	
+
 	// Verify event context
 	if context.Event == nil {
 		t.Fatal("Event context should not be nil")
@@ -64,7 +64,7 @@ func TestContextBuilder(t *testing.T) {
 	if context.Event.Payload["commit"] != "abc123" {
 		t.Errorf("Expected commit=abc123, got %v", context.Event.Payload["commit"])
 	}
-	
+
 	// Verify legacy trigger context
 	if context.Trigger == nil {
 		t.Fatal("Trigger context should not be nil")
@@ -93,7 +93,7 @@ func TestEventFieldExtraction(t *testing.T) {
 			"tags": []interface{}{"tag1", "tag2"},
 		},
 	}
-	
+
 	tests := []struct {
 		name     string
 		field    string
@@ -130,11 +130,11 @@ func TestEventFieldExtraction(t *testing.T) {
 			expected: nil,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := eventField(tt.field, event)
-			
+
 			// Special handling for whole payload comparison
 			if tt.expected == "WHOLE_PAYLOAD" {
 				if payload, ok := result.(map[string]interface{}); !ok {
@@ -144,7 +144,7 @@ func TestEventFieldExtraction(t *testing.T) {
 				}
 				return
 			}
-			
+
 			if result != tt.expected {
 				t.Errorf("Expected %v, got %v", tt.expected, result)
 			}
@@ -166,7 +166,7 @@ func TestEventHasField(t *testing.T) {
 			},
 		},
 	}
-	
+
 	tests := []struct {
 		name     string
 		field    string
@@ -203,7 +203,7 @@ func TestEventHasField(t *testing.T) {
 			expected: true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := eventHasField(tt.field, event)
@@ -226,9 +226,9 @@ func TestEventFilter(t *testing.T) {
 			"metadata":     map[string]interface{}{"key": "value"},
 		},
 	}
-	
+
 	result := eventFilter("version", event)
-	
+
 	// Should include keys that contain "version"
 	if _, exists := result["version"]; !exists {
 		t.Error("Expected 'version' key in filtered result")
@@ -236,7 +236,7 @@ func TestEventFilter(t *testing.T) {
 	if _, exists := result["version_tag"]; !exists {
 		t.Error("Expected 'version_tag' key in filtered result")
 	}
-	
+
 	// Should not include keys that don't contain "version"
 	if _, exists := result["build_number"]; exists {
 		t.Error("Did not expect 'build_number' key in filtered result")
@@ -263,37 +263,37 @@ func TestValidateContext(t *testing.T) {
 				},
 			},
 		}
-		
+
 		err := ValidateContext(context)
 		if err != nil {
 			t.Errorf("Expected valid context, got error: %v", err)
 		}
 	})
-	
+
 	t.Run("nil context", func(t *testing.T) {
 		err := ValidateContext(nil)
 		if err == nil {
 			t.Error("Expected error for nil context")
 		}
 	})
-	
+
 	t.Run("context with nil inputs", func(t *testing.T) {
 		context := &TemplateContext{
 			Inputs: nil,
 			Steps:  map[string]map[string]string{},
 		}
-		
+
 		err := ValidateContext(context)
 		if err != nil {
 			t.Errorf("Should handle nil inputs gracefully, got error: %v", err)
 		}
-		
+
 		// Should initialize inputs
 		if context.Inputs == nil {
 			t.Error("Inputs should be initialized")
 		}
 	})
-	
+
 	t.Run("invalid event context", func(t *testing.T) {
 		context := &TemplateContext{
 			Inputs: map[string]string{},
@@ -303,13 +303,13 @@ func TestValidateContext(t *testing.T) {
 				Source: "source",
 			},
 		}
-		
+
 		err := ValidateContext(context)
 		if err == nil {
 			t.Error("Expected error for invalid event context")
 		}
 	})
-	
+
 	t.Run("invalid trigger context", func(t *testing.T) {
 		context := &TemplateContext{
 			Inputs: map[string]string{},
@@ -320,7 +320,7 @@ func TestValidateContext(t *testing.T) {
 				},
 			},
 		}
-		
+
 		err := ValidateContext(context)
 		if err == nil {
 			t.Error("Expected error for invalid trigger context")
@@ -342,7 +342,7 @@ func TestMergeContexts(t *testing.T) {
 			Source: "source1",
 		},
 	}
-	
+
 	context2 := &TemplateContext{
 		Inputs: map[string]string{
 			"key2": "newvalue2", // Override
@@ -357,9 +357,9 @@ func TestMergeContexts(t *testing.T) {
 			Source: "source2",
 		},
 	}
-	
+
 	merged := MergeContexts(context1, context2)
-	
+
 	// Check merged inputs
 	if merged.Inputs["key1"] != "value1" {
 		t.Errorf("Expected key1=value1, got %s", merged.Inputs["key1"])
@@ -370,7 +370,7 @@ func TestMergeContexts(t *testing.T) {
 	if merged.Inputs["key3"] != "value3" {
 		t.Errorf("Expected key3=value3, got %s", merged.Inputs["key3"])
 	}
-	
+
 	// Check merged steps
 	if merged.Steps["step1"]["output1"] != "value1" {
 		t.Errorf("Expected step1.output1=value1, got %s", merged.Steps["step1"]["output1"])
@@ -381,7 +381,7 @@ func TestMergeContexts(t *testing.T) {
 	if merged.Steps["step2"]["output1"] != "value1" {
 		t.Errorf("Expected step2.output1=value1, got %s", merged.Steps["step2"]["output1"])
 	}
-	
+
 	// Check event override
 	if merged.Event.Type != "event2" {
 		t.Errorf("Expected event type=event2 (overridden), got %s", merged.Event.Type)
@@ -414,16 +414,16 @@ func TestCloneContext(t *testing.T) {
 			},
 		},
 	}
-	
+
 	cloned := CloneContext(original)
-	
+
 	// Verify deep copy - changes to clone shouldn't affect original
 	cloned.Inputs["key1"] = "modified"
 	cloned.Steps["step1"]["output1"] = "modified"
 	cloned.Event.Type = "modified"
 	cloned.Event.Payload["version"] = "modified"
 	cloned.Trigger.Artifacts[0].Name = "modified"
-	
+
 	// Original should be unchanged
 	if original.Inputs["key1"] != "value1" {
 		t.Error("Original inputs were modified")
@@ -503,14 +503,14 @@ func TestEventContextValidation(t *testing.T) {
 			wantErr: false,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateEventContext(tt.event)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateEventContext() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			
+
 			// Check payload initialization
 			if !tt.wantErr && tt.event.Payload == nil {
 				t.Error("Payload should be initialized for valid events")
@@ -560,7 +560,7 @@ func TestTriggerContextValidation(t *testing.T) {
 			wantErr: true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateTriggerContext(tt.trigger)

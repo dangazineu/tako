@@ -8,7 +8,7 @@ import (
 
 func TestTemplateEngine_BasicExpansion(t *testing.T) {
 	engine := NewTemplateEngine()
-	
+
 	context := &TemplateContext{
 		Inputs: map[string]string{
 			"version":     "1.2.3",
@@ -21,7 +21,7 @@ func TestTemplateEngine_BasicExpansion(t *testing.T) {
 			},
 		},
 	}
-	
+
 	tests := []struct {
 		name     string
 		template string
@@ -53,7 +53,7 @@ func TestTemplateEngine_BasicExpansion(t *testing.T) {
 			expected: "Hello World",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := engine.ExpandTemplate(tt.template, context)
@@ -69,7 +69,7 @@ func TestTemplateEngine_BasicExpansion(t *testing.T) {
 
 func TestTemplateEngine_EventContext(t *testing.T) {
 	engine := NewTemplateEngine()
-	
+
 	context := &TemplateContext{
 		Event: &EventContext{
 			Type:   "artifact_updated",
@@ -94,7 +94,7 @@ func TestTemplateEngine_EventContext(t *testing.T) {
 			Timestamp: time.Now(),
 		},
 	}
-	
+
 	tests := []struct {
 		name     string
 		template string
@@ -121,7 +121,7 @@ func TestTemplateEngine_EventContext(t *testing.T) {
 			expected: "Source: github.com/user/repo",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := engine.ExpandTemplate(tt.template, context)
@@ -137,7 +137,7 @@ func TestTemplateEngine_EventContext(t *testing.T) {
 
 func TestTemplateEngine_SecurityFunctions(t *testing.T) {
 	engine := NewTemplateEngine()
-	
+
 	context := &TemplateContext{
 		Inputs: map[string]string{
 			"unsafe_input": "test'; rm -rf /; echo 'hacked",
@@ -146,7 +146,7 @@ func TestTemplateEngine_SecurityFunctions(t *testing.T) {
 			"html_content": "<script>alert('xss')</script>",
 		},
 	}
-	
+
 	tests := []struct {
 		name     string
 		template string
@@ -173,7 +173,7 @@ func TestTemplateEngine_SecurityFunctions(t *testing.T) {
 			contains: "&lt;script&gt;",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := engine.ExpandTemplate(tt.template, context)
@@ -189,17 +189,17 @@ func TestTemplateEngine_SecurityFunctions(t *testing.T) {
 
 func TestTemplateEngine_UtilityFunctions(t *testing.T) {
 	engine := NewTemplateEngine()
-	
+
 	context := &TemplateContext{
 		Inputs: map[string]string{
-			"empty_val":   "",
-			"text":        "  Hello World  ",
-			"number":      "42",
-			"bool_true":   "true",
-			"bool_false":  "false",
+			"empty_val":  "",
+			"text":       "  Hello World  ",
+			"number":     "42",
+			"bool_true":  "true",
+			"bool_false": "false",
 		},
 	}
-	
+
 	tests := []struct {
 		name     string
 		template string
@@ -236,7 +236,7 @@ func TestTemplateEngine_UtilityFunctions(t *testing.T) {
 			expected: "42",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := engine.ExpandTemplate(tt.template, context)
@@ -252,7 +252,7 @@ func TestTemplateEngine_UtilityFunctions(t *testing.T) {
 
 func TestTemplateEngine_ConditionalFunctions(t *testing.T) {
 	engine := NewTemplateEngine()
-	
+
 	context := &TemplateContext{
 		Inputs: map[string]string{
 			"env":     "prod",
@@ -260,7 +260,7 @@ func TestTemplateEngine_ConditionalFunctions(t *testing.T) {
 			"count":   "5",
 		},
 	}
-	
+
 	tests := []struct {
 		name     string
 		template string
@@ -292,7 +292,7 @@ func TestTemplateEngine_ConditionalFunctions(t *testing.T) {
 			expected: "true",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := engine.ExpandTemplate(tt.template, context)
@@ -308,7 +308,7 @@ func TestTemplateEngine_ConditionalFunctions(t *testing.T) {
 
 func TestTemplateEngine_EventProcessingFunctions(t *testing.T) {
 	engine := NewTemplateEngine()
-	
+
 	context := &TemplateContext{
 		Event: &EventContext{
 			Type:   "deployment_complete",
@@ -332,7 +332,7 @@ func TestTemplateEngine_EventProcessingFunctions(t *testing.T) {
 			},
 		},
 	}
-	
+
 	tests := []struct {
 		name     string
 		template string
@@ -359,7 +359,7 @@ func TestTemplateEngine_EventProcessingFunctions(t *testing.T) {
 			contains: "false",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := engine.ExpandTemplate(tt.template, context)
@@ -375,31 +375,31 @@ func TestTemplateEngine_EventProcessingFunctions(t *testing.T) {
 
 func TestTemplateEngine_Caching(t *testing.T) {
 	engine := NewTemplateEngine()
-	
+
 	context := &TemplateContext{
 		Inputs: map[string]string{
 			"value": "test",
 		},
 	}
-	
+
 	template := "Hello {{ .Inputs.value }}"
-	
+
 	// First execution - should parse and cache
 	result1, err := engine.ExpandTemplate(template, context)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	
+
 	// Second execution - should use cache
 	result2, err := engine.ExpandTemplate(template, context)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	
+
 	if result1 != result2 {
 		t.Errorf("Cached result should be identical: %q vs %q", result1, result2)
 	}
-	
+
 	// Check cache stats
 	stats := engine.GetCacheStats()
 	if stats["entries"].(int) == 0 {
@@ -409,7 +409,7 @@ func TestTemplateEngine_Caching(t *testing.T) {
 
 func TestTemplateEngine_ValidationErrors(t *testing.T) {
 	engine := NewTemplateEngine()
-	
+
 	tests := []struct {
 		name     string
 		template string
@@ -436,7 +436,7 @@ func TestTemplateEngine_ValidationErrors(t *testing.T) {
 			hasError: false,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := engine.ValidateTemplate(tt.template)
@@ -452,7 +452,7 @@ func TestTemplateEngine_ValidationErrors(t *testing.T) {
 
 func TestTemplateEngine_ComplexWorkflow(t *testing.T) {
 	engine := NewTemplateEngine()
-	
+
 	context := &TemplateContext{
 		Inputs: map[string]string{
 			"environment": "prod",
@@ -486,7 +486,7 @@ func TestTemplateEngine_ComplexWorkflow(t *testing.T) {
 			},
 		},
 	}
-	
+
 	template := `#!/bin/bash
 set -e
 
@@ -520,12 +520,12 @@ if [[ {{ .Steps.test.coverage }} -lt 90 ]]; then
 fi
 
 echo "Deployment completed successfully"`
-	
+
 	result, err := engine.ExpandTemplate(template, context)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	
+
 	// Verify key components are properly substituted
 	expectedContains := []string{
 		"SERVICE=api",
@@ -538,7 +538,7 @@ echo "Deployment completed successfully"`
 		"Production deployment - enabling additional checks",
 		"Deployment completed successfully",
 	}
-	
+
 	for _, expected := range expectedContains {
 		if !strings.Contains(result, expected) {
 			t.Errorf("Expected result to contain %q", expected)

@@ -515,23 +515,6 @@ func (r *Runner) expandTemplate(tmplStr string, inputs map[string]string, stepOu
 	return r.templateEngine.ExpandTemplate(tmplStr, context)
 }
 
-// expandTemplateWithEvent expands template variables with event context for subscription-triggered workflows.
-func (r *Runner) expandTemplateWithEvent(tmplStr string, inputs map[string]string, stepOutputs map[string]map[string]string, event *EventContext) (string, error) {
-	// Build template context with event
-	context := NewContextBuilder().
-		WithInputs(inputs).
-		WithStepOutputs(stepOutputs).
-		Build()
-	
-	// Add event context if provided
-	if event != nil {
-		context.Event = event
-	}
-
-	// Use the enhanced template engine
-	return r.templateEngine.ExpandTemplate(tmplStr, context)
-}
-
 // GetRunID returns the current run ID.
 func (r *Runner) GetRunID() string {
 	return r.runID
