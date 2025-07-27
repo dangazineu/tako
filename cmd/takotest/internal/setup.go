@@ -443,7 +443,7 @@ func buildTakoConfig(envName, owner string, repoDef *e2e.RepositoryDef) *config.
 			Steps: []config.WorkflowStep{
 				{
 					ID:  "test_variables",
-					Run: "echo 'Message: {{ .Inputs.message }}' && echo 'Count: {{ .Inputs.count }}' && echo 'Combined: {{ .Inputs.message }}-{{ .Inputs.count }}'",
+					Run: "echo 'Message: {{ .Inputs.message | shell_quote }}' && echo 'Count: {{ .Inputs.count }}' && echo 'Combined: {{ .Inputs.message | shell_quote }}-{{ .Inputs.count }}'",
 					Produces: &config.WorkflowStepProduces{
 						Outputs: map[string]string{
 							"message_output": "from_stdout",
