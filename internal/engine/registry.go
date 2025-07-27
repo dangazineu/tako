@@ -393,6 +393,8 @@ func (ic *ImageCache) GetCachedImage(image, tag string) (*ImageCacheEntry, bool)
 
 // cleanup removes old entries to make space.
 // Returns error for interface consistency (currently always nil).
+//
+//nolint:unparam // Error return maintained for interface consistency
 func (ic *ImageCache) cleanup(neededSpace int64) error {
 	// Sort entries by last used time
 	type entrySort struct {

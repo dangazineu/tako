@@ -101,6 +101,8 @@ func (cm *ContainerManager) WithRegistryManager(rm *RegistryManager) *ContainerM
 
 // detectContainerRuntime auto-detects available container runtime.
 // Returns error for interface consistency (currently always nil).
+//
+//nolint:unparam // Error return maintained for interface consistency
 func detectContainerRuntime() (ContainerRuntime, error) {
 	// Check for Docker first
 	if _, err := exec.LookPath("docker"); err == nil {
@@ -422,6 +424,8 @@ type ContainerResult struct {
 
 // buildRunCommand builds the container run command arguments.
 // Returns error for future extensibility (currently always nil).
+//
+//nolint:unparam // Error return maintained for future extensibility
 func (cm *ContainerManager) buildRunCommand(containerName string, config *ContainerConfig) ([]string, error) {
 	args := []string{"run", "--rm", "--name", containerName}
 
