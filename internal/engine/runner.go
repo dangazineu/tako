@@ -853,17 +853,30 @@ func (r *Runner) getRepositoryNameFromPath(workDir string) string {
 
 // ExecuteChildWorkflow implements WorkflowRunner interface for fan-out step execution.
 func (r *Runner) ExecuteChildWorkflow(ctx context.Context, repoPath, workflowName string, inputs map[string]string) (string, error) {
-	// For now, create a simulated run ID to avoid deadlock
-	// TODO: Implement proper child workflow execution with separate context
-	runID := GenerateRunID()
+	// Create a new runner instance to avoid deadlock
+	childOpts := RunnerOptions{
+		WorkspaceRoot:      r.workspaceRoot,
+		CacheDir:           r.cacheDir,
+		MaxConcurrentRepos: r.maxConcurrentRepos,
+		DryRun:             r.dryRun,
+		Debug:              r.debug,
+		NoCache:            r.noCache,
+		Environment:        r.environment,
+	}
 
-	// In a real implementation, this would:
-	// 1. Create a new runner instance for the child workflow
-	// 2. Execute the workflow in the target repository
-	// 3. Return the actual run ID
+	childRunner, err := NewRunner(childOpts)
+	if err != nil {
+		return "", fmt.Errorf("failed to create child runner: %v", err)
+	}
+	defer childRunner.Close()
 
-	// For manual testing purposes, simulate successful execution
-	return runID, nil
+	// Execute workflow in the child runner
+	result, err := childRunner.ExecuteWorkflow(ctx, workflowName, inputs, repoPath)
+	if err != nil {
+		return "", fmt.Errorf("child workflow execution failed: %v", err)
+	}
+
+	return result.RunID, nil
 }
 
 // Close cleans up the runner resources.
