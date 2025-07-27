@@ -188,7 +188,7 @@ func GetTestCases() []TestCase {
 						"Executing workflow 'step-output-workflow'",
 						"Success: true",
 						"step1",
-						"step2", 
+						"step2",
 						"step3",
 					},
 				},
