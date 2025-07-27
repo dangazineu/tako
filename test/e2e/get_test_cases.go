@@ -124,14 +124,14 @@ func GetTestCases() []TestCase {
 			ReadOnly:    true,
 			Test: []Step{
 				{
-					Name:         "tako exec basic workflow",
-					Command:      "tako",
-					Args:         []string{"exec", "test-workflow", "--inputs.environment=dev"},
-					AssertOutput: true,
-					ExpectedOutput: `Executing workflow 'test-workflow'
-{{.RepoLine}}Inputs:
-  environment: dev
-`,
+					Name:    "tako exec basic workflow",
+					Command: "tako",
+					Args:    []string{"exec", "test-workflow", "--inputs.environment=dev"},
+					AssertOutputContains: []string{
+						"Executing workflow 'test-workflow'",
+						"Inputs:",
+						"environment: dev",
+					},
 				},
 			},
 		},

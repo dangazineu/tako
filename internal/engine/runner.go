@@ -208,7 +208,9 @@ func (r *Runner) ExecuteWorkflow(ctx context.Context, workflowName string, input
 
 // ExecuteMultiRepoWorkflow executes a workflow with multi-repository orchestration.
 func (r *Runner) ExecuteMultiRepoWorkflow(ctx context.Context, workflowName string, inputs map[string]string, parentRepo string) (*ExecutionResult, error) {
-	// TODO: Implement multi-repository execution with event-driven orchestration
+	// For now, implement basic multi-repository execution by resolving the repo path
+	// and delegating to single-repository execution
+	// TODO: Implement full multi-repository execution with event-driven orchestration
 	// This will be the main orchestration logic that handles:
 	// 1. Parent repository workflow execution
 	// 2. Event emission via tako/fan-out@v1 steps
@@ -216,7 +218,44 @@ func (r *Runner) ExecuteMultiRepoWorkflow(ctx context.Context, workflowName stri
 	// 4. Parallel execution of child workflows
 	// 5. State synchronization across all repositories
 
-	return nil, fmt.Errorf("multi-repository execution not yet implemented")
+	// Parse repository specification (e.g., "owner/repo:branch")
+	repoPath, err := r.resolveRepositoryPath(parentRepo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve repository path: %v", err)
+	}
+
+	// Delegate to single-repository execution for now
+	return r.ExecuteWorkflow(ctx, workflowName, inputs, repoPath)
+}
+
+// resolveRepositoryPath resolves a repository specification to a local path.
+func (r *Runner) resolveRepositoryPath(repoSpec string) (string, error) {
+	// Parse repository specification: "owner/repo:branch" or "owner/repo"
+	parts := strings.Split(repoSpec, ":")
+	repoPath := parts[0]
+	branch := "main"
+	if len(parts) > 1 {
+		branch = parts[1]
+	}
+
+	// Split owner/repo
+	ownerRepo := strings.Split(repoPath, "/")
+	if len(ownerRepo) != 2 {
+		return "", fmt.Errorf("invalid repository specification: %s (expected format: owner/repo or owner/repo:branch)", repoSpec)
+	}
+
+	owner := ownerRepo[0]
+	repo := ownerRepo[1]
+
+	// Construct cache path: ~/.tako/cache/repos/owner/repo/branch
+	cachePath := filepath.Join(r.cacheDir, "repos", owner, repo, branch)
+
+	// Check if repository exists in cache
+	if _, err := os.Stat(cachePath); os.IsNotExist(err) {
+		return "", fmt.Errorf("repository %s not found in cache at %s", repoSpec, cachePath)
+	}
+
+	return cachePath, nil
 }
 
 // Resume resumes a previously failed or interrupted execution.

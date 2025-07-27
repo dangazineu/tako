@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -217,7 +218,7 @@ func TestRunnerExecutionTimeout(t *testing.T) {
 	}
 }
 
-func TestRunnerMultiRepoNotImplemented(t *testing.T) {
+func TestRunnerMultiRepoRepositoryNotFound(t *testing.T) {
 	tempDir := t.TempDir()
 
 	opts := RunnerOptions{
@@ -237,12 +238,12 @@ func TestRunnerMultiRepoNotImplemented(t *testing.T) {
 
 	_, err = runner.ExecuteMultiRepoWorkflow(ctx, "test-workflow", inputs, "org/repo")
 	if err == nil {
-		t.Error("Multi-repo execution should return not implemented error")
+		t.Error("Multi-repo execution should return repository not found error")
 	}
 
-	expectedMsg := "multi-repository execution not yet implemented"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
+	// Should fail because the repository doesn't exist in cache
+	if !strings.Contains(err.Error(), "repository org/repo not found in cache") {
+		t.Errorf("Expected repository not found error, got %q", err.Error())
 	}
 }
 
