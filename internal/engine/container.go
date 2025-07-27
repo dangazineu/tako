@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -11,7 +12,7 @@ import (
 	"github.com/dangazineu/tako/internal/config"
 )
 
-// ContainerRuntime represents the detected container runtime
+// ContainerRuntime represents the detected container runtime.
 type ContainerRuntime string
 
 const (
@@ -20,7 +21,7 @@ const (
 	RuntimeNone   ContainerRuntime = "none"
 )
 
-// ContainerConfig holds configuration for container execution
+// ContainerConfig holds configuration for container execution.
 type ContainerConfig struct {
 	Image        string
 	Command      []string
@@ -34,21 +35,21 @@ type ContainerConfig struct {
 	Security     *SecurityConfig
 }
 
-// VolumeMount represents a volume mount configuration
+// VolumeMount represents a volume mount configuration.
 type VolumeMount struct {
 	Source      string
 	Destination string
 	ReadOnly    bool
 }
 
-// ResourceLimits holds container resource constraints
+// ResourceLimits holds container resource constraints.
 type ResourceLimits struct {
 	CPULimit    string
 	MemoryLimit string
 	DiskLimit   string
 }
 
-// SecurityConfig holds container security configuration
+// SecurityConfig holds container security configuration.
 type SecurityConfig struct {
 	RunAsUser        int
 	ReadOnlyRootFS   bool
@@ -209,6 +210,17 @@ func isValidCapability(capability string) bool {
 	return false
 }
 
+// validateVolumePath validates a volume path for security
+func validateVolumePath(path string) error {
+	if strings.Contains(path, "..") {
+		return fmt.Errorf("path traversal detected in volume path: %s", path)
+	}
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("relative paths not allowed for volume mounts: %s", path)
+	}
+	return nil
+}
+
 // BuildContainerConfig creates container configuration from workflow step
 func (cm *ContainerManager) BuildContainerConfig(step config.WorkflowStep, workDir string, env map[string]string, resources *config.Resources) (*ContainerConfig, error) {
 	// Validate first
@@ -252,6 +264,14 @@ func (cm *ContainerManager) BuildContainerConfig(step config.WorkflowStep, workD
 
 	// Add any additional volumes from step configuration
 	for _, vol := range step.Volumes {
+		// Validate volume paths for security
+		if err := validateVolumePath(vol.Source); err != nil {
+			return nil, fmt.Errorf("invalid volume source path: %w", err)
+		}
+		if err := validateVolumePath(vol.Destination); err != nil {
+			return nil, fmt.Errorf("invalid volume destination path: %w", err)
+		}
+
 		config.Volumes = append(config.Volumes, VolumeMount{
 			Source:      vol.Source,
 			Destination: vol.Destination,
@@ -372,7 +392,7 @@ func (cm *ContainerManager) RunContainer(ctx context.Context, containerConfig *C
 		if exitError, ok := err.(*exec.ExitError); ok {
 			result.ExitCode = exitError.ExitCode()
 		} else {
-			return nil, fmt.Errorf("failed to run container: %w", err)
+			return nil, fmt.Errorf("failed to run container %s with image %s: %w", containerName, containerConfig.Image, err)
 		}
 	}
 
@@ -428,6 +448,11 @@ func (cm *ContainerManager) buildRunCommand(containerName string, config *Contai
 		// Add specific capabilities
 		for _, cap := range security.AddCapabilities {
 			args = append(args, "--cap-add", cap)
+		}
+
+		// Apply seccomp profile if specified (skip runtime/default for Docker)
+		if security.SeccompProfile != "" && security.SeccompProfile != "runtime/default" {
+			args = append(args, "--security-opt", fmt.Sprintf("seccomp=%s", security.SeccompProfile))
 		}
 	}
 
@@ -507,7 +532,8 @@ func (cm *ContainerManager) PullImage(ctx context.Context, image string) error {
 		authStr, err := cm.registryManager.GetAuthString(registry)
 		if err == nil && authStr != "" {
 			// For Docker, use --auth flag; for Podman use --creds
-			if cm.runtime == RuntimeDocker {
+			switch cm.runtime {
+			case RuntimeDocker:
 				// Docker doesn't support inline auth, we need to login first
 				creds, _ := cm.registryManager.GetCredentials(registry)
 				if creds != nil && creds.Username != "" && creds.Password != "" {
@@ -520,7 +546,7 @@ func (cm *ContainerManager) PullImage(ctx context.Context, image string) error {
 						fmt.Printf("Warning: failed to login to registry %s: %v\n", registry, err)
 					}
 				}
-			} else if cm.runtime == RuntimePodman {
+			case RuntimePodman:
 				// Podman supports inline credentials
 				creds, _ := cm.registryManager.GetCredentials(registry)
 				if creds != nil && creds.Username != "" && creds.Password != "" {

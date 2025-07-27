@@ -441,8 +441,8 @@ func TestSecurityManager_AuditContainerExecution(t *testing.T) {
 	defer sm.Close()
 
 	// Create context with values
-	ctx := context.WithValue(context.Background(), "run_id", "test-run-123")
-	ctx = context.WithValue(ctx, "step_id", "test-step-456")
+	ctx := context.WithValue(context.Background(), contextKeyRunID, "test-run-123")
+	ctx = context.WithValue(ctx, contextKeyStepID, "test-step-456")
 
 	config := &ContainerConfig{
 		Image: "test:latest",

@@ -615,6 +615,7 @@ func TestResourceManager_GetMethods(t *testing.T) {
 	currentUsage = rm.GetCurrentUsage(ResourceTypeCPU)
 	if currentUsage == nil {
 		t.Error("Should return current usage when history exists")
+		return
 	}
 	if currentUsage.Percentage != 50.0 {
 		t.Errorf("Current usage percentage = %v, want 50.0", currentUsage.Percentage)

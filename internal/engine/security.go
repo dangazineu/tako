@@ -13,6 +13,14 @@ import (
 	"time"
 )
 
+// Context key types for safe context value passing
+type contextKey string
+
+const (
+	contextKeyRunID  contextKey = "run_id"
+	contextKeyStepID contextKey = "step_id"
+)
+
 // SecurityAuditor handles security audit logging and monitoring
 type SecurityAuditor struct {
 	logFile     string
@@ -70,8 +78,6 @@ type SecurityManager struct {
 	volumeRestrictions *VolumeRestriction
 	networkPolicy      *NetworkPolicy
 	seccompProfile     string
-	apparmorProfile    string
-	selinuxContext     string
 	enableAudit        bool
 	debug              bool
 	mu                 sync.RWMutex
@@ -370,10 +376,10 @@ func (sm *SecurityManager) AuditContainerExecution(ctx context.Context, config *
 	}
 
 	// Extract run context from context
-	if runID, ok := ctx.Value("run_id").(string); ok {
+	if runID, ok := ctx.Value(contextKeyRunID).(string); ok {
 		event.RunID = runID
 	}
-	if stepID, ok := ctx.Value("step_id").(string); ok {
+	if stepID, ok := ctx.Value(contextKeyStepID).(string); ok {
 		event.StepID = stepID
 	}
 

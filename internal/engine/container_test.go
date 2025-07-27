@@ -43,6 +43,66 @@ func TestDetectContainerRuntime(t *testing.T) {
 	}
 }
 
+func TestValidateVolumePath(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid absolute path",
+			path:    "/workspace/test",
+			wantErr: false,
+		},
+		{
+			name:    "valid absolute path with subdirs",
+			path:    "/home/user/project",
+			wantErr: false,
+		},
+		{
+			name:    "relative path should fail",
+			path:    "workspace/test",
+			wantErr: true,
+			errMsg:  "relative paths not allowed",
+		},
+		{
+			name:    "path traversal should fail",
+			path:    "/workspace/../etc/passwd",
+			wantErr: true,
+			errMsg:  "path traversal detected",
+		},
+		{
+			name:    "path traversal in middle should fail",
+			path:    "/workspace/test/../../../etc",
+			wantErr: true,
+			errMsg:  "path traversal detected",
+		},
+		{
+			name:    "current directory reference",
+			path:    "/workspace/./test",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateVolumePath(tt.path)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateVolumePath() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if tt.wantErr && tt.errMsg != "" && err != nil {
+				if !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("validateVolumePath() error = %v, should contain %q", err, tt.errMsg)
+				}
+			}
+		})
+	}
+}
+
 func TestNewContainerManager(t *testing.T) {
 	tests := []struct {
 		name    string

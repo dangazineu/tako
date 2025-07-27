@@ -25,11 +25,12 @@ const (
 type ResourceUnit string
 
 const (
-	// CPU units
-	UnitCores      ResourceUnit = "cores"
+	// UnitCores represents CPU in cores
+	UnitCores ResourceUnit = "cores"
+	// UnitMillicores represents CPU in millicores
 	UnitMillicores ResourceUnit = "m"
 
-	// Memory units
+	// UnitBytes represents memory in bytes
 	UnitBytes     ResourceUnit = "B"
 	UnitKilobytes ResourceUnit = "KB"
 	UnitMegabytes ResourceUnit = "MB"

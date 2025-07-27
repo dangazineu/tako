@@ -72,7 +72,7 @@ type WorkflowStep struct {
 	OnFailure       []WorkflowStep         `yaml:"on_failure,omitempty"`
 }
 
-// VolumeMount represents a volume mount for containerized steps
+// VolumeMount represents a volume mount for containerized steps.
 type VolumeMount struct {
 	Source      string `yaml:"source"`
 	Destination string `yaml:"destination"`
