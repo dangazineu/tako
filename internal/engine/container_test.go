@@ -548,7 +548,7 @@ func TestIsContainerStep(t *testing.T) {
 }
 
 // TestContainerManagerIntegration tests container manager with a simple container
-// This test requires a container runtime to be available
+// This test requires a container runtime to be available.
 func TestContainerManagerIntegration(t *testing.T) {
 	// Skip if no container runtime is available
 	runtime, err := detectContainerRuntime()

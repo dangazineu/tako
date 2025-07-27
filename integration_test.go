@@ -12,7 +12,7 @@ import (
 )
 
 // TestContainerizedWorkflowIntegration tests full integration of containerized execution
-// with security, resources, and registry support
+// with security, resources, and registry support.
 func TestContainerizedWorkflowIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -165,7 +165,7 @@ func TestContainerizedWorkflowIntegration(t *testing.T) {
 	t.Logf("Output: %s", result.Stdout)
 }
 
-// TestSecurityIntegration tests security features integration
+// TestSecurityIntegration tests security features integration.
 func TestSecurityIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -227,7 +227,7 @@ func TestSecurityIntegration(t *testing.T) {
 	}
 }
 
-// TestResourceIntegration tests resource management integration
+// TestResourceIntegration tests resource management integration.
 func TestResourceIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

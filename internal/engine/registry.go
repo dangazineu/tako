@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// AuthConfig represents registry authentication configuration
+// AuthConfig represents registry authentication configuration.
 type AuthConfig struct {
 	Username      string `json:"username,omitempty"`
 	Password      string `json:"password,omitempty"`
@@ -21,13 +21,13 @@ type AuthConfig struct {
 	RegistryToken string `json:"registrytoken,omitempty"`
 }
 
-// DockerConfig represents the structure of ~/.docker/config.json
+// DockerConfig represents the structure of ~/.docker/config.json.
 type DockerConfig struct {
 	Auths       map[string]AuthConfig `json:"auths"`
 	CredHelpers map[string]string     `json:"credHelpers,omitempty"`
 }
 
-// RegistryCredentials stores registry authentication information
+// RegistryCredentials stores registry authentication information.
 type RegistryCredentials struct {
 	Registry string
 	Username string
@@ -35,7 +35,7 @@ type RegistryCredentials struct {
 	Token    string
 }
 
-// ImageCache manages cached container images
+// ImageCache manages cached container images.
 type ImageCache struct {
 	cacheDir      string
 	maxSize       int64 // Maximum cache size in bytes
@@ -46,7 +46,7 @@ type ImageCache struct {
 	debug         bool
 }
 
-// ImageCacheEntry represents a cached image
+// ImageCacheEntry represents a cached image.
 type ImageCacheEntry struct {
 	Image     string
 	Registry  string
@@ -58,7 +58,7 @@ type ImageCacheEntry struct {
 	LocalPath string
 }
 
-// RegistryManager handles private registry authentication and image caching
+// RegistryManager handles private registry authentication and image caching.
 type RegistryManager struct {
 	credentials  map[string]*RegistryCredentials
 	dockerConfig *DockerConfig
@@ -68,7 +68,7 @@ type RegistryManager struct {
 	debug        bool
 }
 
-// NewRegistryManager creates a new registry manager
+// NewRegistryManager creates a new registry manager.
 func NewRegistryManager(cacheDir string, debug bool) (*RegistryManager, error) {
 	// Default docker config path
 	homeDir, err := os.UserHomeDir()
@@ -99,7 +99,7 @@ func NewRegistryManager(cacheDir string, debug bool) (*RegistryManager, error) {
 	return rm, nil
 }
 
-// NewImageCache creates a new image cache
+// NewImageCache creates a new image cache.
 func NewImageCache(cacheDir string, debug bool) (*ImageCache, error) {
 	// Ensure cache directory exists
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
@@ -115,7 +115,7 @@ func NewImageCache(cacheDir string, debug bool) (*ImageCache, error) {
 	}, nil
 }
 
-// LoadDockerConfig loads docker authentication configuration
+// LoadDockerConfig loads docker authentication configuration.
 func (rm *RegistryManager) LoadDockerConfig() error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -167,7 +167,7 @@ func (rm *RegistryManager) LoadDockerConfig() error {
 	return nil
 }
 
-// GetCredentials returns credentials for a registry
+// GetCredentials returns credentials for a registry.
 func (rm *RegistryManager) GetCredentials(registry string) (*RegistryCredentials, error) {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
@@ -193,7 +193,7 @@ func (rm *RegistryManager) GetCredentials(registry string) (*RegistryCredentials
 	return nil, fmt.Errorf("no credentials found for registry: %s", registry)
 }
 
-// AddCredentials adds credentials for a registry
+// AddCredentials adds credentials for a registry.
 func (rm *RegistryManager) AddCredentials(registry, username, password string) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -226,7 +226,7 @@ func (rm *RegistryManager) AddCredentials(registry, username, password string) e
 	return nil
 }
 
-// SaveDockerConfig saves the docker configuration
+// SaveDockerConfig saves the docker configuration.
 func (rm *RegistryManager) SaveDockerConfig() error {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
@@ -255,7 +255,7 @@ func (rm *RegistryManager) SaveDockerConfig() error {
 	return nil
 }
 
-// GetAuthString returns the base64 encoded auth string for docker login
+// GetAuthString returns the base64 encoded auth string for docker login.
 func (rm *RegistryManager) GetAuthString(registry string) (string, error) {
 	creds, err := rm.GetCredentials(registry)
 	if err != nil {
@@ -274,7 +274,7 @@ func (rm *RegistryManager) GetAuthString(registry string) (string, error) {
 	return "", fmt.Errorf("no valid authentication found for registry: %s", registry)
 }
 
-// normalizeRegistry normalizes registry URLs
+// normalizeRegistry normalizes registry URLs.
 func normalizeRegistry(registry string) string {
 	// Remove protocol
 	registry = strings.TrimPrefix(registry, "https://")
@@ -291,7 +291,7 @@ func normalizeRegistry(registry string) string {
 	return registry
 }
 
-// ParseImageName parses a full image name into components
+// ParseImageName parses a full image name into components.
 func ParseImageName(image string) (registry, namespace, name, tag string) {
 	// Default values
 	registry = "docker.io"
@@ -343,7 +343,7 @@ func ParseImageName(image string) (registry, namespace, name, tag string) {
 	return
 }
 
-// CacheImage adds an image to the cache
+// CacheImage adds an image to the cache.
 func (ic *ImageCache) CacheImage(entry *ImageCacheEntry) error {
 	ic.mu.Lock()
 	defer ic.mu.Unlock()
@@ -363,7 +363,7 @@ func (ic *ImageCache) CacheImage(entry *ImageCacheEntry) error {
 	return nil
 }
 
-// GetCachedImage retrieves a cached image if available
+// GetCachedImage retrieves a cached image if available.
 func (ic *ImageCache) GetCachedImage(image, tag string) (*ImageCacheEntry, bool) {
 	ic.mu.Lock()
 	defer ic.mu.Unlock()
@@ -379,7 +379,8 @@ func (ic *ImageCache) GetCachedImage(image, tag string) (*ImageCacheEntry, bool)
 	return entry, exists
 }
 
-// cleanup removes old entries to make space
+// cleanup removes old entries to make space.
+// Returns error for interface consistency (currently always nil).
 func (ic *ImageCache) cleanup(neededSpace int64) error {
 	// Sort entries by last used time
 	type entrySort struct {
@@ -422,7 +423,7 @@ func (ic *ImageCache) cleanup(neededSpace int64) error {
 	return nil
 }
 
-// GetCacheStats returns cache statistics
+// GetCacheStats returns cache statistics.
 func (ic *ImageCache) GetCacheStats() (totalSize int64, entryCount int, oldestEntry time.Time) {
 	ic.mu.RLock()
 	defer ic.mu.RUnlock()

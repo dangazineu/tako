@@ -743,7 +743,7 @@ func (r *Runner) getEnvironment() []string {
 	return []string{}
 }
 
-// getRepositoryNameFromPath extracts repository name from work directory path
+// getRepositoryNameFromPath extracts repository name from work directory path.
 func (r *Runner) getRepositoryNameFromPath(workDir string) string {
 	// Extract repository name from path like /cache/repos/owner/repo/branch
 	// or use a fallback based on the work directory

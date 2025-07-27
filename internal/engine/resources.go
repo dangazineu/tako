@@ -12,7 +12,7 @@ import (
 	"github.com/dangazineu/tako/internal/config"
 )
 
-// ResourceType represents different types of resources
+// ResourceType represents different types of resources.
 type ResourceType string
 
 const (
@@ -21,16 +21,16 @@ const (
 	ResourceTypeDisk   ResourceType = "disk"
 )
 
-// ResourceUnit represents resource measurement units
+// ResourceUnit represents resource measurement units.
 type ResourceUnit string
 
 const (
-	// UnitCores represents CPU in cores
+	// UnitCores represents CPU in cores.
 	UnitCores ResourceUnit = "cores"
-	// UnitMillicores represents CPU in millicores
+	// UnitMillicores represents CPU in millicores.
 	UnitMillicores ResourceUnit = "m"
 
-	// UnitBytes represents memory in bytes
+	// UnitBytes represents memory in bytes.
 	UnitBytes     ResourceUnit = "B"
 	UnitKilobytes ResourceUnit = "KB"
 	UnitMegabytes ResourceUnit = "MB"
@@ -39,10 +39,10 @@ const (
 	UnitMebibytes ResourceUnit = "Mi"
 	UnitGibibytes ResourceUnit = "Gi"
 
-	// Disk units (same as memory)
+	// Disk units (same as memory).
 )
 
-// ResourceLimit represents a resource constraint with parsed values
+// ResourceLimit represents a resource constraint with parsed values.
 type ResourceLimit struct {
 	Type         ResourceType
 	Value        float64
@@ -50,14 +50,14 @@ type ResourceLimit struct {
 	OriginalSpec string
 }
 
-// ResourceQuota represents resource limits at different hierarchical levels
+// ResourceQuota represents resource limits at different hierarchical levels.
 type ResourceQuota struct {
 	Global     map[ResourceType]*ResourceLimit // Global system limits
 	Repository map[ResourceType]*ResourceLimit // Per-repository limits
 	Step       map[ResourceType]*ResourceLimit // Per-step limits
 }
 
-// ResourceUsage represents current resource consumption
+// ResourceUsage represents current resource consumption.
 type ResourceUsage struct {
 	Type        ResourceType
 	Used        float64
@@ -66,7 +66,7 @@ type ResourceUsage struct {
 	LastUpdated time.Time
 }
 
-// ResourceManager handles hierarchical resource management and monitoring
+// ResourceManager handles hierarchical resource management and monitoring.
 type ResourceManager struct {
 	globalQuota      *ResourceQuota
 	repositoryQuotas map[string]*ResourceQuota // keyed by repository name
@@ -92,7 +92,7 @@ type ResourceManager struct {
 	debug bool
 }
 
-// ResourceManagerConfig configures the resource manager
+// ResourceManagerConfig configures the resource manager.
 type ResourceManagerConfig struct {
 	WarningThreshold   float64       // Default 0.9 (90%)
 	MonitoringInterval time.Duration // Default 30 seconds
@@ -100,7 +100,7 @@ type ResourceManagerConfig struct {
 	Debug              bool
 }
 
-// NewResourceManager creates a new resource manager with hierarchical limits
+// NewResourceManager creates a new resource manager with hierarchical limits.
 func NewResourceManager(config *ResourceManagerConfig) *ResourceManager {
 	if config == nil {
 		config = &ResourceManagerConfig{
@@ -129,7 +129,7 @@ func NewResourceManager(config *ResourceManagerConfig) *ResourceManager {
 	return rm
 }
 
-// initializeGlobalQuota sets up default global resource limits based on system capacity
+// initializeGlobalQuota sets up default global resource limits based on system capacity.
 func (rm *ResourceManager) initializeGlobalQuota() {
 	rm.globalQuota.Global = make(map[ResourceType]*ResourceLimit)
 	rm.globalQuota.Repository = make(map[ResourceType]*ResourceLimit)
@@ -184,7 +184,7 @@ func (rm *ResourceManager) initializeGlobalQuota() {
 	}
 }
 
-// ParseResourceSpec parses a resource specification string into a ResourceLimit
+// ParseResourceSpec parses a resource specification string into a ResourceLimit.
 func ParseResourceSpec(spec string, resourceType ResourceType) (*ResourceLimit, error) {
 	if spec == "" {
 		return nil, fmt.Errorf("empty resource specification")
@@ -205,7 +205,7 @@ func ParseResourceSpec(spec string, resourceType ResourceType) (*ResourceLimit, 
 	return nil, fmt.Errorf("unsupported resource type: %s", resourceType)
 }
 
-// parseCPUSpec parses CPU resource specifications
+// parseCPUSpec parses CPU resource specifications.
 func parseCPUSpec(spec string) (*ResourceLimit, error) {
 	// Handle millicores (e.g., "500m", "1000m")
 	if strings.HasSuffix(spec, "m") {
@@ -237,7 +237,7 @@ func parseCPUSpec(spec string) (*ResourceLimit, error) {
 	}, nil
 }
 
-// parseMemorySpec parses memory/disk resource specifications
+// parseMemorySpec parses memory/disk resource specifications.
 func parseMemorySpec(spec string, resourceType ResourceType) (*ResourceLimit, error) {
 	// Define unit multipliers (to bytes)
 	unitMultipliers := map[string]float64{
@@ -288,7 +288,7 @@ func parseMemorySpec(spec string, resourceType ResourceType) (*ResourceLimit, er
 	}, nil
 }
 
-// SetGlobalQuota sets global resource limits
+// SetGlobalQuota sets global resource limits.
 func (rm *ResourceManager) SetGlobalQuota(cpuLimit, memoryLimit, diskLimit string) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -320,7 +320,7 @@ func (rm *ResourceManager) SetGlobalQuota(cpuLimit, memoryLimit, diskLimit strin
 	return nil
 }
 
-// SetRepositoryQuota sets resource limits for a specific repository
+// SetRepositoryQuota sets resource limits for a specific repository.
 func (rm *ResourceManager) SetRepositoryQuota(repoName string, resources config.Resources) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -359,7 +359,7 @@ func (rm *ResourceManager) SetRepositoryQuota(repoName string, resources config.
 	return nil
 }
 
-// ValidateResourceRequest validates if a resource request can be accommodated
+// ValidateResourceRequest validates if a resource request can be accommodated.
 func (rm *ResourceManager) ValidateResourceRequest(repoName, stepID string, cpuRequest, memoryRequest string) error {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
@@ -398,7 +398,7 @@ func (rm *ResourceManager) ValidateResourceRequest(repoName, stepID string, cpuR
 	return nil
 }
 
-// validateAgainstLimits checks if a resource request fits within hierarchical limits
+// validateAgainstLimits checks if a resource request fits within hierarchical limits.
 func (rm *ResourceManager) validateAgainstLimits(resourceType ResourceType, requestedValue float64, repoName, stepID string) error {
 	// Determine the effective limit by checking hierarchy from most specific to least specific
 	var effectiveLimit *ResourceLimit
@@ -429,7 +429,7 @@ func (rm *ResourceManager) validateAgainstLimits(resourceType ResourceType, requ
 	return nil
 }
 
-// getStepLimit retrieves the effective step limit for a resource type
+// getStepLimit retrieves the effective step limit for a resource type.
 func (rm *ResourceManager) getStepLimit(resourceType ResourceType, stepID string) *ResourceLimit {
 	// Check for step-specific quotas first
 	if quota, exists := rm.stepQuotas[stepID]; exists {
@@ -443,7 +443,7 @@ func (rm *ResourceManager) getStepLimit(resourceType ResourceType, stepID string
 	return nil
 }
 
-// getRepositoryLimit retrieves the effective repository limit for a resource type
+// getRepositoryLimit retrieves the effective repository limit for a resource type.
 func (rm *ResourceManager) getRepositoryLimit(resourceType ResourceType, repoName string) *ResourceLimit {
 	if quota, exists := rm.repositoryQuotas[repoName]; exists {
 		if limit, exists := quota.Repository[resourceType]; exists {
@@ -459,7 +459,7 @@ func (rm *ResourceManager) getRepositoryLimit(resourceType ResourceType, repoNam
 	return nil
 }
 
-// getGlobalLimit retrieves the global limit for a resource type
+// getGlobalLimit retrieves the global limit for a resource type.
 func (rm *ResourceManager) getGlobalLimit(resourceType ResourceType) *ResourceLimit {
 	if limit, exists := rm.globalQuota.Global[resourceType]; exists {
 		return limit
@@ -467,7 +467,7 @@ func (rm *ResourceManager) getGlobalLimit(resourceType ResourceType) *ResourceLi
 	return nil
 }
 
-// StartMonitoring begins resource usage monitoring
+// StartMonitoring begins resource usage monitoring.
 func (rm *ResourceManager) StartMonitoring(ctx context.Context) error {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -487,7 +487,7 @@ func (rm *ResourceManager) StartMonitoring(ctx context.Context) error {
 	return nil
 }
 
-// StopMonitoring stops resource usage monitoring
+// StopMonitoring stops resource usage monitoring.
 func (rm *ResourceManager) StopMonitoring() {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -505,7 +505,7 @@ func (rm *ResourceManager) StopMonitoring() {
 	}
 }
 
-// monitoringLoop performs periodic resource monitoring
+// monitoringLoop performs periodic resource monitoring.
 func (rm *ResourceManager) monitoringLoop(ctx context.Context) {
 	ticker := time.NewTicker(rm.monitoringInterval)
 	defer ticker.Stop()
@@ -522,7 +522,7 @@ func (rm *ResourceManager) monitoringLoop(ctx context.Context) {
 	}
 }
 
-// collectResourceUsage collects current system resource usage
+// collectResourceUsage collects current system resource usage.
 func (rm *ResourceManager) collectResourceUsage() {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
@@ -562,7 +562,7 @@ func (rm *ResourceManager) collectResourceUsage() {
 	rm.checkThresholds(memoryUsage)
 }
 
-// addToHistory adds a resource usage entry to the history
+// addToHistory adds a resource usage entry to the history.
 func (rm *ResourceManager) addToHistory(resourceType ResourceType, usage *ResourceUsage) {
 	history := rm.usageHistory[resourceType]
 
@@ -577,7 +577,7 @@ func (rm *ResourceManager) addToHistory(resourceType ResourceType, usage *Resour
 	rm.usageHistory[resourceType] = history
 }
 
-// checkThresholds checks if resource usage exceeds warning thresholds
+// checkThresholds checks if resource usage exceeds warning thresholds.
 func (rm *ResourceManager) checkThresholds(usage *ResourceUsage) {
 	// Check warning threshold
 	if usage.Percentage >= (rm.warningThreshold * 100) {
@@ -601,21 +601,21 @@ func (rm *ResourceManager) checkThresholds(usage *ResourceUsage) {
 	}
 }
 
-// SetWarningCallback sets the callback function for resource warnings
+// SetWarningCallback sets the callback function for resource warnings.
 func (rm *ResourceManager) SetWarningCallback(callback func(ResourceType, *ResourceUsage)) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 	rm.onWarning = callback
 }
 
-// SetBreachCallback sets the callback function for resource limit breaches
+// SetBreachCallback sets the callback function for resource limit breaches.
 func (rm *ResourceManager) SetBreachCallback(callback func(ResourceType, *ResourceUsage, *ResourceLimit)) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 	rm.onBreach = callback
 }
 
-// GetUsageHistory returns resource usage history for a given resource type
+// GetUsageHistory returns resource usage history for a given resource type.
 func (rm *ResourceManager) GetUsageHistory(resourceType ResourceType) []*ResourceUsage {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()
@@ -627,7 +627,7 @@ func (rm *ResourceManager) GetUsageHistory(resourceType ResourceType) []*Resourc
 	return result
 }
 
-// GetCurrentUsage returns the most recent resource usage for a given type
+// GetCurrentUsage returns the most recent resource usage for a given type.
 func (rm *ResourceManager) GetCurrentUsage(resourceType ResourceType) *ResourceUsage {
 	rm.mu.RLock()
 	defer rm.mu.RUnlock()

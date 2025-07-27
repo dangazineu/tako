@@ -60,7 +60,7 @@ type SecurityConfig struct {
 	NetworkIsolation bool
 }
 
-// ContainerManager handles container operations with security hardening
+// ContainerManager handles container operations with security hardening.
 type ContainerManager struct {
 	runtime         ContainerRuntime
 	securityManager *SecurityManager
@@ -69,7 +69,7 @@ type ContainerManager struct {
 	debug           bool
 }
 
-// NewContainerManager creates a new container manager with runtime auto-detection
+// NewContainerManager creates a new container manager with runtime auto-detection.
 func NewContainerManager(debug bool) (*ContainerManager, error) {
 	runtime, err := detectContainerRuntime()
 	if err != nil {
@@ -87,19 +87,20 @@ func NewContainerManager(debug bool) (*ContainerManager, error) {
 	}, nil
 }
 
-// WithSecurityManager sets the security manager
+// WithSecurityManager sets the security manager.
 func (cm *ContainerManager) WithSecurityManager(sm *SecurityManager) *ContainerManager {
 	cm.securityManager = sm
 	return cm
 }
 
-// WithRegistryManager sets the registry manager
+// WithRegistryManager sets the registry manager.
 func (cm *ContainerManager) WithRegistryManager(rm *RegistryManager) *ContainerManager {
 	cm.registryManager = rm
 	return cm
 }
 
-// detectContainerRuntime auto-detects available container runtime
+// detectContainerRuntime auto-detects available container runtime.
+// Returns error for interface consistency (currently always nil).
 func detectContainerRuntime() (ContainerRuntime, error) {
 	// Check for Docker first
 	if _, err := exec.LookPath("docker"); err == nil {
@@ -127,7 +128,7 @@ func detectContainerRuntime() (ContainerRuntime, error) {
 	return RuntimeNone, nil
 }
 
-// ValidateContainerConfig validates container configuration early
+// ValidateContainerConfig validates container configuration early.
 func (cm *ContainerManager) ValidateContainerConfig(step config.WorkflowStep) error {
 	if step.Image == "" {
 		return fmt.Errorf("container image is required for containerized steps")
@@ -153,7 +154,7 @@ func (cm *ContainerManager) ValidateContainerConfig(step config.WorkflowStep) er
 	return nil
 }
 
-// isValidImageName checks if the image name follows valid format
+// isValidImageName checks if the image name follows valid format.
 func isValidImageName(image string) bool {
 	if image == "" {
 		return false
@@ -171,7 +172,7 @@ func isValidImageName(image string) bool {
 	return imageRegex.MatchString(image)
 }
 
-// isValidNetworkName checks if the network name is valid
+// isValidNetworkName checks if the network name is valid.
 func isValidNetworkName(network string) bool {
 	// Allow standard network names and none/host
 	validNetworks := []string{"none", "host", "bridge", "default"}
@@ -185,7 +186,7 @@ func isValidNetworkName(network string) bool {
 	return networkRegex.MatchString(network)
 }
 
-// isValidCapability checks if the capability name is valid
+// isValidCapability checks if the capability name is valid.
 func isValidCapability(capability string) bool {
 	// Remove optional CAP_ prefix
 	cap := strings.TrimPrefix(strings.ToUpper(capability), "CAP_")
@@ -210,7 +211,7 @@ func isValidCapability(capability string) bool {
 	return false
 }
 
-// validateVolumePath validates a volume path for security
+// validateVolumePath validates a volume path for security.
 func validateVolumePath(path string) error {
 	if strings.Contains(path, "..") {
 		return fmt.Errorf("path traversal detected in volume path: %s", path)
@@ -221,7 +222,7 @@ func validateVolumePath(path string) error {
 	return nil
 }
 
-// BuildContainerConfig creates container configuration from workflow step
+// BuildContainerConfig creates container configuration from workflow step.
 func (cm *ContainerManager) BuildContainerConfig(step config.WorkflowStep, workDir string, env map[string]string, resources *config.Resources) (*ContainerConfig, error) {
 	// Validate first
 	if err := cm.ValidateContainerConfig(step); err != nil {
@@ -341,7 +342,7 @@ func (cm *ContainerManager) BuildContainerConfig(step config.WorkflowStep, workD
 	return config, nil
 }
 
-// RunContainer executes a container with the given configuration
+// RunContainer executes a container with the given configuration.
 func (cm *ContainerManager) RunContainer(ctx context.Context, containerConfig *ContainerConfig, stepID string) (*ContainerResult, error) {
 	startTime := time.Now()
 
@@ -409,7 +410,7 @@ func (cm *ContainerManager) RunContainer(ctx context.Context, containerConfig *C
 	return result, nil
 }
 
-// ContainerResult represents the result of container execution
+// ContainerResult represents the result of container execution.
 type ContainerResult struct {
 	ContainerName string
 	ExitCode      int
@@ -419,7 +420,8 @@ type ContainerResult struct {
 	EndTime       time.Time
 }
 
-// buildRunCommand builds the container run command arguments
+// buildRunCommand builds the container run command arguments.
+// Returns error for future extensibility (currently always nil).
 func (cm *ContainerManager) buildRunCommand(containerName string, config *ContainerConfig) ([]string, error) {
 	args := []string{"run", "--rm", "--name", containerName}
 
@@ -499,14 +501,14 @@ func (cm *ContainerManager) buildRunCommand(containerName string, config *Contai
 	return args, nil
 }
 
-// cleanupContainer removes the container if it still exists
+// cleanupContainer removes the container if it still exists.
 func (cm *ContainerManager) cleanupContainer(containerName string) error {
 	// Try to remove the container (in case --rm didn't work)
 	cmd := exec.Command(string(cm.runtime), "rm", "-f", containerName)
 	return cmd.Run()
 }
 
-// PullImage pulls a container image if not already present
+// PullImage pulls a container image if not already present.
 func (cm *ContainerManager) PullImage(ctx context.Context, image string) error {
 	// Check cache first if registry manager is available
 	if cm.registryManager != nil && cm.registryManager.imageCache != nil {
@@ -585,7 +587,7 @@ func (cm *ContainerManager) PullImage(ctx context.Context, image string) error {
 	return nil
 }
 
-// IsContainerStep checks if a workflow step should be executed in a container
+// IsContainerStep checks if a workflow step should be executed in a container.
 func IsContainerStep(step config.WorkflowStep) bool {
 	return step.Image != ""
 }

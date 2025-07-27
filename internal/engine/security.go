@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Context key types for safe context value passing
+// contextKey represents typed context keys for safe context value passing.
 type contextKey string
 
 const (
@@ -21,7 +21,7 @@ const (
 	contextKeyStepID contextKey = "step_id"
 )
 
-// SecurityAuditor handles security audit logging and monitoring
+// SecurityAuditor handles security audit logging and monitoring.
 type SecurityAuditor struct {
 	logFile     string
 	writer      io.Writer
@@ -32,7 +32,7 @@ type SecurityAuditor struct {
 	currentSize int64
 }
 
-// AuditEvent represents a security-relevant event
+// AuditEvent represents a security-relevant event.
 type AuditEvent struct {
 	Timestamp time.Time
 	EventType string
@@ -45,7 +45,7 @@ type AuditEvent struct {
 	Details   map[string]string
 }
 
-// SecurityProfile defines container security profiles
+// SecurityProfile defines container security profiles.
 type SecurityProfile string
 
 const (
@@ -54,7 +54,7 @@ const (
 	SecurityProfileMinimal  SecurityProfile = "minimal"  // Minimal restrictions (testing only)
 )
 
-// NetworkPolicy defines network access policies
+// NetworkPolicy defines network access policies.
 type NetworkPolicy struct {
 	AllowedHosts   []string // Specific hosts that can be accessed
 	AllowedPorts   []int    // Specific ports that can be accessed
@@ -63,7 +63,7 @@ type NetworkPolicy struct {
 	AllowLocalhost bool     // Allow localhost connections
 }
 
-// VolumeRestriction defines volume mount restrictions
+// VolumeRestriction defines volume mount restrictions.
 type VolumeRestriction struct {
 	AllowedPaths     []string // Paths that can be mounted
 	BlockedPaths     []string // Paths that must not be mounted
@@ -72,7 +72,7 @@ type VolumeRestriction struct {
 	AllowTempVolumes bool     // Allow temporary volumes
 }
 
-// SecurityManager handles advanced security features
+// SecurityManager handles advanced security features.
 type SecurityManager struct {
 	auditor            *SecurityAuditor
 	volumeRestrictions *VolumeRestriction
@@ -83,7 +83,7 @@ type SecurityManager struct {
 	mu                 sync.RWMutex
 }
 
-// NewSecurityManager creates a new security manager
+// NewSecurityManager creates a new security manager.
 func NewSecurityManager(auditLogPath string, debug bool) (*SecurityManager, error) {
 	auditor, err := NewSecurityAuditor(auditLogPath, debug)
 	if err != nil {
@@ -113,7 +113,7 @@ func NewSecurityManager(auditLogPath string, debug bool) (*SecurityManager, erro
 	}, nil
 }
 
-// NewSecurityAuditor creates a new security auditor
+// NewSecurityAuditor creates a new security auditor.
 func NewSecurityAuditor(logPath string, debug bool) (*SecurityAuditor, error) {
 	// Ensure log directory exists
 	logDir := filepath.Dir(logPath)
@@ -136,7 +136,7 @@ func NewSecurityAuditor(logPath string, debug bool) (*SecurityAuditor, error) {
 	}, nil
 }
 
-// LogEvent logs a security audit event
+// LogEvent logs a security audit event.
 func (sa *SecurityAuditor) LogEvent(event AuditEvent) error {
 	sa.mu.Lock()
 	defer sa.mu.Unlock()
@@ -186,7 +186,7 @@ func (sa *SecurityAuditor) LogEvent(event AuditEvent) error {
 	return nil
 }
 
-// rotateLog rotates the audit log file
+// rotateLog rotates the audit log file.
 func (sa *SecurityAuditor) rotateLog() error {
 	// Close current file
 	if closer, ok := sa.writer.(io.Closer); ok {
@@ -214,7 +214,7 @@ func (sa *SecurityAuditor) rotateLog() error {
 	return nil
 }
 
-// ValidateVolumeMounts validates volume mounts against security restrictions
+// ValidateVolumeMounts validates volume mounts against security restrictions.
 func (sm *SecurityManager) ValidateVolumeMounts(volumes []VolumeMount) error {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -257,7 +257,7 @@ func (sm *SecurityManager) ValidateVolumeMounts(volumes []VolumeMount) error {
 	return nil
 }
 
-// ApplySecurityProfile applies a security profile to container configuration
+// ApplySecurityProfile applies a security profile to container configuration.
 func (sm *SecurityManager) ApplySecurityProfile(config *ContainerConfig, profile SecurityProfile) error {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -319,7 +319,7 @@ func (sm *SecurityManager) ApplySecurityProfile(config *ContainerConfig, profile
 	return nil
 }
 
-// GenerateSecureContainerName generates a cryptographically secure container name
+// GenerateSecureContainerName generates a cryptographically secure container name.
 func GenerateSecureContainerName(prefix string) (string, error) {
 	bytes := make([]byte, 8)
 	if _, err := rand.Read(bytes); err != nil {
@@ -329,7 +329,7 @@ func GenerateSecureContainerName(prefix string) (string, error) {
 	return fmt.Sprintf("%s-%s-%d", prefix, hex.EncodeToString(bytes), time.Now().Unix()), nil
 }
 
-// ValidateNetworkAccess validates network configuration against policy
+// ValidateNetworkAccess validates network configuration against policy.
 func (sm *SecurityManager) ValidateNetworkAccess(network string, config *ContainerConfig) error {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -347,13 +347,13 @@ func (sm *SecurityManager) ValidateNetworkAccess(network string, config *Contain
 	return nil
 }
 
-// isNetworkAllowed checks if network access is permitted
+// isNetworkAllowed checks if network access is permitted.
 func (sm *SecurityManager) isNetworkAllowed() bool {
 	// In strict mode, no network access is allowed
 	return len(sm.networkPolicy.AllowedHosts) > 0 || sm.networkPolicy.AllowLocalhost
 }
 
-// AuditContainerExecution logs container execution for audit
+// AuditContainerExecution logs container execution for audit.
 func (sm *SecurityManager) AuditContainerExecution(ctx context.Context, config *ContainerConfig, result *ContainerResult) {
 	if !sm.enableAudit {
 		return
@@ -386,28 +386,28 @@ func (sm *SecurityManager) AuditContainerExecution(ctx context.Context, config *
 	sm.auditor.LogEvent(event)
 }
 
-// SetVolumeRestrictions updates volume mount restrictions
+// SetVolumeRestrictions updates volume mount restrictions.
 func (sm *SecurityManager) SetVolumeRestrictions(restrictions *VolumeRestriction) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.volumeRestrictions = restrictions
 }
 
-// SetNetworkPolicy updates network access policy
+// SetNetworkPolicy updates network access policy.
 func (sm *SecurityManager) SetNetworkPolicy(policy *NetworkPolicy) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.networkPolicy = policy
 }
 
-// SetSeccompProfile sets the seccomp profile path
+// SetSeccompProfile sets the seccomp profile path.
 func (sm *SecurityManager) SetSeccompProfile(profile string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.seccompProfile = profile
 }
 
-// Close closes the security manager and its resources
+// Close closes the security manager and its resources.
 func (sm *SecurityManager) Close() error {
 	if sm.auditor != nil {
 		if closer, ok := sm.auditor.writer.(io.Closer); ok {
