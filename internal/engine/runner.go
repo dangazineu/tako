@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"text/template"
 	"time"
 
 	"github.com/dangazineu/tako/internal/config"
@@ -56,6 +55,9 @@ type Runner struct {
 	runID string
 	state *ExecutionState
 	locks *LockManager
+
+	// Template processing
+	templateEngine *TemplateEngine
 
 	// Configuration
 	maxConcurrentRepos int
@@ -109,6 +111,7 @@ func NewRunner(opts RunnerOptions) (*Runner, error) {
 		runID:              runID,
 		state:              state,
 		locks:              locks,
+		templateEngine:     NewTemplateEngine(),
 		maxConcurrentRepos: opts.MaxConcurrentRepos,
 		dryRun:             opts.DryRun,
 		debug:              opts.Debug,
@@ -500,26 +503,33 @@ func (r *Runner) executeBuiltinStep(step config.WorkflowStep, stepID string, sta
 	}, err
 }
 
-// expandTemplate expands template variables in a string.
+// expandTemplate expands template variables in a string using the enhanced template engine.
 func (r *Runner) expandTemplate(tmplStr string, inputs map[string]string, stepOutputs map[string]map[string]string) (string, error) {
-	// Create template data structure
-	data := map[string]interface{}{
-		"inputs": inputs,
-		"steps":  stepOutputs,
+	// Build template context
+	context := NewContextBuilder().
+		WithInputs(inputs).
+		WithStepOutputs(stepOutputs).
+		Build()
+
+	// Use the enhanced template engine
+	return r.templateEngine.ExpandTemplate(tmplStr, context)
+}
+
+// expandTemplateWithEvent expands template variables with event context for subscription-triggered workflows.
+func (r *Runner) expandTemplateWithEvent(tmplStr string, inputs map[string]string, stepOutputs map[string]map[string]string, event *EventContext) (string, error) {
+	// Build template context with event
+	context := NewContextBuilder().
+		WithInputs(inputs).
+		WithStepOutputs(stepOutputs).
+		Build()
+	
+	// Add event context if provided
+	if event != nil {
+		context.Event = event
 	}
 
-	// Parse and execute template
-	tmpl, err := template.New("step").Parse(tmplStr)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse template: %v", err)
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("failed to execute template: %v", err)
-	}
-
-	return buf.String(), nil
+	// Use the enhanced template engine
+	return r.templateEngine.ExpandTemplate(tmplStr, context)
 }
 
 // GetRunID returns the current run ID.
