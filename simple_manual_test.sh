@@ -242,15 +242,23 @@ EOF
     print_step "Summary: Manual Testing Results"
     
     echo -e "${GREEN}"
-    echo "✓ Fan-out step executes without deadlocks"
+    echo "✓ Fan-out step registration and parsing works"
     echo "✓ Parameter validation works correctly" 
     echo "✓ Error handling functions as expected"
     echo "✓ Different configuration options accepted"
     echo "✓ Integration with tako workflow system successful"
     echo -e "${NC}"
     
-    echo -e "${BLUE}Manual testing completed successfully!${NC}"
-    echo -e "${BLUE}The tako/fan-out@v1 step is functional and ready for use.${NC}"
+    echo -e "${YELLOW}"
+    echo "⚠️  IMPORTANT LIMITATIONS:"
+    echo "   - Child workflow execution is currently mocked"
+    echo "   - No actual cross-repository orchestration occurs"
+    echo "   - Event payload propagation is not tested"
+    echo "   - This validates discovery phase only"
+    echo -e "${NC}"
+    
+    echo -e "${BLUE}Discovery phase testing completed successfully!${NC}"
+    echo -e "${YELLOW}Note: Implementation requires child workflow execution before production use.${NC}"
     
     return 0
 }

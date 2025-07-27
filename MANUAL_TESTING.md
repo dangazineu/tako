@@ -4,11 +4,13 @@ This document provides a comprehensive manual testing guide for the `tako/fan-ou
 
 ## Overview
 
-The `tako/fan-out@v1` step enables event-driven multi-repository orchestration by:
-- Discovering repositories with matching subscriptions
-- Triggering workflows in subscribing repositories 
-- Supporting both fire-and-forget and wait-for-children execution modes
-- Providing comprehensive parameter validation and error handling
+⚠️ **IMPORTANT**: These tests validate only the **discovery and setup phases** of the `tako/fan-out@v1` implementation. The actual child workflow execution is currently mocked to avoid deadlock issues.
+
+The testing covers:
+- Repository discovery with matching subscriptions ✅
+- Parameter validation and error handling ✅
+- Basic integration with tako workflow system ✅
+- **Child workflow execution**: Currently simulated only ❌
 
 ## Manual Testing Scripts
 
@@ -159,12 +161,14 @@ When running manual tests, verify the following:
 
 ## Known Limitations
 
-### Current Implementation Status
-1. **Child Workflow Execution**: Currently simulated for manual testing purposes. The ExecuteChildWorkflow method returns mock run IDs to avoid deadlock issues during testing.
+### Critical Implementation Gaps
+1. **Child Workflow Execution**: The `ExecuteChildWorkflow` method is currently mocked to return simulated run IDs. **No actual child workflows are executed**, making this a proof of concept for discovery only.
 
-2. **Subscription Filtering**: Basic subscription matching is implemented. Advanced CEL filtering and schema validation are planned for future releases.
+2. **Event Payload Handling**: Event payloads are not generated or propagated to child workflows. Input mapping from events to workflow parameters is not tested.
 
-3. **Concurrency**: Concurrent execution of child workflows is designed but not fully implemented in the current version.
+3. **Synchronization**: The `wait_for_children` functionality cannot be tested without real child workflow execution.
+
+4. **Cross-Repository Orchestration**: The core purpose of the fan-out step (orchestrating workflows across repositories) is not implemented or tested.
 
 ### Testing Limitations
 1. **Network Operations**: Manual tests run in local mode only. Remote repository testing requires additional setup.
@@ -242,11 +246,12 @@ go build -o takotest ./cmd/takotest
 
 ## Conclusion
 
-The manual testing suite provides comprehensive coverage of the `tako/fan-out@v1` step functionality. All core features are working correctly, including:
+The manual testing suite provides coverage of the **discovery and setup phases** of the `tako/fan-out@v1` step. The following components are working correctly:
 
-- Successful fan-out step execution
-- Robust parameter validation
-- Proper error handling
-- Integration with existing tako features
+- Repository discovery and subscription matching ✅
+- Parameter validation and error handling ✅
+- Basic integration with tako workflow parsing ✅
 
-The implementation is ready for production use with the understanding that child workflow execution is currently simulated pending the resolution of architecture decisions around concurrent execution and state management.
+**⚠️ Critical Gap**: The core functionality of **executing workflows in other repositories is not implemented**. The current implementation is a proof of concept for the discovery phase only.
+
+**Production Readiness**: This implementation is **NOT ready for production use** until child workflow execution is properly implemented and tested.
