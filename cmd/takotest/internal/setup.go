@@ -246,14 +246,26 @@ func createRepoFiles(repoPath string, repoDef *e2e.RepositoryDef, envName, owner
 		return fmt.Errorf("failed to add remote in %s: %w", repoPath, err)
 	}
 
-	// Create tako.yml
-	takoConfig := buildTakoConfig(envName, owner, repoDef)
-	content, err := yaml.Marshal(takoConfig)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(repoPath, "tako.yml"), content, 0644); err != nil {
-		return err
+	// Create tako.yml (special handling for malformed-config environment)
+	if envName == "malformed-config" {
+		// For malformed config, use the template file instead of generating config
+		malformedContent, err := e2e.GetTemplate("malformed-config/malformed-tako.yml")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(repoPath, "tako.yml"), []byte(malformedContent), 0644); err != nil {
+			return err
+		}
+	} else {
+		// Normal config generation
+		takoConfig := buildTakoConfig(envName, owner, repoDef)
+		content, err := yaml.Marshal(takoConfig)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(repoPath, "tako.yml"), content, 0644); err != nil {
+			return err
+		}
 	}
 
 	// Create other files from templates

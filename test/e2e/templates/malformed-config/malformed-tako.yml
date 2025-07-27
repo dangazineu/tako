@@ -1,0 +1,20 @@
+version: 0.1.0
+artifacts:
+  default:
+    path: "."
+    ecosystem: "generic"
+workflows:
+  malformed-syntax:
+    inputs:
+      environment:
+        type: string
+        required: true
+    steps:
+      - id: test_step
+        # This is intentionally malformed YAML - missing quotes and improper nesting
+        run: echo 'test with malformed: [[[[ yaml syntax
+        produces:
+          outputs:
+            # Missing proper indentation and structure
+          result: from_stdout
+subscriptions: []

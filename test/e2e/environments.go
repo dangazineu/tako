@@ -110,5 +110,17 @@ func GetEnvironments(owner string) map[string]TestEnvironmentDef {
 				},
 			},
 		},
+		"malformed-config": {
+			Name: "malformed-config",
+			Repositories: []RepositoryDef{
+				{
+					Name:   "bad-config-repo",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "malformed-tako.yml", Template: "malformed-config/malformed-tako.yml"},
+					},
+				},
+			},
+		},
 	}
 }

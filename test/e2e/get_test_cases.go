@@ -160,7 +160,7 @@ func GetTestCases() []TestCase {
 					Args:             []string{"exec", "advanced-input-workflow", "--inputs.environment=invalid"},
 					ExpectedExitCode: 1,
 					AssertOutputContains: []string{
-						"workflow execution failed",
+						"execution failed",
 						"not in allowed values",
 					},
 				},
@@ -246,7 +246,7 @@ func GetTestCases() []TestCase {
 					ExpectedExitCode: 1,
 					AssertOutputContains: []string{
 						"Executing workflow 'error-handling-workflow'",
-						"workflow execution failed",
+						"execution failed",
 						"success_step",
 						"failure_step",
 					},
@@ -368,6 +368,22 @@ func GetTestCases() []TestCase {
 						"Executing workflow 'template-variable-workflow'",
 						"Success: true",
 						"test_security_functions",
+					},
+				},
+			},
+		},
+		{
+			Name:        "exec-malformed-config",
+			Environment: "malformed-config",
+			ReadOnly:    true,
+			Test: []Step{
+				{
+					Name:             "tako exec should fail gracefully with malformed tako.yml",
+					Command:          "tako",
+					Args:             []string{"exec", "any-workflow"},
+					ExpectedExitCode: 1,
+					AssertOutputContains: []string{
+						"failed to load config",
 					},
 				},
 			},
