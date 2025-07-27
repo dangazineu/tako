@@ -46,7 +46,8 @@ Based on consultation with Gemini and architecture analysis:
   - `CheckSchemaCompatibility(eventVersion, subscriptionRange string) (bool, error)`
   - `ProcessEventPayload(payload map[string]string, subscription config.Subscription) (map[string]string, error)`
 - **Features:**
-  - CEL expression evaluation for event filtering
+  - CEL expression evaluation for event filtering with security safeguards
+  - CEL execution sandboxing (cost/instruction limits) to prevent DoS
   - Semantic version range checking using semver library
   - Template processing for input mappings
   - Event payload transformation and validation
@@ -81,6 +82,7 @@ Based on consultation with Gemini and architecture analysis:
 - **Features:**
   - Event emission with schema versioning
   - Parallel subscriber triggering with concurrency limits
+  - Deterministic lock acquisition for child repositories (alphabetical order)
   - Basic error aggregation and reporting
   - Template processing for event payloads
 
@@ -183,6 +185,7 @@ Based on consultation with Gemini and architecture analysis:
 - **Features:**
   - `fail-fast` parameter support (default: false)
   - Detailed error aggregation and reporting
+  - Tree-like error presentation mirroring execution graph structure
   - Partial success handling and result collection
   - Clear error messages for debugging
 
@@ -194,6 +197,7 @@ Based on consultation with Gemini and architecture analysis:
   - Dynamic concurrency adjustment based on system load
   - Priority-based child execution ordering
   - Deadlock detection and prevention
+  - Optional jitter for child workflow execution to mitigate "thundering herd" effects
 
 #### 4.3 Performance Optimizations
 - **File:** `internal/engine/discovery.go` (enhancement)
@@ -244,13 +248,16 @@ Based on consultation with Gemini and architecture analysis:
 ### Integration Testing  
 - **Multi-Repository Scenarios:** Use existing e2e test infrastructure
 - **Event Flow Testing:** End-to-end event emission and subscription
+- **Cycle Detection:** Test scenarios where Repo A triggers Repo B which triggers Repo A
 - **State Persistence:** Resume functionality across restart boundaries
 - **Concurrency Testing:** Parallel execution with resource constraints
+- **Workspace Isolation:** Verify concurrent executions get properly isolated workspaces
 
 ### Performance Testing
 - **Large Subscription Sets:** Test with hundreds of subscribed repositories
 - **Deep Synchronization:** Multi-level fan-out with complex trees
 - **Concurrent Operations:** Multiple fan-out steps in single workflow
+- **Discovery Manager Overhead:** Measure scanning time for 1000+ repositories (cold/warm cache)
 - **Resource Usage:** Memory and CPU usage under load
 
 ## Risk Mitigation
