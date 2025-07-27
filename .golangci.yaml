@@ -11,7 +11,9 @@ linters:
     - ineffassign
     - misspell
     - staticcheck
-    - unparam
     - unused
     - usetesting
+  disable:
+    # Disable unparam as it flags functions with intentional error returns for interface consistency
+    - unparam
     
