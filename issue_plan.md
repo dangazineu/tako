@@ -5,48 +5,61 @@ Based on code analysis and Gemini consultation, the work is primarily **integrat
 
 ## Implementation Phases
 
-### Phase 1: Idempotency Implementation
+### Phase 1: Idempotency Implementation ✅ COMPLETED
 **Goal**: Implement at-least-once delivery with idempotency checking
 
 **Tasks**:
-1. Extend `FanOutState` struct to track triggered workflows
-   - Add `TriggeredWorkflows map[string]string` field to track `subscriberRepo/workflow` → `runID`
-   - Update state persistence/loading logic
+1. ✅ Extend `FanOutState` struct to track triggered workflows
+   - ✅ Add `TriggeredWorkflows map[string]string` field to track `subscriberRepo/workflow` → `runID`
+   - ✅ Update state persistence/loading logic
 
-2. Implement idempotency checking in `FanOutExecutor.triggerSubscribersWithState`
-   - Check if workflow already triggered before processing
-   - Skip already-triggered workflows with appropriate logging
-   - Record successful triggers in state
+2. ✅ Implement idempotency checking in `FanOutExecutor.triggerSubscribersWithState`
+   - ✅ Check if workflow already triggered before processing
+   - ✅ Skip already-triggered workflows with appropriate logging
+   - ✅ Record successful triggers in state
 
 **Files Modified**:
-- `internal/engine/fanout_state.go` (add field to struct)
-- `internal/engine/fanout.go` (add idempotency logic)
+- ✅ `internal/engine/fanout_state.go` (add field to struct, helper methods)
+- ✅ `internal/engine/fanout.go` (add idempotency logic)
 
 **Tests**:
-- Unit tests for idempotency checking behavior
-- Test that duplicate events don't retrigger workflows
-- Test state persistence across restarts
+- ✅ Unit tests for idempotency checking behavior
+- ✅ Test that duplicate events don't retrigger workflows  
+- ✅ Test state persistence across restarts
 
-### Phase 2: Diamond Dependency Resolution  
+**Commit**: df855c8
+
+### Phase 2: Diamond Dependency Resolution ✅ COMPLETED
 **Goal**: Implement first-subscription-wins policy for conflicting subscriptions
 
 **Tasks**:
-1. Add conflict detection in `FanOutExecutor.Execute`
-   - Group `SubscriptionMatch` results by repository
-   - Detect when multiple subscriptions match same event in same repo
+1. ✅ Add conflict detection in `FanOutExecutor.Execute`
+   - ✅ Group `SubscriptionMatch` results by repository
+   - ✅ Detect when multiple subscriptions match same event in same repo
 
-2. Implement resolution logic
-   - Apply "first-subscription-wins" deterministically
-   - Ensure consistent ordering (alphabetical by repo, then by subscription order)
-   - Log conflicts and resolution decisions
+2. ✅ Implement resolution logic
+   - ✅ Apply "first-subscription-wins" deterministically
+   - ✅ Ensure consistent ordering (alphabetical by repo, then by subscription order)
+   - ✅ Log conflicts and resolution decisions
 
 **Files Modified**:
-- `internal/engine/fanout.go` (add resolution logic in Execute method)
+- ✅ `internal/engine/fanout.go` (add `resolveDiamondDependencies()` method)
+- ✅ `internal/engine/fanout_test.go` (add comprehensive test coverage)
 
 **Tests**:
-- Test scenarios with multiple subscriptions per repository
-- Verify deterministic conflict resolution
-- Test logging of resolution decisions
+- ✅ Test scenarios with multiple subscriptions per repository
+- ✅ Verify deterministic conflict resolution  
+- ✅ Test logging of resolution decisions
+- ✅ Integration with existing execution flow
+
+**Implementation Details**:
+- Added `resolveDiamondDependencies()` method with first-subscription-wins policy
+- Integrated resolution into `ExecuteWithContext()` between subscription filtering and triggering
+- Deterministic behavior through alphabetical sorting by repository and workflow name
+- Comprehensive logging for conflict detection and resolution
+- Full backward compatibility maintained
+
+**Commit**: (next commit)
 
 ### Phase 3: Performance Optimizations
 **Goal**: Cache compiled CEL expressions for better performance

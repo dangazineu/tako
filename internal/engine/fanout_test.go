@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -510,6 +511,173 @@ func TestConvertPayload(t *testing.T) {
 					t.Errorf("Result missing key %s", key)
 				} else if actualValue != expectedValue {
 					t.Errorf("Result[%s] = %v, want %v", key, actualValue, expectedValue)
+				}
+			}
+		})
+	}
+}
+
+func TestFanOutExecutor_resolveDiamondDependencies(t *testing.T) {
+	executor, err := NewFanOutExecutor(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("Failed to create executor: %v", err)
+	}
+
+	tests := []struct {
+		name              string
+		subscribers       []SubscriptionMatch
+		expectedCount     int
+		expectedWinners   []string // repository/workflow combinations that should win
+		expectedConflicts int
+	}{
+		{
+			name:              "no subscribers",
+			subscribers:       []SubscriptionMatch{},
+			expectedCount:     0,
+			expectedWinners:   []string{},
+			expectedConflicts: 0,
+		},
+		{
+			name: "single subscriber",
+			subscribers: []SubscriptionMatch{
+				{
+					Repository: "org/repo1",
+					Subscription: config.Subscription{
+						Workflow: "deploy",
+					},
+				},
+			},
+			expectedCount:     1,
+			expectedWinners:   []string{"org/repo1/deploy"},
+			expectedConflicts: 0,
+		},
+		{
+			name: "no conflicts - different repositories",
+			subscribers: []SubscriptionMatch{
+				{
+					Repository: "org/repo1",
+					Subscription: config.Subscription{
+						Workflow: "deploy",
+					},
+				},
+				{
+					Repository: "org/repo2",
+					Subscription: config.Subscription{
+						Workflow: "test",
+					},
+				},
+			},
+			expectedCount:     2,
+			expectedWinners:   []string{"org/repo1/deploy", "org/repo2/test"},
+			expectedConflicts: 0,
+		},
+		{
+			name: "diamond dependency - same repository, different workflows",
+			subscribers: []SubscriptionMatch{
+				{
+					Repository: "org/repo1",
+					Subscription: config.Subscription{
+						Workflow: "test", // Should lose (alphabetically after deploy)
+					},
+				},
+				{
+					Repository: "org/repo1",
+					Subscription: config.Subscription{
+						Workflow: "deploy", // Should win (alphabetically first)
+					},
+				},
+			},
+			expectedCount:     1,
+			expectedWinners:   []string{"org/repo1/deploy"}, // deploy comes before test alphabetically
+			expectedConflicts: 1,
+		},
+		{
+			name: "multiple conflicts - complex scenario",
+			subscribers: []SubscriptionMatch{
+				{
+					Repository: "org/repo1",
+					Subscription: config.Subscription{
+						Workflow: "test",
+					},
+				},
+				{
+					Repository: "org/repo1",
+					Subscription: config.Subscription{
+						Workflow: "deploy",
+					},
+				},
+				{
+					Repository: "org/repo2",
+					Subscription: config.Subscription{
+						Workflow: "build",
+					},
+				},
+				{
+					Repository: "org/repo3",
+					Subscription: config.Subscription{
+						Workflow: "lint",
+					},
+				},
+				{
+					Repository: "org/repo3",
+					Subscription: config.Subscription{
+						Workflow: "test",
+					},
+				},
+			},
+			expectedCount:     3,
+			expectedWinners:   []string{"org/repo1/deploy", "org/repo2/build", "org/repo3/lint"},
+			expectedConflicts: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := executor.resolveDiamondDependencies(tt.subscribers)
+
+			// Check total count
+			if len(result) != tt.expectedCount {
+				t.Errorf("Expected %d resolved subscribers, got %d", tt.expectedCount, len(result))
+			}
+
+			// Check that results are sorted by repository
+			for i := 1; i < len(result); i++ {
+				if result[i-1].Repository >= result[i].Repository {
+					t.Errorf("Results not sorted by repository: %s >= %s",
+						result[i-1].Repository, result[i].Repository)
+				}
+			}
+
+			// Check expected winners
+			if len(tt.expectedWinners) > 0 {
+				var actualWinners []string
+				for _, sub := range result {
+					actualWinners = append(actualWinners, fmt.Sprintf("%s/%s", sub.Repository, sub.Subscription.Workflow))
+				}
+
+				for _, expectedWinner := range tt.expectedWinners {
+					found := false
+					for _, actualWinner := range actualWinners {
+						if actualWinner == expectedWinner {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("Expected winner %s not found in results: %v", expectedWinner, actualWinners)
+					}
+				}
+			}
+
+			// For conflict cases, verify that each repository only appears once
+			repoCount := make(map[string]int)
+			for _, sub := range result {
+				repoCount[sub.Repository]++
+			}
+
+			for repo, count := range repoCount {
+				if count > 1 {
+					t.Errorf("Repository %s appears %d times in results (should be 1)", repo, count)
 				}
 			}
 		})

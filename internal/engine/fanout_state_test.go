@@ -571,13 +571,13 @@ func TestWorkflowIdempotency(t *testing.T) {
 	}
 
 	// Check that different workflow is not affected
-	isTriggered, runID = state.IsWorkflowTriggered("target/repo1", "test")
+	isTriggered, _ = state.IsWorkflowTriggered("target/repo1", "test")
 	if isTriggered {
 		t.Errorf("Expected different workflow not to be affected")
 	}
 
 	// Check that different repository is not affected
-	isTriggered, runID = state.IsWorkflowTriggered("target/repo2", "deploy")
+	isTriggered, _ = state.IsWorkflowTriggered("target/repo2", "deploy")
 	if isTriggered {
 		t.Errorf("Expected different repository not to be affected")
 	}

@@ -235,9 +235,17 @@ func (fe *FanOutExecutor) ExecuteWithContext(step config.WorkflowStep, sourceRep
 		fmt.Printf("After filtering: %d valid subscribers\n", len(validSubscribers))
 	}
 
+	// Apply diamond dependency resolution (first-subscription-wins)
+	resolvedSubscribers := fe.resolveDiamondDependencies(validSubscribers)
+
+	if fe.debug && len(resolvedSubscribers) != len(validSubscribers) {
+		fmt.Printf("Diamond dependency resolution: %d subscribers -> %d subscribers\n",
+			len(validSubscribers), len(resolvedSubscribers))
+	}
+
 	// Trigger subscribers with state tracking
-	if len(validSubscribers) > 0 {
-		triggeredCount, errors := fe.triggerSubscribersWithState(validSubscribers, event, params, state)
+	if len(resolvedSubscribers) > 0 {
+		triggeredCount, errors := fe.triggerSubscribersWithState(resolvedSubscribers, event, params, state)
 		result.TriggeredCount = triggeredCount
 		result.Errors = append(result.Errors, errors...)
 	}
@@ -610,6 +618,70 @@ func (fe *FanOutExecutor) waitForChildren(subscribers []SubscriptionMatch, param
 	}
 
 	return nil
+}
+
+// resolveDiamondDependencies implements first-subscription-wins policy for conflicting subscriptions.
+// When multiple subscriptions in the same repository match an event, only the first one is triggered.
+func (fe *FanOutExecutor) resolveDiamondDependencies(subscribers []SubscriptionMatch) []SubscriptionMatch {
+	if len(subscribers) <= 1 {
+		return subscribers
+	}
+
+	// Group subscribers by repository
+	subscribersByRepo := make(map[string][]SubscriptionMatch)
+	for _, sub := range subscribers {
+		subscribersByRepo[sub.Repository] = append(subscribersByRepo[sub.Repository], sub)
+	}
+
+	// Apply first-subscription-wins policy
+	var resolvedSubscribers []SubscriptionMatch
+	conflictsDetected := 0
+
+	for repo, matches := range subscribersByRepo {
+		if len(matches) > 1 {
+			// Multiple subscriptions in same repository - conflict detected
+			conflictsDetected++
+
+			// Sort for deterministic behavior (by workflow name)
+			sort.Slice(matches, func(i, j int) bool {
+				return matches[i].Subscription.Workflow < matches[j].Subscription.Workflow
+			})
+
+			// Select the first subscription (first-subscription-wins)
+			winner := matches[0]
+			resolvedSubscribers = append(resolvedSubscribers, winner)
+
+			// Log the conflict resolution
+			var conflictingWorkflows []string
+			for i := 1; i < len(matches); i++ {
+				conflictingWorkflows = append(conflictingWorkflows, matches[i].Subscription.Workflow)
+			}
+
+			fe.logger.Info("Diamond dependency resolved using first-subscription-wins",
+				"repository", repo,
+				"winner_workflow", winner.Subscription.Workflow,
+				"conflicting_workflows", conflictingWorkflows,
+			)
+		} else {
+			// No conflict - single subscription for this repository
+			resolvedSubscribers = append(resolvedSubscribers, matches[0])
+		}
+	}
+
+	// Sort final result for deterministic execution order
+	sort.Slice(resolvedSubscribers, func(i, j int) bool {
+		return resolvedSubscribers[i].Repository < resolvedSubscribers[j].Repository
+	})
+
+	if conflictsDetected > 0 {
+		fe.logger.Info("Diamond dependency resolution completed",
+			"total_conflicts", conflictsDetected,
+			"resolved_subscribers", len(resolvedSubscribers),
+			"original_subscribers", len(subscribers),
+		)
+	}
+
+	return resolvedSubscribers
 }
 
 // convertPayload converts a string map to interface{} map for Event payload.
