@@ -21,9 +21,7 @@ jobs:
       run: go version
 
     - name: Run unit tests (excluding integration)
-      run: |
-        go test -short -timeout=2m ./internal/config ./internal/git ./internal/graph
-        go test -short -timeout=2m ./cmd/...
+      run: go test -short -timeout=3m ./internal/... ./cmd/...
 
     - run: go fmt ./...
     - name: Detect Changes
@@ -45,5 +43,5 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
-      - name: Run integration tests (Docker not required)
-        run: go test -short -timeout=2m .
+      - name: Run integration tests (Docker not required)  
+        run: go test -short -timeout=2m ./...
