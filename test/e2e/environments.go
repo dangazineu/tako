@@ -122,5 +122,31 @@ func GetEnvironments(owner string) map[string]TestEnvironmentDef {
 				},
 			},
 		},
+		"fan-out-test": {
+			Name: "fan-out-test",
+			Repositories: []RepositoryDef{
+				{
+					Name:   "publisher-repo",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "tako.yml", Template: "fan-out-test/publisher-repo/tako.yml"},
+					},
+				},
+				{
+					Name:   "subscriber-repo-a",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "tako.yml", Template: "fan-out-test/subscriber-repo-a/tako.yml"},
+					},
+				},
+				{
+					Name:   "subscriber-repo-b",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "tako.yml", Template: "fan-out-test/subscriber-repo-b/tako.yml"},
+					},
+				},
+			},
+		},
 	}
 }

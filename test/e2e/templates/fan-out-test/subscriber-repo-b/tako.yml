@@ -1,0 +1,19 @@
+version: 1
+repos:
+  - {{.Owner}}/subscriber-repo-b
+workflows:
+  notify_build:
+    steps:
+      - id: notify
+        name: "Notify about build"
+        run: |
+          echo "NOTIFICATION: Library {{ .inputs.library_name }} built successfully!"
+events:
+  subscriptions:
+    - artifact: {{.Owner}}/publisher-repo:default
+      events:
+        - type: library_built
+      workflow: notify_build
+      filter: 'payload.version.startsWith("1.")'
+      inputs:
+        library_name: "{{ .event.payload.library_name }}"

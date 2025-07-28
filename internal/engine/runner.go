@@ -408,7 +408,7 @@ func (r *Runner) executeStep(ctx context.Context, step config.WorkflowStep, work
 
 	// Check if this is a built-in step (uses: field)
 	if step.Uses != "" {
-		return r.executeBuiltinStep(step, stepID, startTime)
+		return r.executeBuiltinStep(ctx, step, stepID, startTime)
 	}
 
 	// Check if this is a container step (image: field)
@@ -519,20 +519,106 @@ func (r *Runner) executeShellStep(ctx context.Context, step config.WorkflowStep,
 }
 
 // executeBuiltinStep executes a built-in Tako step.
-func (r *Runner) executeBuiltinStep(step config.WorkflowStep, stepID string, startTime time.Time) (StepResult, error) {
-	// TODO: Implement built-in steps like tako/fan-out@v1
-	// For now, return not implemented
+func (r *Runner) executeBuiltinStep(ctx context.Context, step config.WorkflowStep, stepID string, startTime time.Time) (StepResult, error) {
+	switch step.Uses {
+	case "tako/fan-out@v1":
+		return r.executeFanOutStep(ctx, step, stepID, startTime)
+	default:
+		err := fmt.Errorf("unknown built-in step: %s", step.Uses)
+		r.state.FailStep(stepID, err.Error())
+		return StepResult{
+			ID:        stepID,
+			Success:   false,
+			Error:     err,
+			StartTime: startTime,
+			EndTime:   time.Now(),
+		}, err
+	}
+}
 
-	err := fmt.Errorf("built-in steps not yet implemented: %s", step.Uses)
-	r.state.FailStep(stepID, err.Error())
+// executeFanOutStep executes the tako/fan-out@v1 built-in step.
+//
+//nolint:contextcheck,unparam // TODO: Pass context through FanOutExecutor in future refactoring
+func (r *Runner) executeFanOutStep(ctx context.Context, step config.WorkflowStep, stepID string, startTime time.Time) (StepResult, error) {
+	// Create fan-out executor with cache directory and debug mode
+	cacheDir := r.getCacheDir()
+	debug := r.isDebugMode()
 
-	return StepResult{
+	executor, err := NewFanOutExecutor(cacheDir, debug)
+	if err != nil {
+		err = fmt.Errorf("failed to create fan-out executor: %v", err)
+		r.state.FailStep(stepID, err.Error())
+		return StepResult{
+			ID:        stepID,
+			Success:   false,
+			Error:     err,
+			StartTime: startTime,
+			EndTime:   time.Now(),
+		}, err
+	}
+
+	// Execute the fan-out step
+	result, err := executor.Execute(step, r.getSourceRepository())
+	endTime := time.Now()
+
+	if err != nil {
+		r.state.FailStep(stepID, err.Error())
+		return StepResult{
+			ID:        stepID,
+			Success:   false,
+			Error:     err,
+			StartTime: startTime,
+			EndTime:   endTime,
+		}, err
+	}
+
+	// Convert fan-out result to StepResult
+	stepResult := StepResult{
 		ID:        stepID,
-		Success:   false,
-		Error:     err,
+		Success:   result.Success,
 		StartTime: startTime,
-		EndTime:   time.Now(),
-	}, err
+		EndTime:   endTime,
+	}
+
+	// Add fan-out specific output
+	if result.Success {
+		stepResult.Output = fmt.Sprintf("Fan-out completed: triggered %d workflows, found %d subscribers",
+			result.TriggeredCount, result.SubscribersFound)
+		r.state.CompleteStep(stepID, stepResult.Output, nil)
+	} else {
+		errorMsg := fmt.Sprintf("Fan-out failed: %v", result.Errors)
+		stepResult.Error = fmt.Errorf("%s", errorMsg)
+		r.state.FailStep(stepID, errorMsg)
+	}
+
+	return stepResult, nil
+}
+
+// getCacheDir returns the cache directory for the runner.
+// This is used by the fan-out executor to discover repositories.
+func (r *Runner) getCacheDir() string {
+	// Use the provided cache directory if available
+	if r.cacheDir != "" {
+		return r.cacheDir
+	}
+	// Fallback to a temporary directory if no cache dir is configured
+	return "/tmp/.tako/cache"
+}
+
+// isDebugMode returns whether debug mode is enabled for the runner.
+func (r *Runner) isDebugMode() bool {
+	// For now, check if execution mode is debug
+	// This could be enhanced to check environment variables or configuration
+	return r.mode == ExecutionModeDebug
+}
+
+// getSourceRepository returns the source repository identifier for fan-out events.
+// This identifies which repository is emitting the event.
+func (r *Runner) getSourceRepository() string {
+	// For now, return a placeholder
+	// In production, this should be derived from the workflow context
+	// TODO: Enhance to get actual repository from workflow context
+	return "current-repo"
 }
 
 // executeContainerStep executes a step in a container.
