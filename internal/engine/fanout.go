@@ -590,7 +590,7 @@ func (fe *FanOutExecutor) triggerWorkflowInPath(repository, repoPath, workflow s
 	}
 
 	// Prepare environment variables for workflow inputs
-	env := os.Environ()
+	env := fe.getEnvironment()
 	for key, value := range inputs {
 		env = append(env, fmt.Sprintf("TAKO_INPUT_%s=%s", strings.ToUpper(key), value))
 	}
@@ -873,4 +873,17 @@ func (fe *FanOutExecutor) ConfigureRetry(config RetryConfig) {
 func (fe *FanOutExecutor) ConfigureCircuitBreaker(config CircuitBreakerConfig) {
 	fe.circuitBreakerConfig = config
 	// Note: This affects new circuit breakers only; existing ones retain their configuration
+}
+
+// getEnvironment returns the environment variables for subprocess execution.
+// Returns a minimal environment for subprocess workflow executions.
+func (fe *FanOutExecutor) getEnvironment() []string {
+	// For workflow triggering, we provide a minimal environment
+	// This avoids inheriting potentially sensitive environment variables
+	// while providing necessary PATH and basic shell environment
+	return []string{
+		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"HOME=/tmp", // Minimal home for any tools that need it
+		"SHELL=/bin/sh",
+	}
 }

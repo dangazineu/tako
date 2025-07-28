@@ -371,7 +371,7 @@ func evaluateVersionRange(version SemVer, rangeSpec string) (bool, error) {
 }
 
 // evaluateVersionRangeDetailed evaluates whether a semantic version satisfies a version range with detailed error reporting.
-// Returns: (compatible, reason, details)
+// Returns: (compatible, reason, details).
 func evaluateVersionRangeDetailed(version SemVer, rangeSpec string) (bool, string, string) {
 	rangeSpec = strings.TrimSpace(rangeSpec)
 	versionStr := fmt.Sprintf("%d.%d.%d", version.Major, version.Minor, version.Patch)
