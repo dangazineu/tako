@@ -139,12 +139,21 @@ Each phase must:
 5. ✅ Include proper logging and error handling
 6. ✅ Update documentation as needed
 
+## Key Design Decisions (Based on Gemini Review)
+
+### Critical Questions Addressed:
+1. **Retry Behavior**: Implement basic retry with exponential backoff in Phase 4, make configurable later
+2. **State Management**: Keep `TriggeredWorkflows` in `FanOutState` for simplicity, refactor if needed later  
+3. **Security Model**: For this initial version, trust all repositories in cache (same-org assumption)
+4. **Lazy Loading**: Defer subscription discovery optimization unless performance issues identified
+
 ## Dependencies and Assumptions
 
 - Existing fan-out infrastructure from issue #105 is stable
 - CEL library performance is acceptable with caching
 - `tako run` command supports the required input parameters
 - Repository caching structure remains consistent
+- Security: Repositories in cache are implicitly trusted (same-org assumption)
 
 ## Risk Mitigation
 
@@ -156,6 +165,15 @@ Each phase must:
 
 - **Risk**: Diamond dependency detection may be complex
   - **Mitigation**: Start with simple first-wins policy, enhance later if needed
+
+- **Risk**: State schema evolution may require migration (Gemini feedback)
+  - **Mitigation**: Design `FanOutState` extension points, version state files if needed
+
+- **Risk**: Security implications of cross-repository triggering (Gemini feedback)  
+  - **Mitigation**: For initial version, trust same-org repositories only
+
+- **Risk**: Testing complexity for end-to-end scenarios (Gemini feedback)
+  - **Mitigation**: Build comprehensive test harness in phases, start simple
 
 ## Testing Strategy
 
