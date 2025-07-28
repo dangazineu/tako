@@ -111,9 +111,14 @@ func (sm *FanOutStateManager) CreateFanOutState(id, parentRunID, sourceRepo, eve
 
 	sm.states[id] = state
 
-	if err := sm.persistState(state); err != nil {
+	data, err := state.persist()
+	if err != nil {
 		delete(sm.states, id)
-		return nil, fmt.Errorf("failed to persist state: %v", err)
+		return nil, err
+	}
+	if err := sm.persistState(state.ID, data); err != nil {
+		delete(sm.states, id)
+		return nil, err
 	}
 
 	return state, nil
@@ -133,7 +138,7 @@ func (sm *FanOutStateManager) GetFanOutState(id string) (*FanOutState, error) {
 }
 
 // AddChildWorkflow adds a child workflow to the fan-out state.
-func (state *FanOutState) AddChildWorkflow(repository, workflow string, inputs map[string]string) *ChildWorkflow {
+func (state *FanOutState) AddChildWorkflow(repository, workflow string, inputs map[string]string) (*ChildWorkflow, error) {
 	childID := fmt.Sprintf("%s-%s", repository, workflow)
 	child := &ChildWorkflow{
 		Repository: repository,
@@ -145,12 +150,19 @@ func (state *FanOutState) AddChildWorkflow(repository, workflow string, inputs m
 
 	state.mu.Lock()
 	state.Children[childID] = child
+	data, err := state.persist()
 	state.mu.Unlock()
 
-	// Persist state after releasing lock
-	state.stateManager.persistState(state)
+	if err != nil {
+		return nil, err
+	}
 
-	return child
+	// Persist state after releasing lock
+	if err := state.stateManager.persistState(state.ID, data); err != nil {
+		return nil, err
+	}
+
+	return child, nil
 }
 
 // UpdateChildStatus updates the status of a child workflow.
@@ -178,19 +190,29 @@ func (state *FanOutState) UpdateChildStatus(repository, workflow string, status 
 
 	// Check if all children are complete and update parent status
 	state.checkAndUpdateStatus()
+	data, err := state.persist()
 	state.mu.Unlock()
 
+	if err != nil {
+		return err
+	}
+
 	// Persist state after releasing lock
-	return state.stateManager.persistState(state)
+	return state.stateManager.persistState(state.ID, data)
 }
 
 // StartFanOut marks the fan-out as running.
 func (state *FanOutState) StartFanOut() error {
 	state.mu.Lock()
 	state.Status = FanOutStatusRunning
+	data, err := state.persist()
 	state.mu.Unlock()
 
-	return state.stateManager.persistState(state)
+	if err != nil {
+		return err
+	}
+
+	return state.stateManager.persistState(state.ID, data)
 }
 
 // StartWaiting marks the fan-out as waiting for children to complete.
@@ -206,9 +228,14 @@ func (state *FanOutState) StartWaiting() error {
 		// Check if all children are already complete
 		state.checkAndUpdateStatus()
 	}
+	data, err := state.persist()
 	state.mu.Unlock()
 
-	return state.stateManager.persistState(state)
+	if err != nil {
+		return err
+	}
+
+	return state.stateManager.persistState(state.ID, data)
 }
 
 // CompleteFanOut marks the fan-out as completed.
@@ -217,9 +244,14 @@ func (state *FanOutState) CompleteFanOut() error {
 	state.Status = FanOutStatusCompleted
 	now := time.Now()
 	state.EndTime = &now
+	data, err := state.persist()
 	state.mu.Unlock()
 
-	return state.stateManager.persistState(state)
+	if err != nil {
+		return err
+	}
+
+	return state.stateManager.persistState(state.ID, data)
 }
 
 // FailFanOut marks the fan-out as failed.
@@ -229,9 +261,14 @@ func (state *FanOutState) FailFanOut(errorMessage string) error {
 	state.ErrorMessage = errorMessage
 	now := time.Now()
 	state.EndTime = &now
+	data, err := state.persist()
 	state.mu.Unlock()
 
-	return state.stateManager.persistState(state)
+	if err != nil {
+		return err
+	}
+
+	return state.stateManager.persistState(state.ID, data)
 }
 
 // TimeoutFanOut marks the fan-out as timed out.
@@ -240,9 +277,14 @@ func (state *FanOutState) TimeoutFanOut() error {
 	state.Status = FanOutStatusTimedOut
 	now := time.Now()
 	state.EndTime = &now
+	data, err := state.persist()
 	state.mu.Unlock()
 
-	return state.stateManager.persistState(state)
+	if err != nil {
+		return err
+	}
+
+	return state.stateManager.persistState(state.ID, data)
 }
 
 // IsComplete returns true if the fan-out operation is complete (success, failure, or timeout).
@@ -332,19 +374,16 @@ func (state *FanOutState) checkAndUpdateStatus() {
 	}
 }
 
-// persistState saves the fan-out state to disk.
-// The state mutex should be held for reading by the caller.
-func (sm *FanOutStateManager) persistState(state *FanOutState) error {
-	stateFile := filepath.Join(sm.stateDir, fmt.Sprintf("%s.json", state.ID))
+// persist marshals the state data while holding the read lock.
+// Must be called with state.mu held for reading.
+func (state *FanOutState) persist() ([]byte, error) {
+	return json.MarshalIndent(state, "", "  ")
+}
 
-	// Read state data under lock, then release before I/O
-	state.mu.RLock()
-	data, err := json.MarshalIndent(state, "", "  ")
-	state.mu.RUnlock()
-
-	if err != nil {
-		return fmt.Errorf("failed to marshal state: %v", err)
-	}
+// persistState saves pre-marshaled fan-out state data to disk.
+// This method does not acquire locks - the caller must ensure proper synchronization.
+func (sm *FanOutStateManager) persistState(stateID string, data []byte) error {
+	stateFile := filepath.Join(sm.stateDir, fmt.Sprintf("%s.json", stateID))
 
 	if err := os.WriteFile(stateFile, data, 0644); err != nil {
 		return fmt.Errorf("failed to write state file: %v", err)
@@ -452,11 +491,16 @@ func (fs *FanOutState) MarkWorkflowTriggered(repository, workflow, runID string)
 	fs.mu.Lock()
 	key := fmt.Sprintf("%s/%s", repository, workflow)
 	fs.TriggeredWorkflows[key] = runID
+	data, err := fs.persist()
 	fs.mu.Unlock()
+
+	if err != nil {
+		return err
+	}
 
 	// Persist the state to ensure idempotency survives restarts
 	if fs.stateManager != nil {
-		return fs.stateManager.persistState(fs)
+		return fs.stateManager.persistState(fs.ID, data)
 	}
 
 	return nil

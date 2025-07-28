@@ -413,7 +413,11 @@ func (fe *FanOutExecutor) triggerSubscribersWithState(subscribers []Subscription
 			continue
 		}
 
-		child := state.AddChildWorkflow(subscriber.Repository, subscriber.Subscription.Workflow, workflowInputs)
+		child, err := state.AddChildWorkflow(subscriber.Repository, subscriber.Subscription.Workflow, workflowInputs)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("failed to add child workflow for %s: %v", subscriber.Repository, err))
+			continue
+		}
 
 		wg.Add(1)
 		go func(sub SubscriptionMatch, childWorkflow *ChildWorkflow) {
@@ -529,45 +533,15 @@ func (fe *FanOutExecutor) triggerSubscribersWithState(subscribers []Subscription
 func (fe *FanOutExecutor) triggerWorkflow(repository, workflow string, inputs map[string]string) (string, error) {
 	// For backward compatibility and testing, check if this is a test repository
 	// and fallback to simulation if repository is not found in cache or doesn't have expected structure
-	if strings.Contains(repository, "test-org") || strings.HasPrefix(repository, "org/") {
-		// Check if the repository exists in cache with the expected structure
+	if fe.shouldSimulateWorkflow(repository) {
 		repoPath := filepath.Join(fe.cacheDir, "repos", repository)
 		takoYmlPath := filepath.Join(repoPath, "tako.yml")
 
+		// Check repository structure and decide if real execution is possible
 		if _, err := os.Stat(repoPath); os.IsNotExist(err) {
-			if fe.debug {
-				fmt.Printf("SIMULATION: Repository %s not found in cache, simulating workflow trigger\n", repository)
-			}
-			// Simulate some work
-			time.Sleep(10 * time.Millisecond)
-
-			// For testing purposes, fail if repository name contains "fail"
-			if strings.Contains(repository, "fail") {
-				return "", fmt.Errorf("simulated failure for repository %s", repository)
-			}
-
-			runID := fmt.Sprintf("run-%d-%s-%s", time.Now().Unix(), repository, workflow)
-			if fe.debug {
-				fmt.Printf("SIMULATION: Workflow '%s' in '%s' completed successfully. Run ID: %s\n", workflow, repository, runID)
-			}
-			return runID, nil
+			return fe.simulateWorkflowExecution(repository, workflow, "Repository not found in cache")
 		} else if _, err := os.Stat(takoYmlPath); os.IsNotExist(err) {
-			if fe.debug {
-				fmt.Printf("SIMULATION: Repository %s found but missing tako.yml, simulating workflow trigger\n", repository)
-			}
-			// Simulate some work
-			time.Sleep(10 * time.Millisecond)
-
-			// For testing purposes, fail if repository name contains "fail"
-			if strings.Contains(repository, "fail") {
-				return "", fmt.Errorf("simulated failure for repository %s", repository)
-			}
-
-			runID := fmt.Sprintf("run-%d-%s-%s", time.Now().Unix(), repository, workflow)
-			if fe.debug {
-				fmt.Printf("SIMULATION: Workflow '%s' in '%s' completed successfully. Run ID: %s\n", workflow, repository, runID)
-			}
-			return runID, nil
+			return fe.simulateWorkflowExecution(repository, workflow, "Repository found but missing tako.yml")
 		}
 
 		// Repository exists with proper structure, use it for real execution
@@ -581,6 +555,34 @@ func (fe *FanOutExecutor) triggerWorkflow(repository, workflow string, inputs ma
 	}
 
 	return fe.triggerWorkflowInPath(repository, repoPath, workflow, inputs)
+}
+
+// shouldSimulateWorkflow determines if a workflow should be simulated based on repository patterns.
+// Returns true for test repositories or specific patterns that indicate simulation is appropriate.
+func (fe *FanOutExecutor) shouldSimulateWorkflow(repository string) bool {
+	return strings.Contains(repository, "test-org") || strings.HasPrefix(repository, "org/")
+}
+
+// simulateWorkflowExecution simulates workflow execution for testing and fallback scenarios.
+// Returns a simulated run ID or error based on repository name patterns.
+func (fe *FanOutExecutor) simulateWorkflowExecution(repository, workflow, reason string) (string, error) {
+	if fe.debug {
+		fmt.Printf("SIMULATION: %s, simulating workflow trigger\n", reason)
+	}
+
+	// Simulate some work
+	time.Sleep(10 * time.Millisecond)
+
+	// For testing purposes, fail if repository name contains "fail"
+	if strings.Contains(repository, "fail") {
+		return "", fmt.Errorf("simulated failure for repository %s", repository)
+	}
+
+	runID := fmt.Sprintf("run-%d-%s-%s", time.Now().Unix(), repository, workflow)
+	if fe.debug {
+		fmt.Printf("SIMULATION: Workflow '%s' in '%s' completed successfully. Run ID: %s\n", workflow, repository, runID)
+	}
+	return runID, nil
 }
 
 // triggerWorkflowInPath executes a workflow in a repository using the tako run command with an explicit path.

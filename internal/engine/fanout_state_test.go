@@ -112,7 +112,10 @@ func TestAddChildWorkflow(t *testing.T) {
 		"env":     "staging",
 	}
 
-	child := state.AddChildWorkflow(repository, workflow, inputs)
+	child, err := state.AddChildWorkflow(repository, workflow, inputs)
+	if err != nil {
+		t.Fatalf("Failed to add child workflow: %v", err)
+	}
 
 	if child.Repository != repository {
 		t.Errorf("Expected repository %s, got %s", repository, child.Repository)
@@ -150,8 +153,14 @@ func TestUpdateChildStatus(t *testing.T) {
 	}
 
 	// Add children
-	child1 := state.AddChildWorkflow("target/repo1", "deploy", map[string]string{})
-	_ = state.AddChildWorkflow("target/repo2", "test", map[string]string{})
+	child1, err := state.AddChildWorkflow("target/repo1", "deploy", map[string]string{})
+	if err != nil {
+		t.Fatalf("Failed to add child workflow 1: %v", err)
+	}
+	_, err = state.AddChildWorkflow("target/repo2", "test", map[string]string{})
+	if err != nil {
+		t.Fatalf("Failed to add child workflow 2: %v", err)
+	}
 
 	// Start waiting
 	state.StartWaiting()
