@@ -68,7 +68,9 @@ jobs:
           go-version-file: 'go.mod'
 
       - name: Run integration tests (Docker not required)  
-        run: timeout 3m go test -v -short -race -timeout=2m .
+        run: |
+          # Test root package - e2e tests are excluded because we're not using -tags=e2e
+          timeout 3m go test -v -short -race -timeout=2m .
 
   coverage:
     runs-on: ubuntu-latest
