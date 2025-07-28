@@ -360,8 +360,13 @@ subscriptions:
 	}
 }
 
-func TestFanOutExecutor_simulateWorkflowTrigger(t *testing.T) {
-	executor, err := NewFanOutExecutor(t.TempDir(), false)
+func TestFanOutExecutor_triggerWorkflow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping workflow triggering test in short mode")
+	}
+
+	cacheDir := t.TempDir()
+	executor, err := NewFanOutExecutor(cacheDir, false)
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -374,31 +379,45 @@ func TestFanOutExecutor_simulateWorkflowTrigger(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name:       "successful trigger",
-			repository: "test-org/repo",
-			workflow:   "build",
-			inputs:     map[string]string{"version": "1.0.0"},
+			name:        "test repository simulation success",
+			repository:  "test-org/nonexistent-repo",
+			workflow:    "build",
+			inputs:      map[string]string{"version": "1.0.0"},
+			expectError: false, // Should simulate successfully
 		},
 		{
-			name:        "simulated failure",
+			name:        "test repository simulation failure",
 			repository:  "test-org/fail-repo",
 			workflow:    "build",
 			inputs:      map[string]string{},
-			expectError: true,
+			expectError: true, // Should simulate failure
+		},
+		{
+			name:        "real repository not in cache",
+			repository:  "real-org/nonexistent-repo",
+			workflow:    "build",
+			inputs:      map[string]string{"version": "1.0.0"},
+			expectError: true, // Should fail because it's not a test repo
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := executor.simulateWorkflowTrigger(tt.repository, tt.workflow, tt.inputs)
+			runID, err := executor.triggerWorkflow(tt.repository, tt.workflow, tt.inputs)
 
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("Expected error, but got none")
 				}
+				if runID != "" {
+					t.Errorf("Expected empty run ID on error, got: %s", runID)
+				}
 			} else {
 				if err != nil {
 					t.Errorf("Unexpected error: %v", err)
+				}
+				if runID == "" {
+					t.Errorf("Expected non-empty run ID on success")
 				}
 			}
 		})

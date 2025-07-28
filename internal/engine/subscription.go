@@ -97,26 +97,67 @@ func (se *SubscriptionEvaluator) EvaluateSubscription(subscription config.Subscr
 	return true, nil
 }
 
+// SchemaCompatibilityResult represents the result of a schema compatibility check.
+type SchemaCompatibilityResult struct {
+	Compatible bool
+	Reason     string // Human-readable explanation of compatibility or incompatibility
+	Details    string // Additional technical details
+}
+
 // CheckSchemaCompatibility checks if the event's schema version is compatible with the subscription's version range.
 func (se *SubscriptionEvaluator) CheckSchemaCompatibility(eventVersion, subscriptionRange string) (bool, error) {
+	result := se.CheckSchemaCompatibilityDetailed(eventVersion, subscriptionRange)
+
+	// Only return errors for parsing/validation issues, not for valid but incompatible versions
+	if !result.Compatible {
+		// Check if this is a validation error (invalid format) vs compatibility issue (valid format but incompatible)
+		if stringContains(result.Reason, "Invalid") && (stringContains(result.Reason, "schema version") || stringContains(result.Reason, "range")) {
+			return false, fmt.Errorf("schema compatibility failed: %s", result.Reason)
+		}
+		// For valid but incompatible versions, return false without error
+		return false, nil
+	}
+
+	return result.Compatible, nil
+}
+
+// CheckSchemaCompatibilityDetailed provides detailed schema compatibility checking with comprehensive error reporting.
+func (se *SubscriptionEvaluator) CheckSchemaCompatibilityDetailed(eventVersion, subscriptionRange string) SchemaCompatibilityResult {
 	// If no event version is specified, assume compatibility
 	if eventVersion == "" {
-		return true, nil
+		return SchemaCompatibilityResult{
+			Compatible: true,
+			Reason:     "Event has no schema version specified (backward compatibility)",
+			Details:    "Events without schema versions are accepted for backward compatibility",
+		}
 	}
 
 	// If no subscription version range is specified, accept any version
 	if subscriptionRange == "" {
-		return true, nil
+		return SchemaCompatibilityResult{
+			Compatible: true,
+			Reason:     "Subscription accepts any schema version",
+			Details:    "No version constraint specified in subscription",
+		}
 	}
 
 	// Parse the event version
 	eventSemVer, err := parseSemVer(eventVersion)
 	if err != nil {
-		return false, fmt.Errorf("invalid event schema version '%s': %v", eventVersion, err)
+		return SchemaCompatibilityResult{
+			Compatible: false,
+			Reason:     fmt.Sprintf("Invalid event schema version '%s': %v", eventVersion, err),
+			Details:    "Event schema version must follow semantic versioning (major.minor.patch)",
+		}
 	}
 
 	// Parse and evaluate the subscription version range
-	return evaluateVersionRange(eventSemVer, subscriptionRange)
+	compatible, reason, details := evaluateVersionRangeDetailed(eventSemVer, subscriptionRange)
+	return SchemaCompatibilityResult{
+		Compatible: compatible,
+		Reason:     reason,
+		Details:    details,
+	}
 }
 
 // ProcessEventPayload processes the event payload for input mapping to workflow inputs.
@@ -316,77 +357,240 @@ func parseSemVer(version string) (SemVer, error) {
 
 // evaluateVersionRange evaluates whether a semantic version satisfies a version range.
 // Supports basic ranges like "1.0.0", "^1.0.0", "~1.0.0", ">=1.0.0".
+// This is a legacy wrapper for backward compatibility.
 func evaluateVersionRange(version SemVer, rangeSpec string) (bool, error) {
+	compatible, reason, _ := evaluateVersionRangeDetailed(version, rangeSpec)
+
+	// Only return errors for parsing/validation issues, not for valid but incompatible versions
+	if !compatible && (stringContains(reason, "Invalid") || stringContains(reason, "Unsupported")) {
+		return false, fmt.Errorf("%s", reason)
+	}
+
+	// For valid but incompatible versions, return false without error (legacy behavior)
+	return compatible, nil
+}
+
+// evaluateVersionRangeDetailed evaluates whether a semantic version satisfies a version range with detailed error reporting.
+// Returns: (compatible, reason, details)
+func evaluateVersionRangeDetailed(version SemVer, rangeSpec string) (bool, string, string) {
 	rangeSpec = strings.TrimSpace(rangeSpec)
+	versionStr := fmt.Sprintf("%d.%d.%d", version.Major, version.Minor, version.Patch)
+
+	// Check for unsupported operators first
+	if strings.Contains(rangeSpec, "!=") || strings.Contains(rangeSpec, "==") ||
+		(strings.Contains(rangeSpec, "=") && !strings.Contains(rangeSpec, ">=") && !strings.Contains(rangeSpec, "<=")) {
+		return false,
+			fmt.Sprintf("Unsupported version range format: %s", rangeSpec),
+			"Supported formats: exact (1.0.0), caret (^1.0.0), tilde (~1.0.0), comparison operators (>=1.0.0, >1.0.0, <=1.0.0, <1.0.0)"
+	}
 
 	// Exact version match
 	if !strings.ContainsAny(rangeSpec, "^~><") {
 		targetVersion, err := parseSemVer(rangeSpec)
 		if err != nil {
-			return false, err
+			return false,
+				fmt.Sprintf("Invalid version range '%s': %v", rangeSpec, err),
+				"Version ranges must follow semantic versioning format (major.minor.patch)"
 		}
-		return version == targetVersion, nil
+
+		compatible := version == targetVersion
+		if compatible {
+			return true,
+				fmt.Sprintf("Event version %s exactly matches required version %s", versionStr, rangeSpec),
+				"Exact version match provides strongest compatibility guarantee"
+		} else {
+			return false,
+				fmt.Sprintf("Event version %s does not match required version %s", versionStr, rangeSpec),
+				"Exact version constraints require perfect match for compatibility"
+		}
 	}
 
 	// Caret range (^1.0.0) - compatible within major version
 	if strings.HasPrefix(rangeSpec, "^") {
-		targetVersion, err := parseSemVer(strings.TrimPrefix(rangeSpec, "^"))
+		targetVersionStr := strings.TrimPrefix(rangeSpec, "^")
+		targetVersion, err := parseSemVer(targetVersionStr)
 		if err != nil {
-			return false, err
+			return false,
+				fmt.Sprintf("Invalid caret range '%s': %v", rangeSpec, err),
+				"Caret ranges must follow format ^major.minor.patch"
 		}
-		return version.Major == targetVersion.Major &&
+
+		compatible := version.Major == targetVersion.Major &&
 			(version.Minor > targetVersion.Minor ||
-				(version.Minor == targetVersion.Minor && version.Patch >= targetVersion.Patch)), nil
+				(version.Minor == targetVersion.Minor && version.Patch >= targetVersion.Patch))
+
+		if compatible {
+			return true,
+				fmt.Sprintf("Event version %s is compatible with caret range %s", versionStr, rangeSpec),
+				fmt.Sprintf("Caret range allows minor and patch updates within major version %d", targetVersion.Major)
+		} else {
+			if version.Major != targetVersion.Major {
+				return false,
+					fmt.Sprintf("Event version %s has different major version than range %s (breaking changes)", versionStr, rangeSpec),
+					"Caret ranges reject different major versions due to potential breaking changes"
+			} else {
+				return false,
+					fmt.Sprintf("Event version %s is older than minimum version in range %s", versionStr, rangeSpec),
+					"Caret ranges require version to be at least the specified version"
+			}
+		}
 	}
 
 	// Tilde range (~1.0.0) - compatible within minor version
 	if strings.HasPrefix(rangeSpec, "~") {
-		targetVersion, err := parseSemVer(strings.TrimPrefix(rangeSpec, "~"))
+		targetVersionStr := strings.TrimPrefix(rangeSpec, "~")
+		targetVersion, err := parseSemVer(targetVersionStr)
 		if err != nil {
-			return false, err
+			return false,
+				fmt.Sprintf("Invalid tilde range '%s': %v", rangeSpec, err),
+				"Tilde ranges must follow format ~major.minor.patch"
 		}
-		return version.Major == targetVersion.Major &&
+
+		compatible := version.Major == targetVersion.Major &&
 			version.Minor == targetVersion.Minor &&
-			version.Patch >= targetVersion.Patch, nil
+			version.Patch >= targetVersion.Patch
+
+		if compatible {
+			return true,
+				fmt.Sprintf("Event version %s is compatible with tilde range %s", versionStr, rangeSpec),
+				fmt.Sprintf("Tilde range allows patch updates within version %d.%d", targetVersion.Major, targetVersion.Minor)
+		} else {
+			if version.Major != targetVersion.Major || version.Minor != targetVersion.Minor {
+				return false,
+					fmt.Sprintf("Event version %s has different major.minor than range %s", versionStr, rangeSpec),
+					"Tilde ranges reject different major or minor versions"
+			} else {
+				return false,
+					fmt.Sprintf("Event version %s is older than minimum patch in range %s", versionStr, rangeSpec),
+					"Tilde ranges require patch version to be at least the specified version"
+			}
+		}
 	}
 
 	// Greater than or equal (>=1.0.0)
 	if strings.HasPrefix(rangeSpec, ">=") {
-		targetVersion, err := parseSemVer(strings.TrimPrefix(rangeSpec, ">="))
+		targetVersionStr := strings.TrimPrefix(rangeSpec, ">=")
+		targetVersion, err := parseSemVer(targetVersionStr)
 		if err != nil {
-			return false, err
+			return false,
+				fmt.Sprintf("Invalid >= range '%s': %v", rangeSpec, err),
+				">= ranges must follow format >=major.minor.patch"
 		}
-		return compareVersions(version, targetVersion) >= 0, nil
+
+		comparison := compareVersions(version, targetVersion)
+		compatible := comparison >= 0
+
+		if compatible {
+			return true,
+				fmt.Sprintf("Event version %s satisfies >= constraint %s", versionStr, rangeSpec),
+				"Greater-than-or-equal allows any version at or above the specified version"
+		} else {
+			return false,
+				fmt.Sprintf("Event version %s is older than minimum required %s", versionStr, targetVersionStr),
+				"Greater-than-or-equal constraint requires version to be at least the specified version"
+		}
 	}
 
 	// Greater than (>1.0.0)
 	if strings.HasPrefix(rangeSpec, ">") {
-		targetVersion, err := parseSemVer(strings.TrimPrefix(rangeSpec, ">"))
+		targetVersionStr := strings.TrimPrefix(rangeSpec, ">")
+		targetVersion, err := parseSemVer(targetVersionStr)
 		if err != nil {
-			return false, err
+			return false,
+				fmt.Sprintf("Invalid > range '%s': %v", rangeSpec, err),
+				"> ranges must follow format >major.minor.patch"
 		}
-		return compareVersions(version, targetVersion) > 0, nil
+
+		comparison := compareVersions(version, targetVersion)
+		compatible := comparison > 0
+
+		if compatible {
+			return true,
+				fmt.Sprintf("Event version %s satisfies > constraint %s", versionStr, rangeSpec),
+				"Greater-than allows any version newer than the specified version"
+		} else {
+			return false,
+				fmt.Sprintf("Event version %s is not newer than required %s", versionStr, targetVersionStr),
+				"Greater-than constraint requires version to be newer than the specified version"
+		}
 	}
 
 	// Less than or equal (<=1.0.0)
 	if strings.HasPrefix(rangeSpec, "<=") {
-		targetVersion, err := parseSemVer(strings.TrimPrefix(rangeSpec, "<="))
+		targetVersionStr := strings.TrimPrefix(rangeSpec, "<=")
+		targetVersion, err := parseSemVer(targetVersionStr)
 		if err != nil {
-			return false, err
+			return false,
+				fmt.Sprintf("Invalid <= range '%s': %v", rangeSpec, err),
+				"<= ranges must follow format <=major.minor.patch"
 		}
-		return compareVersions(version, targetVersion) <= 0, nil
+
+		comparison := compareVersions(version, targetVersion)
+		compatible := comparison <= 0
+
+		if compatible {
+			return true,
+				fmt.Sprintf("Event version %s satisfies <= constraint %s", versionStr, rangeSpec),
+				"Less-than-or-equal allows any version at or below the specified version"
+		} else {
+			return false,
+				fmt.Sprintf("Event version %s is newer than maximum allowed %s", versionStr, targetVersionStr),
+				"Less-than-or-equal constraint requires version to be at most the specified version"
+		}
 	}
 
 	// Less than (<1.0.0)
 	if strings.HasPrefix(rangeSpec, "<") {
-		targetVersion, err := parseSemVer(strings.TrimPrefix(rangeSpec, "<"))
+		targetVersionStr := strings.TrimPrefix(rangeSpec, "<")
+		targetVersion, err := parseSemVer(targetVersionStr)
 		if err != nil {
-			return false, err
+			return false,
+				fmt.Sprintf("Invalid < range '%s': %v", rangeSpec, err),
+				"< ranges must follow format <major.minor.patch"
 		}
-		return compareVersions(version, targetVersion) < 0, nil
+
+		comparison := compareVersions(version, targetVersion)
+		compatible := comparison < 0
+
+		if compatible {
+			return true,
+				fmt.Sprintf("Event version %s satisfies < constraint %s", versionStr, rangeSpec),
+				"Less-than allows any version older than the specified version"
+		} else {
+			return false,
+				fmt.Sprintf("Event version %s is not older than required %s", versionStr, targetVersionStr),
+				"Less-than constraint requires version to be older than the specified version"
+		}
 	}
 
-	return false, fmt.Errorf("unsupported version range format: %s", rangeSpec)
+	return false,
+		fmt.Sprintf("Unsupported version range format: %s", rangeSpec),
+		"Supported formats: exact (1.0.0), caret (^1.0.0), tilde (~1.0.0), comparison operators (>=1.0.0, >1.0.0, <=1.0.0, <1.0.0)"
+}
+
+// GetSchemaEvolutionGuidelines provides comprehensive guidelines for schema version management and evolution.
+func GetSchemaEvolutionGuidelines() map[string]string {
+	return map[string]string{
+		"semantic_versioning": "Use semantic versioning (major.minor.patch) for all schema versions. Increment MAJOR for breaking changes, MINOR for backward-compatible additions, PATCH for backward-compatible bug fixes.",
+
+		"version_range_selection": "Choose version ranges based on compatibility requirements: exact versions (1.0.0) for strict compatibility, caret ranges (^1.0.0) for same major version compatibility, tilde ranges (~1.0.0) for same minor version compatibility.",
+
+		"breaking_changes": "Breaking changes (field removal, type changes, renamed fields) MUST increment the major version. Examples: removing a required field, changing field types, restructuring the schema.",
+
+		"compatible_changes": "Compatible changes (new optional fields, additional enum values) should increment the minor version. Examples: adding optional fields, adding new event types, extending existing structures.",
+
+		"bug_fixes": "Bug fixes (documentation updates, constraint clarifications) should increment the patch version. Examples: fixing field descriptions, clarifying validation rules, correcting examples.",
+
+		"subscription_strategies": "Producer-consumer version compatibility: Use caret ranges (^1.0.0) for flexible compatibility, exact versions for strict control, >= ranges for minimum version requirements.",
+
+		"migration_planning": "When introducing breaking changes: document migration path, provide transition period with dual support, communicate changes to downstream consumers, consider backward compatibility shims.",
+
+		"best_practices": "Schema evolution best practices: start with optional fields when possible, avoid field removal, use deprecation warnings before breaking changes, maintain comprehensive documentation, test compatibility across versions.",
+
+		"validation_recommendations": "Validation strategy: validate events against declared schema versions, provide clear error messages for incompatible versions, log compatibility warnings for deprecated versions, support gradual migration periods.",
+
+		"compatibility_matrix": "Version compatibility guide: 1.0.0 -> 1.1.0 (safe, new features), 1.0.0 -> 2.0.0 (breaking, requires migration), 1.1.0 -> 1.0.0 (unsafe, may use unsupported features), 2.0.0 -> 1.x.x (incompatible, different major version).",
+	}
 }
 
 // compareVersions compares two semantic versions.
@@ -414,4 +618,9 @@ func compareVersions(v1, v2 SemVer) int {
 	}
 
 	return 0
+}
+
+// stringContains checks if a string contains a substring (helper function).
+func stringContains(s, substr string) bool {
+	return strings.Contains(s, substr)
 }
