@@ -11,7 +11,7 @@ import (
 	"github.com/dangazineu/tako/internal/config"
 )
 
-// initFanoutTestGitRepo initializes a git repository in the given directory for testing
+// initFanoutTestGitRepo initializes a git repository in the given directory for testing.
 func initFanoutTestGitRepo(t *testing.T, repoPath string) {
 	if err := exec.Command("git", "init", repoPath).Run(); err != nil {
 		t.Logf("Failed to init git repo at %s (git may not be available): %v", repoPath, err)
