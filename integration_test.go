@@ -44,7 +44,7 @@ func TestContainerizedWorkflowIntegration(t *testing.T) {
 
 	// Create resource manager
 	resman := engine.NewResourceManager(&engine.ResourceManagerConfig{
-		Debug: true,
+		Debug: testing.Verbose(), // Only enable debug output in verbose mode
 	})
 
 	// Set moderate security profile for testing
@@ -159,10 +159,13 @@ func TestContainerizedWorkflowIntegration(t *testing.T) {
 	// Note: Image caching is internal to registry manager
 	// The fact that the image pull succeeded indicates caching is working
 
-	t.Logf("Integration test completed successfully!")
-	t.Logf("Container name: %s", result.ContainerName)
-	t.Logf("Execution time: %v", result.EndTime.Sub(result.StartTime))
-	t.Logf("Output: %s", result.Stdout)
+	// Only log detailed output in verbose mode (when test fails, output will be shown automatically)
+	if testing.Verbose() {
+		t.Logf("Integration test completed successfully!")
+		t.Logf("Container name: %s", result.ContainerName)
+		t.Logf("Execution time: %v", result.EndTime.Sub(result.StartTime))
+		t.Logf("Output: %s", result.Stdout)
+	}
 }
 
 // TestSecurityIntegration tests security features integration.
@@ -234,7 +237,7 @@ func TestResourceIntegration(t *testing.T) {
 	}
 
 	rm := engine.NewResourceManager(&engine.ResourceManagerConfig{
-		Debug: true,
+		Debug: testing.Verbose(), // Only enable debug output in verbose mode
 	})
 
 	// Test hierarchical resource limits
