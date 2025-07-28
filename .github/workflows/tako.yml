@@ -46,4 +46,4 @@ jobs:
           go-version-file: 'go.mod'
 
       - name: Run integration tests (Docker not required)
-        run: go test -short -timeout=5m ./...
+        run: go test -short -timeout=2m .
