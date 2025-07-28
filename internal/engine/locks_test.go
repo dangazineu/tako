@@ -11,6 +11,9 @@ import (
 )
 
 func TestLockManager_AcquireLock(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping long-running lock test in short mode")
+	}
 	tempDir := t.TempDir()
 
 	lm, err := NewLockManager(tempDir)
