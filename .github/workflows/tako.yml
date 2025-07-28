@@ -7,8 +7,9 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
+  test-internal:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
     - uses: actions/checkout@v4
 
@@ -20,23 +21,39 @@ jobs:
     - name: Display Go version
       run: go version
 
-    - name: Run unit tests (excluding integration)
+    - name: Run internal unit tests with verbose output
       run: |
-        go test -short -timeout=5m ./internal/config ./internal/git ./internal/graph ./internal/engine
-        go test -short -timeout=5m ./cmd/...
+        timeout 8m go test -v -short -race -timeout=5m ./internal/config ./internal/git ./internal/graph ./internal/engine
 
     - run: go fmt ./...
     - name: Detect Changes
       run: git diff --exit-code
 
-    - name: Upload coverage reports to Codecov
-      if: github.event_name != 'pull_request'
-      uses: codecov/codecov-action@v5
+  test-cmd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
       with:
-        token: ${{ secrets.CODECOV_TOKEN }}
+        go-version-file: 'go.mod'
+
+    - name: Display Go version
+      run: go version
+
+    - name: Run cmd unit tests with verbose output
+      run: |
+        timeout 8m go test -v -short -race -timeout=5m ./cmd/...
+
+    - run: go fmt ./...
+    - name: Detect Changes
+      run: git diff --exit-code
 
   validation:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -46,4 +63,25 @@ jobs:
           go-version-file: 'go.mod'
 
       - name: Run integration tests (Docker not required)  
-        run: go test -short -timeout=2m .
+        run: timeout 3m go test -v -short -race -timeout=2m .
+
+  coverage:
+    runs-on: ubuntu-latest
+    needs: [test-internal, test-cmd]
+    if: github.event_name != 'pull_request'
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+
+    - name: Run tests with coverage
+      run: go test -short -coverprofile=coverage.out ./...
+
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        file: ./coverage.out

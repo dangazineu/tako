@@ -200,7 +200,7 @@ func TestRunnerExecutionTimeout(t *testing.T) {
 	defer runner.Close()
 
 	// Create a context with a very short timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
 	// Create a test tako.yml file
