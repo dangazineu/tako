@@ -181,6 +181,9 @@ func TestRunnerDryRunMode(t *testing.T) {
 }
 
 func TestRunnerExecutionTimeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping execution timeout test in short mode")
+	}
 	tempDir := t.TempDir()
 
 	opts := RunnerOptions{
@@ -362,6 +365,9 @@ func TestRunnerWorkflowExecution(t *testing.T) {
 
 // TestRunnerWorkflowExecutionWithFailure tests workflow execution with failing steps.
 func TestRunnerWorkflowExecutionWithFailure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping workflow failure test in short mode")
+	}
 	tempDir := t.TempDir()
 
 	// Create a test tako.yml with a failing step
@@ -591,6 +597,9 @@ func TestRunnerDebugMode(t *testing.T) {
 
 // TestRunnerStepOutputProcessing tests step output processing with produces field.
 func TestRunnerStepOutputProcessing(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping step output processing test in short mode")
+	}
 	tempDir := t.TempDir()
 
 	// Create a test tako.yml with output-producing steps
@@ -699,6 +708,9 @@ subscriptions: []
 
 // TestRunnerContextCancellation tests context cancellation during execution.
 func TestRunnerContextCancellation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping context cancellation test in short mode")
+	}
 	tempDir := t.TempDir()
 
 	// Create a test tako.yml with a long-running command
@@ -851,6 +863,9 @@ func TestRunnerInvalidTakoConfig(t *testing.T) {
 
 // TestRunnerEnvironmentVariables tests environment variable handling.
 func TestRunnerEnvironmentVariables(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping environment variables test in short mode")
+	}
 	tempDir := t.TempDir()
 
 	// Create a test tako.yml that uses environment variables
