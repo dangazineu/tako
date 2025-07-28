@@ -531,3 +531,95 @@ func TestCleanupCompletedStates(t *testing.T) {
 		t.Errorf("Expected active state to still exist: %v", err)
 	}
 }
+
+func TestWorkflowIdempotency(t *testing.T) {
+	tempDir := t.TempDir()
+	manager, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+
+	// Create a fan-out state
+	state, err := manager.CreateFanOutState("idempotency-test", "", "org/repo", "build", false, 0)
+	if err != nil {
+		t.Fatalf("Failed to create fan-out state: %v", err)
+	}
+
+	// Initially, workflow should not be triggered
+	isTriggered, runID := state.IsWorkflowTriggered("target/repo1", "deploy")
+	if isTriggered {
+		t.Errorf("Expected workflow not to be triggered initially")
+	}
+	if runID != "" {
+		t.Errorf("Expected empty run ID initially, got '%s'", runID)
+	}
+
+	// Mark workflow as triggered
+	testRunID := "run-12345"
+	err = state.MarkWorkflowTriggered("target/repo1", "deploy", testRunID)
+	if err != nil {
+		t.Fatalf("Failed to mark workflow as triggered: %v", err)
+	}
+
+	// Check that workflow is now marked as triggered
+	isTriggered, runID = state.IsWorkflowTriggered("target/repo1", "deploy")
+	if !isTriggered {
+		t.Errorf("Expected workflow to be marked as triggered")
+	}
+	if runID != testRunID {
+		t.Errorf("Expected run ID '%s', got '%s'", testRunID, runID)
+	}
+
+	// Check that different workflow is not affected
+	isTriggered, runID = state.IsWorkflowTriggered("target/repo1", "test")
+	if isTriggered {
+		t.Errorf("Expected different workflow not to be affected")
+	}
+
+	// Check that different repository is not affected
+	isTriggered, runID = state.IsWorkflowTriggered("target/repo2", "deploy")
+	if isTriggered {
+		t.Errorf("Expected different repository not to be affected")
+	}
+}
+
+func TestIdempotencyPersistence(t *testing.T) {
+	tempDir := t.TempDir()
+	manager, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+
+	// Create a fan-out state and mark a workflow as triggered
+	state, err := manager.CreateFanOutState("persistence-test", "", "org/repo", "build", false, 0)
+	if err != nil {
+		t.Fatalf("Failed to create fan-out state: %v", err)
+	}
+
+	testRunID := "run-persistence-123"
+	err = state.MarkWorkflowTriggered("target/repo1", "deploy", testRunID)
+	if err != nil {
+		t.Fatalf("Failed to mark workflow as triggered: %v", err)
+	}
+
+	// Create new manager that should load existing states
+	manager2, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create second state manager: %v", err)
+	}
+
+	// Retrieve the persisted state
+	state2, err := manager2.GetFanOutState("persistence-test")
+	if err != nil {
+		t.Fatalf("Failed to get persisted state: %v", err)
+	}
+
+	// Verify idempotency state was persisted
+	isTriggered, runID := state2.IsWorkflowTriggered("target/repo1", "deploy")
+	if !isTriggered {
+		t.Errorf("Expected workflow to be marked as triggered after persistence")
+	}
+	if runID != testRunID {
+		t.Errorf("Expected persisted run ID '%s', got '%s'", testRunID, runID)
+	}
+}

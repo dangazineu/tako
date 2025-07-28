@@ -11,17 +11,18 @@ import (
 
 // FanOutState represents the state of a fan-out operation and its child workflows.
 type FanOutState struct {
-	ID            string                    `json:"id"`
-	ParentRunID   string                    `json:"parent_run_id,omitempty"`
-	SourceRepo    string                    `json:"source_repo"`
-	EventType     string                    `json:"event_type"`
-	Status        FanOutStatus              `json:"status"`
-	StartTime     time.Time                 `json:"start_time"`
-	EndTime       *time.Time                `json:"end_time,omitempty"`
-	Children      map[string]*ChildWorkflow `json:"children"`
-	WaitingForAll bool                      `json:"waiting_for_all"`
-	Timeout       time.Duration             `json:"timeout,omitempty"`
-	ErrorMessage  string                    `json:"error_message,omitempty"`
+	ID                 string                    `json:"id"`
+	ParentRunID        string                    `json:"parent_run_id,omitempty"`
+	SourceRepo         string                    `json:"source_repo"`
+	EventType          string                    `json:"event_type"`
+	Status             FanOutStatus              `json:"status"`
+	StartTime          time.Time                 `json:"start_time"`
+	EndTime            *time.Time                `json:"end_time,omitempty"`
+	Children           map[string]*ChildWorkflow `json:"children"`
+	WaitingForAll      bool                      `json:"waiting_for_all"`
+	Timeout            time.Duration             `json:"timeout,omitempty"`
+	ErrorMessage       string                    `json:"error_message,omitempty"`
+	TriggeredWorkflows map[string]string         `json:"triggered_workflows"` // Key: repository/workflow, Value: runID
 
 	// Runtime fields (not serialized)
 	mu           sync.RWMutex        `json:"-"`
@@ -95,16 +96,17 @@ func (sm *FanOutStateManager) CreateFanOutState(id, parentRunID, sourceRepo, eve
 	defer sm.mu.Unlock()
 
 	state := &FanOutState{
-		ID:            id,
-		ParentRunID:   parentRunID,
-		SourceRepo:    sourceRepo,
-		EventType:     eventType,
-		Status:        FanOutStatusPending,
-		StartTime:     time.Now(),
-		Children:      make(map[string]*ChildWorkflow),
-		WaitingForAll: waitingForAll,
-		Timeout:       timeout,
-		stateManager:  sm,
+		ID:                 id,
+		ParentRunID:        parentRunID,
+		SourceRepo:         sourceRepo,
+		EventType:          eventType,
+		Status:             FanOutStatusPending,
+		StartTime:          time.Now(),
+		Children:           make(map[string]*ChildWorkflow),
+		WaitingForAll:      waitingForAll,
+		Timeout:            timeout,
+		TriggeredWorkflows: make(map[string]string),
+		stateManager:       sm,
 	}
 
 	sm.states[id] = state
@@ -430,6 +432,31 @@ func (sm *FanOutStateManager) CleanupCompletedStates(olderThan time.Duration) er
 			return fmt.Errorf("failed to remove state file %s: %v", stateFile, err)
 		}
 		delete(sm.states, id)
+	}
+
+	return nil
+}
+
+// IsWorkflowTriggered checks if a workflow has already been triggered for idempotency.
+func (fs *FanOutState) IsWorkflowTriggered(repository, workflow string) (bool, string) {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+
+	key := fmt.Sprintf("%s/%s", repository, workflow)
+	runID, exists := fs.TriggeredWorkflows[key]
+	return exists, runID
+}
+
+// MarkWorkflowTriggered records that a workflow has been triggered to prevent duplicate execution.
+func (fs *FanOutState) MarkWorkflowTriggered(repository, workflow, runID string) error {
+	fs.mu.Lock()
+	key := fmt.Sprintf("%s/%s", repository, workflow)
+	fs.TriggeredWorkflows[key] = runID
+	fs.mu.Unlock()
+
+	// Persist the state to ensure idempotency survives restarts
+	if fs.stateManager != nil {
+		return fs.stateManager.persistState(fs)
 	}
 
 	return nil

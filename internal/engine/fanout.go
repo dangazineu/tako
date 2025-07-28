@@ -385,6 +385,17 @@ func (fe *FanOutExecutor) triggerSubscribersWithState(subscribers []Subscription
 	var mutex sync.Mutex
 
 	for _, subscriber := range subscribers {
+		// Check for idempotency - skip if workflow already triggered
+		isTriggered, existingRunID := state.IsWorkflowTriggered(subscriber.Repository, subscriber.Subscription.Workflow)
+		if isTriggered {
+			fe.logger.Info("Skipping already triggered workflow (idempotency)",
+				"repository", subscriber.Repository,
+				"workflow", subscriber.Subscription.Workflow,
+				"existing_run_id", existingRunID,
+			)
+			continue
+		}
+
 		// Add child workflow to state before triggering
 		workflowInputs, err := fe.subscriptionEvaluator.ProcessEventPayload(event.Payload, subscriber.Subscription)
 		if err != nil {
@@ -456,6 +467,16 @@ func (fe *FanOutExecutor) triggerSubscribersWithState(subscribers []Subscription
 			} else {
 				finalStatus = ChildStatusCompleted
 				runID = fmt.Sprintf("run-%d", time.Now().Unix())
+
+				// Mark workflow as triggered for idempotency
+				if markErr := state.MarkWorkflowTriggered(sub.Repository, sub.Subscription.Workflow, runID); markErr != nil {
+					fe.logger.Warn("Failed to mark workflow as triggered",
+						"repository", sub.Repository,
+						"workflow", sub.Subscription.Workflow,
+						"run_id", runID,
+						"error", markErr.Error(),
+					)
+				}
 
 				mutex.Lock()
 				triggeredCount++
