@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/dangazineu/tako/internal/config"
 	"github.com/google/cel-go/cel"
@@ -20,10 +21,20 @@ type Event struct {
 	Timestamp     int64
 }
 
+// CompiledCELProgram represents a cached, compiled CEL program.
+type CompiledCELProgram struct {
+	program cel.Program
+	ast     *cel.Ast
+}
+
 // SubscriptionEvaluator handles event-subscription matching and filtering.
 type SubscriptionEvaluator struct {
-	celEnv    *cel.Env
-	costLimit uint64 // Maximum cost for CEL expression evaluation
+	celEnv       *cel.Env
+	costLimit    uint64       // Maximum cost for CEL expression evaluation
+	programCache sync.Map     // Thread-safe cache for compiled CEL programs
+	cacheLimit   int          // Maximum number of cached programs
+	cacheSize    int64        // Current cache size (approximate)
+	cacheMutex   sync.RWMutex // Protects cache metadata
 }
 
 // NewSubscriptionEvaluator creates a new subscription evaluator with security safeguards.
@@ -41,8 +52,9 @@ func NewSubscriptionEvaluator() (*SubscriptionEvaluator, error) {
 	}
 
 	return &SubscriptionEvaluator{
-		celEnv:    env,
-		costLimit: 1000000, // 1M cost units - prevents complex expressions from causing DoS
+		celEnv:     env,
+		costLimit:  1000000, // 1M cost units - prevents complex expressions from causing DoS
+		cacheLimit: 1000,    // Maximum 1000 cached CEL programs
 	}, nil
 }
 
@@ -125,18 +137,12 @@ func (se *SubscriptionEvaluator) ProcessEventPayload(payload map[string]interfac
 	return result, nil
 }
 
-// evaluateCELFilter evaluates a CEL expression against an event.
+// evaluateCELFilter evaluates a CEL expression against an event using cached compiled programs.
 func (se *SubscriptionEvaluator) evaluateCELFilter(filterExpr string, event Event) (bool, error) {
-	// Parse the CEL expression
-	ast, issues := se.celEnv.Compile(filterExpr)
-	if issues != nil && issues.Err() != nil {
-		return false, fmt.Errorf("CEL compilation error: %v", issues.Err())
-	}
-
-	// Create evaluation program
-	program, err := se.celEnv.Program(ast)
+	// Get or compile the CEL program (with caching)
+	program, err := se.getOrCompileCELProgram(filterExpr)
 	if err != nil {
-		return false, fmt.Errorf("CEL program creation error: %v", err)
+		return false, err
 	}
 
 	// Prepare evaluation context
@@ -160,6 +166,82 @@ func (se *SubscriptionEvaluator) evaluateCELFilter(filterExpr string, event Even
 	}
 
 	return result.Value().(bool), nil
+}
+
+// getOrCompileCELProgram retrieves a compiled CEL program from cache or compiles and caches it.
+func (se *SubscriptionEvaluator) getOrCompileCELProgram(filterExpr string) (cel.Program, error) {
+	// Try to get from cache first
+	if cached, found := se.programCache.Load(filterExpr); found {
+		if compiledProgram, ok := cached.(*CompiledCELProgram); ok {
+			return compiledProgram.program, nil
+		}
+	}
+
+	// Not in cache, compile the expression
+	ast, issues := se.celEnv.Compile(filterExpr)
+	if issues != nil && issues.Err() != nil {
+		return nil, fmt.Errorf("CEL compilation error: %v", issues.Err())
+	}
+
+	// Create evaluation program
+	program, err := se.celEnv.Program(ast)
+	if err != nil {
+		return nil, fmt.Errorf("CEL program creation error: %v", err)
+	}
+
+	// Cache the compiled program (with cache size management)
+	compiledProgram := &CompiledCELProgram{
+		program: program,
+		ast:     ast,
+	}
+
+	// Thread-safe cache management
+	se.cacheMutex.Lock()
+	defer se.cacheMutex.Unlock()
+
+	// Double-check if it was added while we were waiting for the lock
+	if cached, found := se.programCache.Load(filterExpr); found {
+		if existingProgram, ok := cached.(*CompiledCELProgram); ok {
+			return existingProgram.program, nil
+		}
+	}
+
+	// Check cache size before adding
+	if se.cacheSize < int64(se.cacheLimit) {
+		se.programCache.Store(filterExpr, compiledProgram)
+		se.cacheSize++
+	} else {
+		// Cache is full, implement LRU eviction by clearing cache
+		// In a production implementation, this could be more sophisticated
+		se.clearCacheUnsafe()
+		se.programCache.Store(filterExpr, compiledProgram)
+		se.cacheSize = 1
+	}
+
+	return program, nil
+}
+
+// clearCacheUnsafe clears the entire program cache. Must be called with cacheMutex held.
+func (se *SubscriptionEvaluator) clearCacheUnsafe() {
+	se.programCache.Range(func(key, value interface{}) bool {
+		se.programCache.Delete(key)
+		return true
+	})
+	se.cacheSize = 0
+}
+
+// ClearCache clears the CEL program cache. Useful for testing and memory management.
+func (se *SubscriptionEvaluator) ClearCache() {
+	se.cacheMutex.Lock()
+	defer se.cacheMutex.Unlock()
+	se.clearCacheUnsafe()
+}
+
+// GetCacheStats returns statistics about the CEL program cache.
+func (se *SubscriptionEvaluator) GetCacheStats() (size int64, limit int) {
+	se.cacheMutex.RLock()
+	defer se.cacheMutex.RUnlock()
+	return se.cacheSize, se.cacheLimit
 }
 
 // processSimpleTemplate processes a simple template string with variable substitution.

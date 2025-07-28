@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +22,18 @@ func TestNewSubscriptionEvaluator(t *testing.T) {
 	}
 	if se.costLimit != 1000000 {
 		t.Errorf("Expected cost limit 1000000, got %d", se.costLimit)
+	}
+	if se.cacheLimit != 1000 {
+		t.Errorf("Expected cache limit 1000, got %d", se.cacheLimit)
+	}
+
+	// Verify cache is initialized
+	size, limit := se.GetCacheStats()
+	if size != 0 {
+		t.Errorf("Expected initial cache size 0, got %d", size)
+	}
+	if limit != 1000 {
+		t.Errorf("Expected cache limit 1000, got %d", limit)
 	}
 }
 
@@ -679,5 +693,327 @@ func TestCompareVersions(t *testing.T) {
 				t.Errorf("compareVersions() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSubscriptionEvaluator_CELCaching(t *testing.T) {
+	se, err := NewSubscriptionEvaluator()
+	if err != nil {
+		t.Fatalf("Failed to create subscription evaluator: %v", err)
+	}
+
+	event := Event{
+		Type:          "library_built",
+		SchemaVersion: "1.0.0",
+		Payload: map[string]interface{}{
+			"version": "2.1.0",
+			"status":  "success",
+		},
+		Source:    "test-org/library",
+		Timestamp: time.Now().Unix(),
+	}
+
+	// Test basic caching functionality
+	t.Run("cache stores and retrieves compiled programs", func(t *testing.T) {
+		// Clear cache to start fresh
+		se.ClearCache()
+
+		size, _ := se.GetCacheStats()
+		if size != 0 {
+			t.Errorf("Expected cache size 0 after clear, got %d", size)
+		}
+
+		subscription := config.Subscription{
+			Events:   []string{"library_built"},
+			Filters:  []string{"payload.status == 'success'"},
+			Workflow: "update",
+		}
+
+		// First evaluation should compile and cache
+		result1, err := se.EvaluateSubscription(subscription, event)
+		if err != nil {
+			t.Fatalf("First evaluation failed: %v", err)
+		}
+		if !result1 {
+			t.Errorf("Expected first evaluation to return true")
+		}
+
+		// Cache should now contain one program
+		size, _ = se.GetCacheStats()
+		if size != 1 {
+			t.Errorf("Expected cache size 1 after first evaluation, got %d", size)
+		}
+
+		// Second evaluation should use cached program
+		result2, err := se.EvaluateSubscription(subscription, event)
+		if err != nil {
+			t.Fatalf("Second evaluation failed: %v", err)
+		}
+		if !result2 {
+			t.Errorf("Expected second evaluation to return true")
+		}
+
+		// Cache size should remain the same
+		size, _ = se.GetCacheStats()
+		if size != 1 {
+			t.Errorf("Expected cache size 1 after second evaluation, got %d", size)
+		}
+	})
+
+	t.Run("different expressions create separate cache entries", func(t *testing.T) {
+		se.ClearCache()
+
+		subscriptions := []config.Subscription{
+			{
+				Events:   []string{"library_built"},
+				Filters:  []string{"payload.status == 'success'"},
+				Workflow: "update1",
+			},
+			{
+				Events:   []string{"library_built"},
+				Filters:  []string{"payload.version == '2.1.0'"},
+				Workflow: "update2",
+			},
+			{
+				Events:   []string{"library_built"},
+				Filters:  []string{"event_type == 'library_built'"},
+				Workflow: "update3",
+			},
+		}
+
+		// Evaluate each subscription
+		for i, sub := range subscriptions {
+			result, err := se.EvaluateSubscription(sub, event)
+			if err != nil {
+				t.Fatalf("Evaluation %d failed: %v", i, err)
+			}
+			if !result {
+				t.Errorf("Expected evaluation %d to return true", i)
+			}
+
+			// Cache size should increase
+			size, _ := se.GetCacheStats()
+			expectedSize := int64(i + 1)
+			if size != expectedSize {
+				t.Errorf("Expected cache size %d after evaluation %d, got %d", expectedSize, i, size)
+			}
+		}
+	})
+
+	t.Run("cache eviction when limit is reached", func(t *testing.T) {
+		// Create a new evaluator with a small cache limit for testing
+		seSmall := &SubscriptionEvaluator{
+			celEnv:     se.celEnv,
+			costLimit:  1000000,
+			cacheLimit: 2, // Very small cache for testing
+		}
+
+		subscriptions := []config.Subscription{
+			{
+				Events:   []string{"library_built"},
+				Filters:  []string{"payload.status == 'success'"},
+				Workflow: "update1",
+			},
+			{
+				Events:   []string{"library_built"},
+				Filters:  []string{"payload.version == '2.1.0'"},
+				Workflow: "update2",
+			},
+			{
+				Events:   []string{"library_built"},
+				Filters:  []string{"event_type == 'library_built'"},
+				Workflow: "update3",
+			},
+		}
+
+		// Fill cache to limit
+		for i := 0; i < 2; i++ {
+			_, err := seSmall.EvaluateSubscription(subscriptions[i], event)
+			if err != nil {
+				t.Fatalf("Evaluation %d failed: %v", i, err)
+			}
+		}
+
+		size, _ := seSmall.GetCacheStats()
+		if size != 2 {
+			t.Errorf("Expected cache size 2 after filling, got %d", size)
+		}
+
+		// Adding one more should trigger eviction
+		_, err := seSmall.EvaluateSubscription(subscriptions[2], event)
+		if err != nil {
+			t.Fatalf("Evaluation after cache full failed: %v", err)
+		}
+
+		// Cache should be cleared and contain only the new entry
+		size, _ = seSmall.GetCacheStats()
+		if size != 1 {
+			t.Errorf("Expected cache size 1 after eviction, got %d", size)
+		}
+	})
+
+	t.Run("concurrent access to cache is thread-safe", func(t *testing.T) {
+		se.ClearCache()
+
+		numGoroutines := 10
+		numEvaluationsPerGoroutine := 50
+
+		subscription := config.Subscription{
+			Events:   []string{"library_built"},
+			Filters:  []string{"payload.status == 'success' && payload.version == '2.1.0'"},
+			Workflow: "concurrent_test",
+		}
+
+		var wg sync.WaitGroup
+		errors := make(chan error, numGoroutines*numEvaluationsPerGoroutine)
+
+		// Launch multiple goroutines that evaluate the same subscription
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func(goroutineID int) {
+				defer wg.Done()
+				for j := 0; j < numEvaluationsPerGoroutine; j++ {
+					result, err := se.EvaluateSubscription(subscription, event)
+					if err != nil {
+						errors <- err
+						return
+					}
+					if !result {
+						errors <- fmt.Errorf("goroutine %d evaluation %d: expected true result", goroutineID, j)
+						return
+					}
+				}
+			}(i)
+		}
+
+		wg.Wait()
+		close(errors)
+
+		// Check for any errors
+		for err := range errors {
+			t.Errorf("Concurrent evaluation error: %v", err)
+		}
+
+		// Cache should contain exactly one entry (the shared expression)
+		size, _ := se.GetCacheStats()
+		if size != 1 {
+			t.Errorf("Expected cache size 1 after concurrent evaluations, got %d", size)
+		}
+	})
+
+	t.Run("cache clear works correctly", func(t *testing.T) {
+		// Add some entries to cache
+		subscriptions := []config.Subscription{
+			{
+				Events:   []string{"library_built"},
+				Filters:  []string{"payload.status == 'success'"},
+				Workflow: "update1",
+			},
+			{
+				Events:   []string{"library_built"},
+				Filters:  []string{"payload.version == '2.1.0'"},
+				Workflow: "update2",
+			},
+		}
+
+		for _, sub := range subscriptions {
+			_, err := se.EvaluateSubscription(sub, event)
+			if err != nil {
+				t.Fatalf("Failed to populate cache: %v", err)
+			}
+		}
+
+		size, _ := se.GetCacheStats()
+		if size == 0 {
+			t.Errorf("Expected cache to have entries before clear")
+		}
+
+		// Clear cache
+		se.ClearCache()
+
+		// Verify cache is empty
+		size, _ = se.GetCacheStats()
+		if size != 0 {
+			t.Errorf("Expected cache size 0 after clear, got %d", size)
+		}
+	})
+}
+
+func TestSubscriptionEvaluator_CELCachingPerformance(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping performance test in short mode")
+	}
+
+	se, err := NewSubscriptionEvaluator()
+	if err != nil {
+		t.Fatalf("Failed to create subscription evaluator: %v", err)
+	}
+
+	event := Event{
+		Type:          "library_built",
+		SchemaVersion: "1.0.0",
+		Payload: map[string]interface{}{
+			"version":     "2.1.0",
+			"status":      "success",
+			"buildNumber": 12345,
+		},
+		Source:    "test-org/library",
+		Timestamp: time.Now().Unix(),
+	}
+
+	subscription := config.Subscription{
+		Events:   []string{"library_built"},
+		Filters:  []string{"payload.status == 'success' && payload.buildNumber > 10000"},
+		Workflow: "performance_test",
+	}
+
+	numIterations := 1000
+
+	// Measure performance with caching
+	se.ClearCache()
+	start := time.Now()
+	for i := 0; i < numIterations; i++ {
+		result, err := se.EvaluateSubscription(subscription, event)
+		if err != nil {
+			t.Fatalf("Cached evaluation failed: %v", err)
+		}
+		if !result {
+			t.Errorf("Expected evaluation to return true")
+		}
+	}
+	cachedDuration := time.Since(start)
+
+	// Measure performance without caching (clear cache before each evaluation)
+	start = time.Now()
+	for i := 0; i < numIterations; i++ {
+		se.ClearCache() // Force recompilation each time
+		result, err := se.EvaluateSubscription(subscription, event)
+		if err != nil {
+			t.Fatalf("Non-cached evaluation failed: %v", err)
+		}
+		if !result {
+			t.Errorf("Expected evaluation to return true")
+		}
+	}
+	nonCachedDuration := time.Since(start)
+
+	t.Logf("Cached evaluations: %d iterations in %v (%.2f µs per evaluation)",
+		numIterations, cachedDuration, float64(cachedDuration.Nanoseconds())/float64(numIterations)/1000)
+	t.Logf("Non-cached evaluations: %d iterations in %v (%.2f µs per evaluation)",
+		numIterations, nonCachedDuration, float64(nonCachedDuration.Nanoseconds())/float64(numIterations)/1000)
+
+	// Caching should provide significant performance improvement
+	if cachedDuration >= nonCachedDuration {
+		t.Errorf("Expected caching to improve performance, but cached (%v) >= non-cached (%v)",
+			cachedDuration, nonCachedDuration)
+	}
+
+	// Log the performance improvement ratio
+	improvement := float64(nonCachedDuration) / float64(cachedDuration)
+	t.Logf("Performance improvement: %.1fx faster with caching", improvement)
+
+	// We expect at least 2x improvement with caching
+	if improvement < 2.0 {
+		t.Logf("Warning: Performance improvement (%.1fx) is less than expected (2.0x)", improvement)
 	}
 }
