@@ -11,6 +11,10 @@ import (
 )
 
 func TestDetectContainerRuntime(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping container runtime detection test in short mode")
+	}
+
 	runtime, err := detectContainerRuntime()
 	if err != nil {
 		t.Fatalf("detectContainerRuntime failed: %v", err)
@@ -104,6 +108,10 @@ func TestValidateVolumePath(t *testing.T) {
 }
 
 func TestNewContainerManager(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping container manager test in short mode")
+	}
+
 	tests := []struct {
 		name    string
 		debug   bool
@@ -550,6 +558,10 @@ func TestIsContainerStep(t *testing.T) {
 // TestContainerManagerIntegration tests container manager with a simple container
 // This test requires a container runtime to be available.
 func TestContainerManagerIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping container integration test in short mode")
+	}
+
 	// Skip if no container runtime is available
 	runtime, err := detectContainerRuntime()
 	if err != nil || runtime == RuntimeNone {
