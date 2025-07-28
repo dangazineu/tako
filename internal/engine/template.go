@@ -60,7 +60,6 @@ type templateCache struct {
 	lru       *list.List
 	maxSize   int64
 	totalSize int64
-	mu        sync.RWMutex
 }
 
 // NewTemplateEngine creates a new template engine with caching and security functions.
@@ -236,9 +235,6 @@ func newTemplateCache(maxSize int64) *templateCache {
 
 // get retrieves a template from the cache.
 func (tc *templateCache) get(key string) *template.Template {
-	tc.mu.RLock()
-	defer tc.mu.RUnlock()
-
 	if elem, exists := tc.entries[key]; exists {
 		tc.lru.MoveToFront(elem)
 		entry := elem.Value.(*templateCacheEntry)
@@ -250,9 +246,6 @@ func (tc *templateCache) get(key string) *template.Template {
 
 // put adds a template to the cache.
 func (tc *templateCache) put(key string, tmpl *template.Template) {
-	tc.mu.Lock()
-	defer tc.mu.Unlock()
-
 	// Calculate approximate size (template string length)
 	size := int64(len(key))
 
@@ -302,9 +295,6 @@ func (tc *templateCache) evictIfNeeded() {
 
 // clear removes all entries from the cache.
 func (tc *templateCache) clear() {
-	tc.mu.Lock()
-	defer tc.mu.Unlock()
-
 	tc.entries = make(map[string]*list.Element)
 	tc.lru = list.New()
 	tc.totalSize = 0
