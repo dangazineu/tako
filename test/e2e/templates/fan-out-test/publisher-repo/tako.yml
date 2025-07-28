@@ -16,8 +16,6 @@ workflows:
           wait_for_children: true
           timeout: "30s"
           concurrency_limit: 2
-          schema_version: "1.0.0"
 events:
   produces:
     - type: library_built
-      schema_version: "1.0.0"

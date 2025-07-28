@@ -13,7 +13,6 @@ events:
     - artifact: {{.Owner}}/publisher-repo:default
       events:
         - type: library_built
-          schema_version: "~1.0"
       workflow: notify_build
       filter: 'payload.version.startsWith("1.")'
       inputs:

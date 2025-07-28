@@ -14,7 +14,6 @@ events:
     - artifact: {{.Owner}}/publisher-repo:default
       events:
         - type: library_built
-          schema_version: "^1.0.0"
       workflow: on_library_built
       filter: 'payload.build_status == "success"'
       inputs:
