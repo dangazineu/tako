@@ -3,12 +3,30 @@ package engine
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/dangazineu/tako/internal/config"
 )
+
+// initFanoutTestGitRepo initializes a git repository in the given directory for testing
+func initFanoutTestGitRepo(t *testing.T, repoPath string) {
+	if err := exec.Command("git", "init", repoPath).Run(); err != nil {
+		t.Logf("Failed to init git repo at %s (git may not be available): %v", repoPath, err)
+		return
+	}
+
+	// Configure git for the test repo
+	cmd := exec.Command("git", "config", "user.name", "Tako Test")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "config", "user.email", "test@tako.dev")
+	cmd.Dir = repoPath
+	cmd.Run()
+}
 
 func TestNewFanOutExecutor(t *testing.T) {
 	tempDir := t.TempDir()
@@ -206,6 +224,10 @@ func TestFanOutExecutor_Execute(t *testing.T) {
 	if err := os.MkdirAll(testRepo2Path, 0755); err != nil {
 		t.Fatalf("Failed to create test repo2 directory: %v", err)
 	}
+
+	// Initialize git repositories for realistic testing
+	initFanoutTestGitRepo(t, testRepo1Path)
+	initFanoutTestGitRepo(t, testRepo2Path)
 
 	// Create tako.yml files with subscriptions
 	takoYml1 := `version: "1.0"
