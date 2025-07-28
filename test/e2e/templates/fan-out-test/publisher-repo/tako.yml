@@ -1,0 +1,23 @@
+version: 1
+repos:
+  - {{.Owner}}/publisher-repo
+workflows:
+  publish_event:
+    steps:
+      - id: emit_event
+        name: "Emit library built event"
+        uses: tako/fan-out@v1
+        with:
+          event_type: library_built
+          payload:
+            library_name: "my-library"
+            version: "1.0.0"
+            build_status: "success"
+          wait_for_children: true
+          timeout: "30s"
+          concurrency_limit: 2
+          schema_version: "1.0.0"
+events:
+  produces:
+    - type: library_built
+      schema_version: "1.0.0"
