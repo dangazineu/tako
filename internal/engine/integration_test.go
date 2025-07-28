@@ -1,4 +1,4 @@
-package main
+package engine
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/dangazineu/tako/internal/config"
-	"github.com/dangazineu/tako/internal/engine"
 )
 
 // TestContainerizedWorkflowIntegration tests full integration of containerized execution
@@ -24,26 +23,26 @@ func TestContainerizedWorkflowIntegration(t *testing.T) {
 	cacheDir := filepath.Join(tmpDir, "cache")
 
 	// Create container manager
-	cm, err := engine.NewContainerManager(true)
+	cm, err := NewContainerManager(true)
 	if err != nil {
 		t.Skipf("Container runtime not available: %v", err)
 	}
 
 	// Create security manager
-	sm, err := engine.NewSecurityManager(auditLog, true)
+	sm, err := NewSecurityManager(auditLog, true)
 	if err != nil {
 		t.Fatalf("Failed to create security manager: %v", err)
 	}
 	defer sm.Close()
 
 	// Create registry manager
-	rm, err := engine.NewRegistryManager(cacheDir, true)
+	rm, err := NewRegistryManager(cacheDir, true)
 	if err != nil {
 		t.Fatalf("Failed to create registry manager: %v", err)
 	}
 
 	// Create resource manager
-	resman := engine.NewResourceManager(&engine.ResourceManagerConfig{
+	resman := NewResourceManager(&ResourceManagerConfig{
 		Debug: testing.Verbose(), // Only enable debug output in verbose mode
 	})
 
@@ -178,23 +177,23 @@ func TestSecurityIntegration(t *testing.T) {
 	auditLog := filepath.Join(tmpDir, "audit.log")
 
 	// Test security manager with different profiles
-	sm, err := engine.NewSecurityManager(auditLog, true)
+	sm, err := NewSecurityManager(auditLog, true)
 	if err != nil {
 		t.Fatalf("Failed to create security manager: %v", err)
 	}
 	defer sm.Close()
 
-	profiles := []engine.SecurityProfile{
-		engine.SecurityProfileStrict,
-		engine.SecurityProfileModerate,
-		engine.SecurityProfileMinimal,
+	profiles := []SecurityProfile{
+		SecurityProfileStrict,
+		SecurityProfileModerate,
+		SecurityProfileMinimal,
 	}
 
 	for _, profile := range profiles {
 		t.Run(string(profile), func(t *testing.T) {
-			config := &engine.ContainerConfig{
+			config := &ContainerConfig{
 				Image:    "alpine:latest",
-				Security: &engine.SecurityConfig{},
+				Security: &SecurityConfig{},
 			}
 
 			err := sm.ApplySecurityProfile(config, profile)
@@ -204,21 +203,21 @@ func TestSecurityIntegration(t *testing.T) {
 
 			// Verify profile-specific settings
 			switch profile {
-			case engine.SecurityProfileStrict:
+			case SecurityProfileStrict:
 				if !config.Security.ReadOnlyRootFS {
 					t.Error("Strict profile should enable read-only root filesystem")
 				}
 				if config.Network != "none" {
 					t.Error("Strict profile should disable network access")
 				}
-			case engine.SecurityProfileModerate:
+			case SecurityProfileModerate:
 				if !config.Security.NoNewPrivileges {
 					t.Error("Moderate profile should prevent privilege escalation")
 				}
 				if len(config.Security.AddCapabilities) == 0 {
 					t.Error("Moderate profile should add some capabilities")
 				}
-			case engine.SecurityProfileMinimal:
+			case SecurityProfileMinimal:
 				if !config.Security.NoNewPrivileges {
 					t.Error("Minimal profile should still prevent privilege escalation")
 				}
@@ -236,7 +235,7 @@ func TestResourceIntegration(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	rm := engine.NewResourceManager(&engine.ResourceManagerConfig{
+	rm := NewResourceManager(&ResourceManagerConfig{
 		Debug: testing.Verbose(), // Only enable debug output in verbose mode
 	})
 

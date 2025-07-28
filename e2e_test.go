@@ -108,7 +108,7 @@ type setupOutput struct {
 }
 
 func runTest(t *testing.T, tc *e2e.TestCase, env e2e.TestEnvironmentDef, mode string, withRepoEntryPoint bool) {
-	t.Logf("Running test case: %s", tc.Name)
+	t.Logf("Running test case \"%s\" in %s mode and entrypoint=%s", tc.Name, mode, map[bool]string{true: "repo", false: "path"}[withRepoEntryPoint])
 
 	// Build binaries
 	takoPath, takotestPath := buildBinaries(t)
