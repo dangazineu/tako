@@ -190,6 +190,9 @@ func TestFanOutExecutor_parseFanOutParams(t *testing.T) {
 }
 
 func TestFanOutExecutor_Execute(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping executor test in short mode")
+	}
 	// Create temporary directory and test repository structure
 	tempDir := t.TempDir()
 
@@ -425,6 +428,9 @@ func TestFanOutExecutor_triggerWorkflow(t *testing.T) {
 }
 
 func TestFanOutExecutor_waitForChildren(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping wait test in short mode")
+	}
 	executor, err := NewFanOutExecutor(t.TempDir(), false)
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
