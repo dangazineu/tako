@@ -8,7 +8,6 @@ import (
 
 	"github.com/dangazineu/tako/internal/config"
 	"github.com/google/cel-go/cel"
-	"github.com/google/cel-go/checker/decls"
 	"github.com/google/cel-go/common/types"
 )
 
@@ -31,14 +30,11 @@ type SubscriptionEvaluator struct {
 func NewSubscriptionEvaluator() (*SubscriptionEvaluator, error) {
 	// Create CEL environment with security constraints
 	env, err := cel.NewEnv(
-		cel.Declarations(
-			// Event context available in CEL expressions
-			decls.NewVar("event", decls.NewMapType(decls.String, decls.Dyn)),
-			decls.NewVar("payload", decls.NewMapType(decls.String, decls.Dyn)),
-			decls.NewVar("event_type", decls.String),
-			decls.NewVar("schema_version", decls.String),
-			decls.NewVar("source", decls.String),
-		),
+		cel.Variable("event", cel.MapType(cel.StringType, cel.DynType)),
+		cel.Variable("payload", cel.MapType(cel.StringType, cel.DynType)),
+		cel.Variable("event_type", cel.StringType),
+		cel.Variable("schema_version", cel.StringType),
+		cel.Variable("source", cel.StringType),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CEL environment: %v", err)
@@ -237,7 +233,7 @@ func parseSemVer(version string) (SemVer, error) {
 }
 
 // evaluateVersionRange evaluates whether a semantic version satisfies a version range.
-// Supports basic ranges like "1.0.0", "^1.0.0", "~1.0.0", ">=1.0.0"
+// Supports basic ranges like "1.0.0", "^1.0.0", "~1.0.0", ">=1.0.0".
 func evaluateVersionRange(version SemVer, rangeSpec string) (bool, error) {
 	rangeSpec = strings.TrimSpace(rangeSpec)
 
@@ -312,7 +308,7 @@ func evaluateVersionRange(version SemVer, rangeSpec string) (bool, error) {
 }
 
 // compareVersions compares two semantic versions.
-// Returns: -1 if v1 < v2, 0 if v1 == v2, 1 if v1 > v2
+// Returns: -1 if v1 < v2, 0 if v1 == v2, 1 if v1 > v2.
 func compareVersions(v1, v2 SemVer) int {
 	if v1.Major != v2.Major {
 		if v1.Major < v2.Major {

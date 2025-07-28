@@ -185,15 +185,15 @@ func TestRunner_executeBuiltinStep(t *testing.T) {
 	runner.state.StartExecution("test", "/tmp", map[string]string{})
 	startTime := time.Now()
 
-	// Execute built-in step (should return not implemented error)
-	result, err := runner.executeBuiltinStep(step, stepID, startTime)
+	// Execute built-in step (should return parameter validation error)
+	result, err := runner.executeBuiltinStep(context.Background(), step, stepID, startTime)
 
-	// Should return error indicating not implemented
+	// Should return error indicating missing required parameter
 	if err == nil {
-		t.Error("Expected error for unimplemented built-in step")
+		t.Error("Expected error for invalid built-in step parameters")
 	}
 
-	expectedErrMsg := "built-in steps not yet implemented: tako/fan-out@v1"
+	expectedErrMsg := "event_type is required"
 	if err.Error() != expectedErrMsg {
 		t.Errorf("Expected error message %q, got %q", expectedErrMsg, err.Error())
 	}
@@ -250,14 +250,19 @@ func TestRunner_executeBuiltinStep_DifferentBuiltins(t *testing.T) {
 			}
 
 			startTime := time.Now()
-			result, err := runner.executeBuiltinStep(step, step.ID, startTime)
+			result, err := runner.executeBuiltinStep(context.Background(), step, step.ID, startTime)
 
-			// All should return not implemented error
+			// Should return error (different messages for different steps)
 			if err == nil {
-				t.Error("Expected error for unimplemented built-in step")
+				t.Error("Expected error for built-in step")
 			}
 
-			expectedErrMsg := "built-in steps not yet implemented: " + builtin
+			var expectedErrMsg string
+			if builtin == "tako/fan-out@v1" {
+				expectedErrMsg = "event_type is required"
+			} else {
+				expectedErrMsg = "unknown built-in step: " + builtin
+			}
 			if err.Error() != expectedErrMsg {
 				t.Errorf("Expected error message %q, got %q", expectedErrMsg, err.Error())
 			}
