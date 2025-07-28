@@ -300,10 +300,16 @@ func (lm *LockManager) checkConflictingLocks(repository string, lockType LockTyp
 			return fmt.Errorf("cannot acquire write lock: write lock exists on repository %s", repository)
 		}
 	} else {
-		// Read locks conflict only with write locks
+		// Read locks conflict with write locks and other read locks in current implementation
 		writeKey := lm.getLockKey(repository, LockTypeWrite)
 		if _, exists := lm.locks[writeKey]; exists {
 			return fmt.Errorf("cannot acquire read lock: write lock exists on repository %s", repository)
+		}
+
+		// Also check for existing read locks (single lock implementation)
+		readKey := lm.getLockKey(repository, LockTypeRead)
+		if _, exists := lm.locks[readKey]; exists {
+			return fmt.Errorf("cannot acquire read lock: read lock already exists on repository %s", repository)
 		}
 	}
 
