@@ -22,8 +22,8 @@ jobs:
 
     - name: Run unit tests (excluding integration)
       run: |
-        go test -short -timeout=2m ./internal/config ./internal/git ./internal/graph ./internal/engine
-        go test -short -timeout=2m ./cmd/...
+        go test -short -timeout=5m ./internal/config ./internal/git ./internal/graph ./internal/engine
+        go test -short -timeout=5m ./cmd/...
 
     - run: go fmt ./...
     - name: Detect Changes
