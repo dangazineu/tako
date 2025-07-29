@@ -20,8 +20,11 @@ jobs:
       - name: Display Go version
         run: go version
 
-      - name: Run unit tests
-        run: go test -v -race ./internal/... ./cmd/tako/...
+      - name: Run `internal` unit tests
+        run: go test -v -race ./internal/...
+
+      - name: Run `cmd/tako` unit tests
+        run: go test -v -race ./cmd/tako/...
 
   linters:
     runs-on: ubuntu-latest
