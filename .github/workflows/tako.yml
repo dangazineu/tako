@@ -1,4 +1,4 @@
-name: Unit Tests
+name: Tako CI
 
 on:
   push:
@@ -7,33 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version-file: 'go.mod'
-
-    - name: Display Go version
-      run: go version
-
-    - name: Run unit tests
-      run: go test -v ./...
-
-    - run: go fmt ./...
-    - name: Detect Changes
-      run: git diff --exit-code
-
-    - name: Upload coverage reports to Codecov
-      if: github.event_name != 'pull_request'
-      uses: codecov/codecov-action@v5
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-
-  e2e-test:
+  unit-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +15,50 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24.4'
+          go-version-file: 'go.mod'
+
+      - name: Display Go version
+        run: go version
+
+      - name: Run unit tests
+        run: go test -v -race ./internal/... ./cmd/tako/...
+
+  linters:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Display Go version
+        run: go version
+
+      - name: Run linters
+        run: go test  -v .
+
+      - run: go fmt ./...
+      - name: Detect Changes
+        run: git diff --exit-code
+
+      - name: Upload coverage reports to Codecov
+        if: github.event_name != 'pull_request'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  e2e-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
 
       - name: Set up Java and Maven
         uses: actions/setup-java@v4
@@ -52,5 +69,8 @@ jobs:
       - name: Install Maven
         run: sudo apt-get update && sudo apt-get install -y maven
 
-      - name: Run e2e local tests
-        run: go test -v -tags=e2e --local ./...
+      - name: Run e2e local tests with path entrypoint
+        run: go test -v -tags=e2e --local --entrypoint=path .
+
+      - name: Run e2e local tests with repo entrypoint
+        run: go test -v -tags=e2e --local --entrypoint=repo .
