@@ -36,7 +36,7 @@ jobs:
       - name: Display Go version
         run: go version
 
-      - name: Run linters and
+      - name: Run linters
         run: go test  -v .
 
       - run: go fmt ./...
