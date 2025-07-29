@@ -510,11 +510,16 @@ func (rm *ResourceManager) monitoringLoop(ctx context.Context) {
 	ticker := time.NewTicker(rm.monitoringInterval)
 	defer ticker.Stop()
 
+	// Capture the stop channel while holding a read lock to avoid race condition
+	rm.mu.RLock()
+	stopCh := rm.stopMonitor
+	rm.mu.RUnlock()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-rm.stopMonitor:
+		case <-stopCh:
 			return
 		case <-ticker.C:
 			rm.collectResourceUsage()
