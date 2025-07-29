@@ -56,3 +56,42 @@ The subscription-based workflow triggering system enables:
 2. **Package Structure**: Creating new packages vs. using existing ones
 3. **Backward Compatibility**: Ensure no breaking changes to existing functionality
 4. **Testing**: Maintain or improve the 76.8% coverage baseline
+
+## Questions and Resolutions
+
+### 1. Structural Questions - RESOLVED
+- **Q1**: FanOutExecutor already exists in `internal/engine/fanout.go`. What's the approach?
+  - **Answer**: Create a new, independent `FanOutStepExecutor` in `internal/steps/fanout.go` that will use the new interfaces. This promotes proper decoupling and sets a pattern for future step implementations.
+
+- **Q2**: What should be the relationship between the new interfaces and existing implementations?
+  - **Answer**: The existing `DiscoveryManager` and `Runner` will implement the new interfaces, enabling dependency injection and testability.
+
+### 2. Interface Design Questions - RESOLVED
+- **Q3**: What methods should `SubscriptionDiscoverer` expose?
+  - **Answer**: 
+    ```go
+    type SubscriptionDiscoverer interface {
+        FindSubscribers(artifact, eventType string) ([]SubscriptionMatch, error)
+    }
+    ```
+
+- **Q4**: What methods should `WorkflowRunner` expose?
+  - **Answer**: 
+    ```go
+    type WorkflowRunner interface {
+        ExecuteWorkflow(ctx context.Context, repoPath, workflowName string, inputs map[string]string) (*ExecutionResult, error)
+    }
+    ```
+
+### 3. Implementation Questions - RESOLVED
+- **Q5**: Should `FanOutStepParams` and `FanOutStepResult` be new types?
+  - **Answer**: Move existing `FanOutParams` and `FanOutResult` from `internal/engine/fanout.go` to `internal/steps/fanout.go` as they define the public contract.
+
+- **Q6**: How do we ensure no functional changes?
+  - **Answer**: Use dependency injection - the new `FanOutStepExecutor` will accept interfaces in its constructor and delegate to them, maintaining existing functionality.
+
+## Architectural Decision Summary
+1. Create interfaces in a new location to avoid circular dependencies (e.g., `internal/interfaces/`)
+2. Existing implementations will satisfy these interfaces
+3. New step executor will use interfaces, not concrete types
+4. Migrate logic progressively while maintaining functionality
