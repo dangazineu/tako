@@ -23,7 +23,9 @@ type FanOutExecutor struct {
 	circuitBreakerManager *CircuitBreakerManager
 	metricsCollector      *MetricsCollector
 	healthChecker         *HealthChecker
+	cleanupManager        *CleanupManager
 	logger                Logger
+	workflowRunner        interfaces.WorkflowRunner
 	cacheDir              string
 	debug                 bool
 
@@ -33,7 +35,7 @@ type FanOutExecutor struct {
 }
 
 // NewFanOutExecutor creates a new fan-out executor.
-func NewFanOutExecutor(cacheDir string, debug bool) (*FanOutExecutor, error) {
+func NewFanOutExecutor(cacheDir string, debug bool, workflowRunner interfaces.WorkflowRunner) (*FanOutExecutor, error) {
 	discoveryManager := NewDiscoveryManager(cacheDir)
 
 	subscriptionEvaluator, err := NewSubscriptionEvaluator()
@@ -61,6 +63,7 @@ func NewFanOutExecutor(cacheDir string, debug bool) (*FanOutExecutor, error) {
 	circuitBreakerManager := NewCircuitBreakerManager(circuitBreakerConfig)
 	metricsCollector := NewMetricsCollector()
 	healthChecker := NewHealthChecker(metricsCollector, circuitBreakerManager)
+	cleanupManager := NewCleanupManager(filepath.Join(cacheDir, "workspaces"), 0, debug) // Use default maxAge
 	logger := NewStructuredLogger(debug)
 
 	return &FanOutExecutor{
@@ -71,7 +74,9 @@ func NewFanOutExecutor(cacheDir string, debug bool) (*FanOutExecutor, error) {
 		circuitBreakerManager: circuitBreakerManager,
 		metricsCollector:      metricsCollector,
 		healthChecker:         healthChecker,
+		cleanupManager:        cleanupManager,
 		logger:                logger,
+		workflowRunner:        workflowRunner,
 		cacheDir:              cacheDir,
 		debug:                 debug,
 		retryConfig:           retryConfig,
@@ -89,16 +94,31 @@ type FanOutParams struct {
 	SchemaVersion    string                 `yaml:"schema_version"`
 }
 
+// ChildExecutionError represents detailed error information for a child workflow execution.
+type ChildExecutionError struct {
+	Repository   string        `json:"repository"`
+	Workflow     string        `json:"workflow"`
+	RunID        string        `json:"run_id,omitempty"`
+	ErrorType    string        `json:"error_type"` // "execution_failed", "workflow_failed", "timeout", "circuit_breaker"
+	ErrorMessage string        `json:"error_message"`
+	StartTime    time.Time     `json:"start_time"`
+	Duration     time.Duration `json:"duration"`
+	RetryCount   int           `json:"retry_count"`
+}
+
 // FanOutResult represents the result of a fan-out execution.
 type FanOutResult struct {
 	Success          bool
 	EventEmitted     bool
 	SubscribersFound int
 	TriggeredCount   int
-	Errors           []string
+	Errors           []string              // Legacy simple error messages
+	DetailedErrors   []ChildExecutionError // Detailed error information
 	StartTime        time.Time
 	EndTime          time.Time
-	FanOutID         string // ID of the fan-out state for tracking
+	FanOutID         string         // ID of the fan-out state for tracking
+	TimeoutExceeded  bool           // Whether the overall operation timed out
+	ChildrenSummary  *FanOutSummary // Summary of child workflow statuses
 }
 
 // Execute performs the fan-out operation with proper state management.
@@ -121,8 +141,10 @@ func (fe *FanOutExecutor) ExecuteWithContext(step config.WorkflowStep, sourceRep
 func (fe *FanOutExecutor) executeWithContextAndSubscriptions(step config.WorkflowStep, sourceRepo, parentRunID string, preDiscoveredSubscriptions []interfaces.SubscriptionMatch) (*FanOutResult, error) {
 	startTime := time.Now()
 	result := &FanOutResult{
-		StartTime: startTime,
-		Errors:    []string{},
+		StartTime:       startTime,
+		Errors:          []string{},
+		DetailedErrors:  []ChildExecutionError{},
+		TimeoutExceeded: false,
 	}
 
 	// Record metrics
@@ -260,9 +282,10 @@ func (fe *FanOutExecutor) executeWithContextAndSubscriptions(step config.Workflo
 
 	// Trigger subscribers with state tracking
 	if len(validSubscribers) > 0 {
-		triggeredCount, errors := fe.triggerSubscribersWithState(validSubscribers, event, params, state)
+		triggeredCount, errors, detailedErrors := fe.triggerSubscribersWithState(validSubscribers, event, params, state)
 		result.TriggeredCount = triggeredCount
 		result.Errors = append(result.Errors, errors...)
+		result.DetailedErrors = append(result.DetailedErrors, detailedErrors...)
 	}
 
 	// Handle waiting for children
@@ -301,12 +324,26 @@ func (fe *FanOutExecutor) executeWithContextAndSubscriptions(step config.Workflo
 		state.CompleteFanOut()
 	}
 
+	// Get final children summary
+	summary := state.GetSummary()
+	result.ChildrenSummary = &summary
+
+	// Determine if operation timed out
+	if result.ChildrenSummary != nil && result.ChildrenSummary.TimedOutChildren > 0 {
+		result.TimeoutExceeded = true
+	}
+
 	result.Success = len(result.Errors) == 0
 	result.EndTime = time.Now()
 
 	if fe.debug {
-		fmt.Printf("Fan-out completed: success=%v, triggered=%d, errors=%d\n",
-			result.Success, result.TriggeredCount, len(result.Errors))
+		fmt.Printf("Fan-out completed: success=%v, triggered=%d, errors=%d, detailed_errors=%d\n",
+			result.Success, result.TriggeredCount, len(result.Errors), len(result.DetailedErrors))
+		if result.ChildrenSummary != nil {
+			fmt.Printf("Children summary: total=%d, completed=%d, failed=%d, timed_out=%d\n",
+				result.ChildrenSummary.TotalChildren, result.ChildrenSummary.CompletedChildren,
+				result.ChildrenSummary.FailedChildren, result.ChildrenSummary.TimedOutChildren)
+		}
 	}
 
 	return result, nil
@@ -387,8 +424,9 @@ func (fe *FanOutExecutor) parseFanOutParams(withParams map[string]interface{}) (
 }
 
 // triggerSubscribersWithState triggers workflows in subscriber repositories with state tracking.
-func (fe *FanOutExecutor) triggerSubscribersWithState(subscribers []SubscriptionMatch, event Event, params *FanOutParams, state *FanOutState) (int, []string) {
+func (fe *FanOutExecutor) triggerSubscribersWithState(subscribers []SubscriptionMatch, event Event, params *FanOutParams, state *FanOutState) (int, []string, []ChildExecutionError) {
 	errors := []string{}
+	detailedErrors := []ChildExecutionError{}
 	triggeredCount := 0
 
 	// Sort subscribers alphabetically for deterministic execution order
@@ -445,12 +483,34 @@ func (fe *FanOutExecutor) triggerSubscribersWithState(subscribers []Subscription
 
 			var finalErr error
 			var runID string
+			var executionResult *interfaces.ExecutionResult
+			var retryCount int
+
+			// Create context with timeout for child execution
+			ctx := context.Background()
+			if params.Timeout != "" {
+				if timeout, parseErr := time.ParseDuration(params.Timeout); parseErr == nil {
+					var cancel context.CancelFunc
+					ctx, cancel = context.WithTimeout(ctx, timeout)
+					defer cancel()
+				}
+			}
 
 			// Execute with resilience (circuit breaker + retry)
 			err := circuitBreaker.Call(func() error {
-				return retryExecutor.ExecuteWithCallback(context.Background(), func() error {
-					return fe.simulateWorkflowTrigger(sub.Repository, sub.Subscription.Workflow, childWorkflow.Inputs)
+				return retryExecutor.ExecuteWithCallback(ctx, func() error {
+					result, execErr := fe.executeChildWorkflow(ctx, sub.Repository, sub.Subscription.Workflow, childWorkflow.Inputs)
+					if execErr != nil {
+						return execErr
+					}
+					// Store the result for later use
+					executionResult = result
+					if result != nil {
+						runID = result.RunID
+					}
+					return nil
 				}, func(attempt int, retryErr error) {
+					retryCount = attempt
 					fe.logger.Warn("Child workflow execution retry",
 						"repository", sub.Repository,
 						"workflow", sub.Subscription.Workflow,
@@ -462,31 +522,80 @@ func (fe *FanOutExecutor) triggerSubscribersWithState(subscribers []Subscription
 
 			// Determine final status and record metrics
 			var finalStatus ChildWorkflowStatus
+			childDuration := time.Since(childStartTime)
+
 			if err != nil {
 				finalErr = err
 				finalStatus = ChildStatusFailed
+
+				// Determine error type for detailed reporting
+				var errorType string
 				if strings.Contains(err.Error(), "circuit breaker is open") {
+					errorType = "circuit_breaker"
 					fe.logger.Warn("Child workflow blocked by circuit breaker",
 						"repository", sub.Repository,
 						"workflow", sub.Subscription.Workflow,
 						"endpoint", endpoint,
 					)
+				} else if strings.Contains(err.Error(), "context deadline exceeded") {
+					errorType = "timeout"
+					finalStatus = ChildStatusTimedOut
+				} else {
+					errorType = "execution_failed"
 				}
 
 				mutex.Lock()
 				errors = append(errors, fmt.Sprintf("failed to trigger workflow in %s: %v", sub.Repository, err))
+				detailedErrors = append(detailedErrors, ChildExecutionError{
+					Repository:   sub.Repository,
+					Workflow:     sub.Subscription.Workflow,
+					RunID:        runID,
+					ErrorType:    errorType,
+					ErrorMessage: err.Error(),
+					StartTime:    childStartTime,
+					Duration:     childDuration,
+					RetryCount:   retryCount,
+				})
 				mutex.Unlock()
 			} else {
-				finalStatus = ChildStatusCompleted
-				runID = fmt.Sprintf("run-%d", time.Now().Unix())
+				// Execution completed, but check if the workflow itself succeeded
+				if executionResult != nil && !executionResult.Success {
+					finalStatus = ChildStatusFailed
+					finalErr = fmt.Errorf("child workflow execution completed but workflow failed")
 
-				mutex.Lock()
-				triggeredCount++
-				mutex.Unlock()
+					mutex.Lock()
+					errors = append(errors, fmt.Sprintf("workflow failed in %s: workflow execution was unsuccessful", sub.Repository))
+					detailedErrors = append(detailedErrors, ChildExecutionError{
+						Repository:   sub.Repository,
+						Workflow:     sub.Subscription.Workflow,
+						RunID:        runID,
+						ErrorType:    "workflow_failed",
+						ErrorMessage: "child workflow execution was unsuccessful",
+						StartTime:    childStartTime,
+						Duration:     childDuration,
+						RetryCount:   retryCount,
+					})
+					mutex.Unlock()
+				} else {
+					finalStatus = ChildStatusCompleted
+					// runID is already set from the execution result
+
+					// Schedule cleanup of child workspace (async, best effort)
+					if runID != "" {
+						go func(cleanupRunID string) {
+							if cleanupErr := fe.cleanupManager.CleanupChildWorkspace(cleanupRunID); cleanupErr != nil && fe.debug {
+								fmt.Printf("Warning: Failed to cleanup child workspace for runID %s: %v\n", cleanupRunID, cleanupErr)
+							}
+						}(runID)
+					}
+
+					mutex.Lock()
+					triggeredCount++
+					mutex.Unlock()
+				}
 			}
 
 			// Record child completion metrics
-			childDuration := time.Since(childStartTime)
 			fe.metricsCollector.RecordChildCompleted(childDuration, finalStatus)
 
 			// Update final child status
@@ -509,25 +618,43 @@ func (fe *FanOutExecutor) triggerSubscribersWithState(subscribers []Subscription
 	}
 
 	wg.Wait()
-	return triggeredCount, errors
+	return triggeredCount, errors, detailedErrors
 }
 
-// simulateWorkflowTrigger simulates triggering a workflow in a repository.
-// This is a placeholder for Phase 2 - actual workflow triggering will be implemented in later phases.
-func (fe *FanOutExecutor) simulateWorkflowTrigger(repository, workflow string, inputs map[string]string) error {
+// executeChildWorkflow executes a workflow in a child repository using the injected WorkflowRunner.
+// This replaces the simulation with actual isolated child workflow execution.
+func (fe *FanOutExecutor) executeChildWorkflow(ctx context.Context, repository, workflow string, inputs map[string]string) (*interfaces.ExecutionResult, error) {
+	if fe.workflowRunner == nil {
+		return nil, fmt.Errorf("workflow runner not configured for child execution")
+	}
+
 	if fe.debug {
-		fmt.Printf("SIMULATION: Would trigger workflow '%s' in '%s' with inputs: %v\n", workflow, repository, inputs)
+		fmt.Printf("EXECUTING: Triggering workflow '%s' in '%s' with inputs: %v\n", workflow, repository, inputs)
 	}
 
-	// Simulate some work
-	time.Sleep(10 * time.Millisecond)
-
-	// For testing purposes, fail if repository name contains "fail"
-	if strings.Contains(repository, "fail") {
-		return fmt.Errorf("simulated failure for repository %s", repository)
+	// Execute the child workflow using the injected WorkflowRunner
+	result, err := fe.workflowRunner.ExecuteWorkflow(ctx, repository, workflow, inputs)
+	if err != nil {
+		return nil, fmt.Errorf("child workflow execution failed in %s: %w", repository, err)
 	}
 
-	return nil
+	if fe.debug {
+		status := "SUCCESS"
+		if result != nil && !result.Success {
+			status = "FAILED"
+		}
+		fmt.Printf("COMPLETED: Child workflow '%s' in '%s' - Status: %s\n", workflow, repository, status)
+	}
+
+	return result, nil
+}
+
+// simulateWorkflowTrigger is kept for backward compatibility with tests.
+// TODO: Remove this method after all tests are updated to use real execution.
+func (fe *FanOutExecutor) simulateWorkflowTrigger(repository, workflow string, inputs map[string]string) error {
+	// Convert to real execution with a background context
+	_, err := fe.executeChildWorkflow(context.Background(), repository, workflow, inputs)
+	return err
 }
 
 // waitForChildrenWithState waits for child workflows to complete using state management.
@@ -662,4 +789,14 @@ func (fe *FanOutExecutor) ConfigureRetry(config RetryConfig) {
 func (fe *FanOutExecutor) ConfigureCircuitBreaker(config CircuitBreakerConfig) {
 	fe.circuitBreakerConfig = config
 	// Note: This affects new circuit breakers only; existing ones retain their configuration
+}
+
+// CleanupOrphanedWorkspaces removes orphaned child workflow workspaces.
+func (fe *FanOutExecutor) CleanupOrphanedWorkspaces() error {
+	return fe.cleanupManager.CleanupOrphanedWorkspaces()
+}
+
+// GetOrphanedWorkspaceStats returns statistics about orphaned workspaces.
+func (fe *FanOutExecutor) GetOrphanedWorkspaceStats() (int, int64, error) {
+	return fe.cleanupManager.GetOrphanedWorkspaceStats()
 }

@@ -133,6 +133,9 @@ func TestExecuteBuiltinStep_FanOut(t *testing.T) {
 			mockOrchestrator, _ := NewOrchestrator(mockDiscoverer)
 			runner.orchestrator = mockOrchestrator
 
+			// Replace the child workflow runner with our test mock
+			runner.childWorkflowRunner = NewTestMockWorkflowRunner()
+
 			// Execute the built-in step
 			ctx := context.Background()
 			result, err := runner.executeBuiltinStep(ctx, tt.step, tt.step.ID, runner.state.StartTime)

@@ -55,6 +55,10 @@ type Runner struct {
 	// Orchestration
 	orchestrator *Orchestrator
 
+	// Child workflow execution
+	childRunnerFactory  *ChildRunnerFactory
+	childWorkflowRunner interfaces.WorkflowRunner
+
 	// Configuration
 	maxConcurrentRepos int
 	dryRun             bool
@@ -119,6 +123,18 @@ func NewRunner(opts RunnerOptions) (*Runner, error) {
 		return nil, fmt.Errorf("failed to initialize orchestrator: %v", err)
 	}
 
+	// Initialize child workflow execution components
+	childRunnerFactory, err := NewChildRunnerFactory(workspaceRoot, opts.CacheDir, opts.MaxConcurrentRepos, opts.Debug, opts.Environment)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize child runner factory: %v", err)
+	}
+
+	// Create child workflow executor
+	childWorkflowExecutor, err := NewChildWorkflowExecutor(childRunnerFactory, NewTemplateEngine(), containerManager, resourceManager)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize child workflow executor: %v", err)
+	}
+
 	mode := ExecutionModeNormal
 	if opts.DryRun {
 		mode = ExecutionModeDryRun
@@ -127,21 +143,23 @@ func NewRunner(opts RunnerOptions) (*Runner, error) {
 	}
 
 	return &Runner{
-		mode:               mode,
-		workspaceRoot:      workspaceRoot,
-		cacheDir:           opts.CacheDir,
-		runID:              runID,
-		state:              state,
-		locks:              locks,
-		templateEngine:     NewTemplateEngine(),
-		containerManager:   containerManager,
-		resourceManager:    resourceManager,
-		orchestrator:       orchestrator,
-		maxConcurrentRepos: opts.MaxConcurrentRepos,
-		dryRun:             opts.DryRun,
-		debug:              opts.Debug,
-		noCache:            opts.NoCache,
-		environment:        opts.Environment,
+		mode:                mode,
+		workspaceRoot:       workspaceRoot,
+		cacheDir:            opts.CacheDir,
+		runID:               runID,
+		state:               state,
+		locks:               locks,
+		templateEngine:      NewTemplateEngine(),
+		containerManager:    containerManager,
+		resourceManager:     resourceManager,
+		orchestrator:        orchestrator,
+		childRunnerFactory:  childRunnerFactory,
+		childWorkflowRunner: childWorkflowExecutor,
+		maxConcurrentRepos:  opts.MaxConcurrentRepos,
+		dryRun:              opts.DryRun,
+		debug:               opts.Debug,
+		noCache:             opts.NoCache,
+		environment:         opts.Environment,
 	}, nil
 }
 
@@ -587,7 +605,7 @@ func (r *Runner) executeFanOutStep(ctx context.Context, step config.WorkflowStep
 	cacheDir := r.getCacheDir()
 	debug := r.isDebugMode()
 
-	executor, err := NewFanOutExecutor(cacheDir, debug)
+	executor, err := NewFanOutExecutor(cacheDir, debug, r.childWorkflowRunner)
 	if err != nil {
 		err = fmt.Errorf("failed to create fan-out executor: %v", err)
 		r.state.FailStep(stepID, err.Error())
@@ -895,10 +913,23 @@ func (r *Runner) getRepositoryNameFromPath(workDir string) string {
 
 // Close cleans up the runner resources.
 func (r *Runner) Close() error {
-	if r.locks != nil {
-		return r.locks.Close()
+	var err error
+
+	// Close child runner factory first
+	if r.childRunnerFactory != nil {
+		if closeErr := r.childRunnerFactory.Close(); closeErr != nil {
+			err = closeErr
+		}
 	}
-	return nil
+
+	// Close lock manager
+	if r.locks != nil {
+		if closeErr := r.locks.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}
+
+	return err
 }
 
 // WorkflowRunnerAdapter wraps a Runner to implement the WorkflowRunner interface.

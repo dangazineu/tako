@@ -11,8 +11,9 @@ import (
 
 func TestNewFanOutExecutor(t *testing.T) {
 	tempDir := t.TempDir()
+	mockRunner := NewTestMockWorkflowRunner()
 
-	executor, err := NewFanOutExecutor(tempDir, false)
+	executor, err := NewFanOutExecutor(tempDir, false, mockRunner)
 	if err != nil {
 		t.Fatalf("Failed to create fan-out executor: %v", err)
 	}
@@ -26,7 +27,8 @@ func TestNewFanOutExecutor(t *testing.T) {
 }
 
 func TestFanOutExecutor_parseFanOutParams(t *testing.T) {
-	executor, err := NewFanOutExecutor(t.TempDir(), false)
+	mockRunner := NewTestMockWorkflowRunner()
+	executor, err := NewFanOutExecutor(t.TempDir(), false, mockRunner)
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -233,7 +235,8 @@ subscriptions:
 		t.Fatalf("Failed to write tako.yml for repo2: %v", err)
 	}
 
-	executor, err := NewFanOutExecutor(tempDir, true) // Enable debug for visibility
+	mockRunner := NewTestMockWorkflowRunner()
+	executor, err := NewFanOutExecutor(tempDir, true, mockRunner) // Enable debug for visibility
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -360,7 +363,8 @@ subscriptions:
 }
 
 func TestFanOutExecutor_simulateWorkflowTrigger(t *testing.T) {
-	executor, err := NewFanOutExecutor(t.TempDir(), false)
+	mockRunner := NewTestMockWorkflowRunner()
+	executor, err := NewFanOutExecutor(t.TempDir(), false, mockRunner)
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -405,7 +409,8 @@ func TestFanOutExecutor_simulateWorkflowTrigger(t *testing.T) {
 }
 
 func TestFanOutExecutor_waitForChildren(t *testing.T) {
-	executor, err := NewFanOutExecutor(t.TempDir(), false)
+	mockRunner := NewTestMockWorkflowRunner()
+	executor, err := NewFanOutExecutor(t.TempDir(), false, mockRunner)
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
