@@ -31,8 +31,21 @@ type Orchestrator struct {
 //
 // Example usage:
 //
+//	// Create a discovery manager for repository scanning
+//	cacheDir := "~/.tako/cache"
 //	discoveryManager := engine.NewDiscoveryManager(cacheDir)
+//
+//	// Create the orchestrator with dependency injection
 //	orchestrator := engine.NewOrchestrator(discoveryManager)
+//
+//	// The orchestrator is now ready to coordinate subscription discovery
+//	ctx := context.Background()
+//	matches, err := orchestrator.DiscoverSubscriptions(ctx, "myorg/mylib:library", "build_completed")
+//
+// For testing, you can provide a mock implementation:
+//
+//	mockDiscoverer := &MyMockDiscoverer{}
+//	testOrchestrator := engine.NewOrchestrator(mockDiscoverer)
 func NewOrchestrator(discoverer interfaces.SubscriptionDiscoverer) *Orchestrator {
 	return &Orchestrator{
 		discoverer: discoverer,
