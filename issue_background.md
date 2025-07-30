@@ -61,6 +61,18 @@ executeBuiltinStep (router)
 
 ## Questions to Resolve
 1. Does the current FanOutExecutor already use the Orchestrator for discovery?
+   - **Answer**: No, FanOutExecutor uses DiscoveryManager directly
 2. If not, how should we inject the Orchestrator into the FanOutExecutor?
+   - **Answer**: We should NOT modify FanOutExecutor. Instead, modify executeFanOutStep to use Orchestrator and pass discovered subscriptions to FanOutExecutor
 3. What logging format/level should be used for discovered subscriptions?
+   - **Answer**: Will follow existing patterns in the codebase for fan-out logging
 4. Are there any missing tests for the executeBuiltinStep routing logic?
+   - **Answer**: Need to check and add tests for the orchestrator integration
+
+## Architectural Decision
+Based on analysis with Gemini:
+- Orchestrator is meant to be the abstraction layer over DiscoveryManager
+- executeFanOutStep should call Orchestrator.DiscoverSubscriptions
+- Pass discovered subscriptions to FanOutExecutor
+- Keep FanOutExecutor focused on execution, not discovery
+- This maintains separation of concerns and follows the intended architecture
