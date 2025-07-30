@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dangazineu/tako/internal/config"
+	"github.com/dangazineu/tako/internal/interfaces"
 )
 
 // FanOutExecutor handles the execution of tako/fan-out@v1 steps.
@@ -105,8 +106,19 @@ func (fe *FanOutExecutor) Execute(step config.WorkflowStep, sourceRepo string) (
 	return fe.ExecuteWithContext(step, sourceRepo, "")
 }
 
+// ExecuteWithSubscriptions performs the fan-out operation with pre-discovered subscriptions.
+func (fe *FanOutExecutor) ExecuteWithSubscriptions(step config.WorkflowStep, sourceRepo string, subscriptions []interfaces.SubscriptionMatch) (*FanOutResult, error) {
+	return fe.executeWithContextAndSubscriptions(step, sourceRepo, "", subscriptions)
+}
+
 // ExecuteWithContext performs the fan-out operation with optional parent run context.
 func (fe *FanOutExecutor) ExecuteWithContext(step config.WorkflowStep, sourceRepo, parentRunID string) (*FanOutResult, error) {
+	// Backward compatibility - discover subscriptions internally
+	return fe.executeWithContextAndSubscriptions(step, sourceRepo, parentRunID, nil)
+}
+
+// executeWithContextAndSubscriptions is the internal implementation that optionally accepts pre-discovered subscriptions.
+func (fe *FanOutExecutor) executeWithContextAndSubscriptions(step config.WorkflowStep, sourceRepo, parentRunID string, preDiscoveredSubscriptions []interfaces.SubscriptionMatch) (*FanOutResult, error) {
 	startTime := time.Now()
 	result := &FanOutResult{
 		StartTime: startTime,
@@ -202,14 +214,25 @@ func (fe *FanOutExecutor) ExecuteWithContext(step config.WorkflowStep, sourceRep
 
 	result.EventEmitted = true
 
-	// Find subscribers for this event
-	artifact := fmt.Sprintf("%s:default", sourceRepo)
-	subscribers, err := fe.discoveryManager.FindSubscribers(artifact, params.EventType)
-	if err != nil {
-		state.FailFanOut(fmt.Sprintf("failed to find subscribers: %v", err))
-		result.Errors = append(result.Errors, fmt.Sprintf("failed to find subscribers: %v", err))
-		result.EndTime = time.Now()
-		return result, err
+	// Use pre-discovered subscriptions if provided, otherwise discover them
+	var subscribers []interfaces.SubscriptionMatch
+	if preDiscoveredSubscriptions != nil {
+		// Use the pre-discovered subscriptions
+		subscribers = preDiscoveredSubscriptions
+		if fe.debug {
+			fmt.Printf("Using %d pre-discovered subscriptions\n", len(subscribers))
+		}
+	} else {
+		// Find subscribers for this event (backward compatibility)
+		artifact := fmt.Sprintf("%s:default", sourceRepo)
+		discoveredSubscribers, err := fe.discoveryManager.FindSubscribers(artifact, params.EventType)
+		if err != nil {
+			state.FailFanOut(fmt.Sprintf("failed to find subscribers: %v", err))
+			result.Errors = append(result.Errors, fmt.Sprintf("failed to find subscribers: %v", err))
+			result.EndTime = time.Now()
+			return result, err
+		}
+		subscribers = discoveredSubscribers
 	}
 
 	result.SubscribersFound = len(subscribers)
