@@ -27,17 +27,40 @@ func (m *mockSubscriptionDiscoverer) FindSubscribers(artifact, eventType string)
 }
 
 func TestNewOrchestrator(t *testing.T) {
-	discoverer := &mockSubscriptionDiscoverer{}
+	t.Run("valid discoverer", func(t *testing.T) {
+		discoverer := &mockSubscriptionDiscoverer{}
 
-	orchestrator := NewOrchestrator(discoverer)
+		orchestrator, err := NewOrchestrator(discoverer)
 
-	if orchestrator == nil {
-		t.Fatal("Expected non-nil orchestrator")
-	}
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
 
-	if orchestrator.discoverer != discoverer {
-		t.Error("Expected discoverer to be set correctly")
-	}
+		if orchestrator == nil {
+			t.Fatal("Expected non-nil orchestrator")
+		}
+
+		if orchestrator.discoverer != discoverer {
+			t.Error("Expected discoverer to be set correctly")
+		}
+	})
+
+	t.Run("nil discoverer should return error", func(t *testing.T) {
+		orchestrator, err := NewOrchestrator(nil)
+
+		if err == nil {
+			t.Fatal("Expected error for nil discoverer, got nil")
+		}
+
+		if orchestrator != nil {
+			t.Error("Expected nil orchestrator when error occurs")
+		}
+
+		expectedErrorMsg := "discoverer cannot be nil"
+		if err.Error() != expectedErrorMsg {
+			t.Errorf("Expected error message '%s', got '%s'", expectedErrorMsg, err.Error())
+		}
+	})
 }
 
 func TestOrchestrator_DiscoverSubscriptions_HappyPath(t *testing.T) {
@@ -73,7 +96,10 @@ func TestOrchestrator_DiscoverSubscriptions_HappyPath(t *testing.T) {
 		},
 	}
 
-	orchestrator := NewOrchestrator(discoverer)
+	orchestrator, err := NewOrchestrator(discoverer)
+	if err != nil {
+		t.Fatalf("Failed to create orchestrator: %v", err)
+	}
 	ctx := context.Background()
 
 	// Execute the method under test
@@ -115,7 +141,10 @@ func TestOrchestrator_DiscoverSubscriptions_ErrorPath(t *testing.T) {
 		},
 	}
 
-	orchestrator := NewOrchestrator(discoverer)
+	orchestrator, err := NewOrchestrator(discoverer)
+	if err != nil {
+		t.Fatalf("Failed to create orchestrator: %v", err)
+	}
 	ctx := context.Background()
 
 	// Execute the method under test
@@ -143,7 +172,10 @@ func TestOrchestrator_DiscoverSubscriptions_NoMatches(t *testing.T) {
 		},
 	}
 
-	orchestrator := NewOrchestrator(discoverer)
+	orchestrator, err := NewOrchestrator(discoverer)
+	if err != nil {
+		t.Fatalf("Failed to create orchestrator: %v", err)
+	}
 	ctx := context.Background()
 
 	// Execute the method under test
@@ -172,40 +204,37 @@ func TestOrchestrator_DiscoverSubscriptions_ParameterValidation(t *testing.T) {
 			artifact:  "",
 			eventType: "build_completed",
 			expectErr: true,
-			errMsg:    "artifact cannot be empty",
+			errMsg:    "orchestrator: artifact cannot be empty",
 		},
 		{
 			name:      "empty event type",
 			artifact:  "test-org/repo:lib",
 			eventType: "",
 			expectErr: true,
-			errMsg:    "event type cannot be empty",
+			errMsg:    "orchestrator: eventType cannot be empty",
 		},
 		{
 			name:      "both empty",
 			artifact:  "",
 			eventType: "",
 			expectErr: true,
-			errMsg:    "artifact cannot be empty",
+			errMsg:    "orchestrator: artifact cannot be empty",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mock discoverer that validates parameters
+			// Create mock discoverer - parameter validation now happens at orchestrator level
 			discoverer := &mockSubscriptionDiscoverer{
 				findSubscribersFunc: func(artifact, eventType string) ([]interfaces.SubscriptionMatch, error) {
-					if artifact == "" {
-						return nil, errors.New("artifact cannot be empty")
-					}
-					if eventType == "" {
-						return nil, errors.New("event type cannot be empty")
-					}
 					return []interfaces.SubscriptionMatch{}, nil
 				},
 			}
 
-			orchestrator := NewOrchestrator(discoverer)
+			orchestrator, err := NewOrchestrator(discoverer)
+			if err != nil {
+				t.Fatalf("Failed to create orchestrator: %v", err)
+			}
 			ctx := context.Background()
 
 			// Execute the method under test
@@ -251,7 +280,10 @@ func TestOrchestrator_DiscoverSubscriptions_ContextHandling(t *testing.T) {
 		},
 	}
 
-	orchestrator := NewOrchestrator(discoverer)
+	orchestrator, err := NewOrchestrator(discoverer)
+	if err != nil {
+		t.Fatalf("Failed to create orchestrator: %v", err)
+	}
 
 	t.Run("valid context", func(t *testing.T) {
 		ctx := context.Background()
@@ -283,38 +315,39 @@ func TestOrchestrator_DiscoverSubscriptions_ContextHandling(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
 
-		// Note: The current implementation doesn't check context cancellation
-		// This test documents the current behavior and can be updated when
-		// context handling is added to the orchestrator
+		// The orchestrator should now check for context cancellation
 		matches, err := orchestrator.DiscoverSubscriptions(ctx, "test-org/lib:lib", "build_completed")
 
-		// Current behavior: ignores cancelled context (passes through to discoverer)
-		if err != nil {
-			t.Fatalf("Expected no error with current implementation, got: %v", err)
+		// Should return context cancellation error
+		if err == nil {
+			t.Fatal("Expected context cancellation error, got nil")
 		}
-		if len(matches) != 1 {
-			t.Errorf("Expected 1 match with current implementation, got %d", len(matches))
+		if err != context.Canceled {
+			t.Errorf("Expected context.Canceled error, got: %v", err)
+		}
+		if matches != nil {
+			t.Errorf("Expected nil matches on context cancellation, got %v", matches)
 		}
 	})
 }
 
 func TestOrchestrator_DiscoverSubscriptions_EdgeCases(t *testing.T) {
-	t.Run("nil discoverer should panic on construction", func(t *testing.T) {
-		// This test ensures we document the behavior with nil dependencies
-		// In Go, calling methods on nil pointers panics, which is expected behavior
-		defer func() {
-			if r := recover(); r != nil {
-				// Expected behavior - method call on nil pointer panics
-				t.Log("Correctly panicked when calling method on orchestrator with nil discoverer")
-			}
-		}()
+	t.Run("nil discoverer handled during construction", func(t *testing.T) {
+		// With the new constructor, nil discoverers are rejected at construction time
+		orchestrator, err := NewOrchestrator(nil)
 
-		orchestrator := NewOrchestrator(nil)
-		ctx := context.Background()
+		if err == nil {
+			t.Fatal("Expected error when creating orchestrator with nil discoverer")
+		}
 
-		// This should panic
-		_, _ = orchestrator.DiscoverSubscriptions(ctx, "test/repo:lib", "event")
-		t.Error("Expected panic when calling method on orchestrator with nil discoverer")
+		if orchestrator != nil {
+			t.Error("Expected nil orchestrator when error occurs")
+		}
+
+		expectedErrorMsg := "discoverer cannot be nil"
+		if err.Error() != expectedErrorMsg {
+			t.Errorf("Expected error message '%s', got '%s'", expectedErrorMsg, err.Error())
+		}
 	})
 
 	t.Run("large result set", func(t *testing.T) {
@@ -338,7 +371,10 @@ func TestOrchestrator_DiscoverSubscriptions_EdgeCases(t *testing.T) {
 			},
 		}
 
-		orchestrator := NewOrchestrator(discoverer)
+		orchestrator, err := NewOrchestrator(discoverer)
+		if err != nil {
+			t.Fatalf("Failed to create orchestrator: %v", err)
+		}
 		ctx := context.Background()
 
 		matches, err := orchestrator.DiscoverSubscriptions(ctx, "test-org/lib:lib", "build_completed")
@@ -356,5 +392,120 @@ func TestOrchestrator_DiscoverSubscriptions_EdgeCases(t *testing.T) {
 		if matches[99].Repository != "test-org/repo99" {
 			t.Errorf("Expected last match repository to be 'test-org/repo99', got '%s'", matches[99].Repository)
 		}
+	})
+}
+
+// TestOrchestrator_Integration_WithDiscoveryManager tests that the orchestrator
+// works correctly with the real DiscoveryManager component, demonstrating
+// end-to-end integration without requiring external dependencies.
+func TestOrchestrator_Integration_WithDiscoveryManager(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir := t.TempDir()
+
+	// Create a real DiscoveryManager
+	discoveryManager := NewDiscoveryManager(tempDir)
+
+	// Create the orchestrator with the real discoverer
+	orchestrator, err := NewOrchestrator(discoveryManager)
+	if err != nil {
+		t.Fatalf("Failed to create orchestrator: %v", err)
+	}
+
+	ctx := context.Background()
+
+	t.Run("integration with empty cache", func(t *testing.T) {
+		// Test with empty cache directory (no repositories)
+		matches, err := orchestrator.DiscoverSubscriptions(ctx, "test-org/lib:library", "build_completed")
+
+		if err != nil {
+			t.Fatalf("Expected no error with empty cache, got: %v", err)
+		}
+
+		// Should return empty results, not an error
+		if len(matches) != 0 {
+			t.Errorf("Expected 0 matches with empty cache, got %d", len(matches))
+		}
+	})
+
+	t.Run("integration validates parameters at orchestrator level", func(t *testing.T) {
+		// Test that parameter validation is handled by the orchestrator
+		matches, err := orchestrator.DiscoverSubscriptions(ctx, "", "build_completed")
+
+		// The orchestrator should return an error for empty artifact
+		if err == nil {
+			t.Fatal("Expected error for empty artifact, got nil")
+		}
+
+		if err.Error() != "orchestrator: artifact cannot be empty" {
+			t.Errorf("Expected 'orchestrator: artifact cannot be empty' error, got: %v", err)
+		}
+
+		if matches != nil {
+			t.Errorf("Expected nil matches on error, got: %v", matches)
+		}
+	})
+
+	t.Run("integration test documents real usage pattern", func(t *testing.T) {
+		// This test documents how the orchestrator should be used in practice
+		// It demonstrates the integration without requiring external resources
+
+		// 1. Create components
+		cacheDir := tempDir
+		realDiscoverer := NewDiscoveryManager(cacheDir)
+		realOrchestrator, err := NewOrchestrator(realDiscoverer)
+		if err != nil {
+			t.Fatalf("Failed to create orchestrator: %v", err)
+		}
+
+		// 2. Use the orchestrator
+		ctx := context.Background()
+		matches, err := realOrchestrator.DiscoverSubscriptions(ctx, "example-org/example-lib:library", "build_completed")
+
+		// 3. Verify behavior (no repositories cached, so empty results)
+		if err != nil {
+			t.Fatalf("Integration test failed: %v", err)
+		}
+
+		if len(matches) != 0 {
+			t.Errorf("Integration test expected 0 matches, got %d", len(matches))
+		}
+
+		// This confirms the integration works and the orchestrator successfully
+		// delegates to the real discoverer component
+		t.Log("Integration test passed: Orchestrator successfully integrated with DiscoveryManager")
+	})
+
+	t.Run("integration demonstrates orchestrator abstraction", func(t *testing.T) {
+		// This test shows that the orchestrator provides a stable interface
+		// regardless of the underlying discoverer implementation
+
+		// Test with multiple different discoverers through the same orchestrator interface
+		discoverers := []interfaces.SubscriptionDiscoverer{
+			NewDiscoveryManager(tempDir),  // Real implementation
+			&mockSubscriptionDiscoverer{}, // Mock implementation
+		}
+
+		for i, discoverer := range discoverers {
+			orchestrator, err := NewOrchestrator(discoverer)
+			if err != nil {
+				t.Fatalf("Failed to create orchestrator: %v", err)
+			}
+			matches, err := orchestrator.DiscoverSubscriptions(ctx, "test-org/test-lib:lib", "test_event")
+
+			// Both should work without error (though results may differ)
+			if err != nil {
+				t.Errorf("Discoverer %d failed: %v", i, err)
+			}
+
+			// Results should be a valid slice (not nil), even if empty
+			// Note: DiscoveryManager returns empty slice, mock returns empty slice by default
+			if matches == nil {
+				t.Errorf("Discoverer %d returned nil matches (should be empty slice)", i)
+			}
+
+			t.Logf("Discoverer %d returned %d matches", i, len(matches))
+		}
+
+		t.Log("Integration test passed: Orchestrator abstraction works with multiple discoverer implementations")
 	})
 }

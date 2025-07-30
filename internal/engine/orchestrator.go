@@ -8,6 +8,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 
 	"github.com/dangazineu/tako/internal/interfaces"
 )
@@ -28,6 +29,7 @@ type Orchestrator struct {
 
 // NewOrchestrator creates a new Orchestrator with the provided dependencies.
 // The discoverer is used to find repositories that subscribe to specific events.
+// Returns an error if the discoverer is nil to ensure safe construction.
 //
 // Example usage:
 //
@@ -36,7 +38,10 @@ type Orchestrator struct {
 //	discoveryManager := engine.NewDiscoveryManager(cacheDir)
 //
 //	// Create the orchestrator with dependency injection
-//	orchestrator := engine.NewOrchestrator(discoveryManager)
+//	orchestrator, err := engine.NewOrchestrator(discoveryManager)
+//	if err != nil {
+//		return fmt.Errorf("failed to create orchestrator: %w", err)
+//	}
 //
 //	// The orchestrator is now ready to coordinate subscription discovery
 //	ctx := context.Background()
@@ -45,11 +50,14 @@ type Orchestrator struct {
 // For testing, you can provide a mock implementation:
 //
 //	mockDiscoverer := &MyMockDiscoverer{}
-//	testOrchestrator := engine.NewOrchestrator(mockDiscoverer)
-func NewOrchestrator(discoverer interfaces.SubscriptionDiscoverer) *Orchestrator {
+//	testOrchestrator, err := engine.NewOrchestrator(mockDiscoverer)
+func NewOrchestrator(discoverer interfaces.SubscriptionDiscoverer) (*Orchestrator, error) {
+	if discoverer == nil {
+		return nil, errors.New("discoverer cannot be nil")
+	}
 	return &Orchestrator{
 		discoverer: discoverer,
-	}
+	}, nil
 }
 
 // DiscoverSubscriptions finds all repositories that subscribe to the specified
@@ -82,7 +90,22 @@ func NewOrchestrator(discoverer interfaces.SubscriptionDiscoverer) *Orchestrator
 //	    fmt.Printf("Found subscription in %s for workflow %s\n", match.Repository, match.Subscription.Workflow)
 //	}
 func (o *Orchestrator) DiscoverSubscriptions(ctx context.Context, artifact, eventType string) ([]interfaces.SubscriptionMatch, error) {
-	// Current implementation: simple pass-through to the discoverer
-	// Future orchestration logic will be added here
+	// Check for context cancellation early
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Validate parameters at the orchestrator level for robustness
+	if artifact == "" {
+		return nil, errors.New("orchestrator: artifact cannot be empty")
+	}
+	if eventType == "" {
+		return nil, errors.New("orchestrator: eventType cannot be empty")
+	}
+
+	// Current implementation: pass-through to the discoverer
+	// Future orchestration logic will be added here (filtering, prioritization, etc.)
 	return o.discoverer.FindSubscribers(artifact, eventType)
 }
