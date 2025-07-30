@@ -1,5 +1,13 @@
 // Package interfaces defines the core interfaces for the Tako subscription-based triggering system.
-// These interfaces enable dependency injection and testability by decoupling implementations.
+//
+// This package provides interface definitions that enable dependency injection and testability
+// by decoupling concrete implementations from their consumers. The main interfaces are:
+//
+//   - SubscriptionDiscoverer: For discovering repositories that subscribe to events
+//   - WorkflowRunner: For executing workflows in repositories
+//
+// These interfaces are implemented by types in the engine package and consumed by step executors
+// in the steps package, creating a clean separation of concerns and enabling easier testing.
 package interfaces
 
 // SubscriptionDiscoverer defines the interface for discovering repositories that subscribe to events.

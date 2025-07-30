@@ -1,6 +1,17 @@
 // Package steps contains the implementation of various workflow step types.
+//
 // This package provides step executors that implement specific workflow actions
-// using the interfaces defined in the interfaces package.
+// using the interfaces defined in the interfaces package. This design enables:
+//
+//   - Dependency injection for improved testability
+//   - Clean separation between step logic and engine implementations
+//   - Consistent patterns for future step implementations
+//
+// The main components in this package are:
+//
+//   - FanOutStepExecutor: Handles tako/fan-out@v1 step execution
+//   - FanOutStepParams: Parameter structure for fan-out steps
+//   - FanOutStepResult: Result structure for fan-out step execution
 package steps
 
 import (
