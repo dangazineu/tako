@@ -7,14 +7,11 @@ import (
 	"sort"
 
 	"github.com/dangazineu/tako/internal/config"
+	"github.com/dangazineu/tako/internal/interfaces"
 )
 
-// SubscriptionMatch represents a repository that subscribes to a specific event.
-type SubscriptionMatch struct {
-	Repository   string              // Repository name (owner/repo format)
-	Subscription config.Subscription // The matching subscription
-	RepoPath     string              // Local path to the repository
-}
+// SubscriptionMatch is now defined in the interfaces package.
+type SubscriptionMatch = interfaces.SubscriptionMatch
 
 // DiscoveryManager handles repository discovery and subscription lookup.
 type DiscoveryManager struct {
@@ -27,6 +24,10 @@ func NewDiscoveryManager(cacheDir string) *DiscoveryManager {
 		cacheDir: cacheDir,
 	}
 }
+
+// _ ensures DiscoveryManager implements the SubscriptionDiscoverer interface.
+// This compile-time check verifies interface compliance.
+var _ interfaces.SubscriptionDiscoverer = (*DiscoveryManager)(nil)
 
 // FindSubscribers finds all repositories that subscribe to the specified artifact and event type.
 // Returns a sorted list of subscription matches for deterministic behavior.

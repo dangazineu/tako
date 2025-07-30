@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dangazineu/tako/internal/config"
+	"github.com/dangazineu/tako/internal/interfaces"
 )
 
 // ExecutionMode defines how the workflow should be executed.
@@ -24,26 +25,11 @@ const (
 	ExecutionModeDebug
 )
 
-// ExecutionResult represents the result of a workflow execution.
-type ExecutionResult struct {
-	RunID     string
-	Success   bool
-	Error     error
-	StartTime time.Time
-	EndTime   time.Time
-	Steps     []StepResult
-}
+// ExecutionResult is now defined in the interfaces package.
+type ExecutionResult = interfaces.ExecutionResult
 
-// StepResult represents the result of a single step execution.
-type StepResult struct {
-	ID        string
-	Success   bool
-	Error     error
-	StartTime time.Time
-	EndTime   time.Time
-	Output    string
-	Outputs   map[string]string
-}
+// StepResult is now defined in the interfaces package.
+type StepResult = interfaces.StepResult
 
 // Runner executes workflows with comprehensive state management and workspace isolation.
 type Runner struct {
@@ -857,3 +843,22 @@ func (r *Runner) Close() error {
 	}
 	return nil
 }
+
+// WorkflowRunnerAdapter wraps a Runner to implement the WorkflowRunner interface.
+type WorkflowRunnerAdapter struct {
+	runner *Runner
+}
+
+// NewWorkflowRunnerAdapter creates an adapter that implements the WorkflowRunner interface.
+func NewWorkflowRunnerAdapter(runner *Runner) *WorkflowRunnerAdapter {
+	return &WorkflowRunnerAdapter{runner: runner}
+}
+
+// ExecuteWorkflow implements the WorkflowRunner interface by adapting parameter order.
+func (w *WorkflowRunnerAdapter) ExecuteWorkflow(ctx context.Context, repoPath, workflowName string, inputs map[string]string) (*ExecutionResult, error) {
+	return w.runner.ExecuteWorkflow(ctx, workflowName, inputs, repoPath)
+}
+
+// _ ensures WorkflowRunnerAdapter implements the WorkflowRunner interface.
+// This compile-time check verifies interface compliance.
+var _ interfaces.WorkflowRunner = (*WorkflowRunnerAdapter)(nil)
