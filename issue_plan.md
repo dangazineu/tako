@@ -14,15 +14,18 @@ Replace `simulateWorkflowTrigger()` with actual isolated child workflow executio
 - Add methods: `NewChildRunnerFactory()`, `CreateChildRunner()`
 - Ensure workspace path isolation: `<parent_workspace>/children/<child_run_id>`
 - Share cache directory between parent and children
+- **🔒 CRITICAL:** Implement cache locking mechanism using existing `LockManager`
 
 **Testing:**
 - Unit tests for factory creation and workspace isolation
 - Test that each child gets unique workspace directory
 - Verify shared cache directory access
+- **🔒 NEW:** Test concurrent cache access to prevent race conditions
 
 **Success Criteria:**
 - Factory creates isolated Runner instances
 - Workspace directories don't conflict
+- Cache access is thread-safe with proper locking
 - All existing tests pass
 - Code compiles and linter passes
 
@@ -36,16 +39,22 @@ Replace `simulateWorkflowTrigger()` with actual isolated child workflow executio
 - Implement `ChildWorkflowExecutor` struct implementing `interfaces.WorkflowRunner`
 - Add methods: `NewChildWorkflowExecutor()`, `RunWorkflow()` 
 - Handle repository path resolution for child execution
+- **📋 CRITICAL:** Implement `tako.yml` discovery within child workspace
+- **🔄 CRITICAL:** Define input/payload passing from parent to child workflows
 - Implement proper error handling and cleanup with defer blocks
 
 **Testing:**
 - Unit tests for child workflow executor
 - Test workflow execution with isolated workspaces
 - Test error handling and cleanup scenarios
+- **📋 NEW:** Test missing/malformed `tako.yml` scenarios
+- **🔒 NEW:** Security testing for path traversal vulnerabilities
 - Mock tests for workflow execution
 
 **Success Criteria:**
 - ChildWorkflowExecutor properly executes workflows in isolation
+- `tako.yml` discovery works reliably in child workspaces
+- Security boundaries prevent workspace escape
 - Error handling works correctly
 - Cleanup prevents workspace leaks
 - All tests pass
@@ -56,20 +65,23 @@ Replace `simulateWorkflowTrigger()` with actual isolated child workflow executio
 **Goal:** Connect child executor to existing FanOutExecutor
 
 **Changes:**
+- **🏗️ IMPROVED:** Create `ChildRunnerFactory` in `NewRunner()` instead of `executeFanOutStep()`
 - Modify `internal/engine/runner.go` `executeFanOutStep()` method
-- Create and inject `ChildRunnerFactory` into workflow execution
 - Wire `ChildWorkflowExecutor` as `WorkflowRunner` interface
 - Update `FanOutExecutor` to use injected executor instead of simulation
+- **🔧 CRITICAL:** Integrate with existing `ResourceManager` for resource limits
 
 **Testing:**
 - Integration tests for fan-out step with child execution
 - Test that fan-out step creates and uses child runners
 - Verify workspace isolation during concurrent execution
 - Test error propagation from children to parent
+- **🔧 NEW:** Verify other step types (shell, built-ins) remain unaffected
 
 **Success Criteria:**
 - Fan-out step uses real child workflow execution
-- Dependency injection works properly
+- Dependency injection works properly at `NewRunner()` level
+- Resource management applies to child workflows
 - Integration tests pass
 - No regression in existing functionality
 
@@ -103,7 +115,8 @@ Replace `simulateWorkflowTrigger()` with actual isolated child workflow executio
 
 **Changes:**
 - Modify `FanOutResult` to include detailed error information
-- Implement comprehensive cleanup for partial failures
+- **🧹 CRITICAL:** Implement idempotent cleanup mechanism
+- **🧹 CRITICAL:** Design orphan workspace reaper for abrupt terminations
 - Add timeout handling for child workflow execution
 - Update structured logging with execution details
 
@@ -112,10 +125,14 @@ Replace `simulateWorkflowTrigger()` with actual isolated child workflow executio
 - Test cleanup when some children succeed and others fail
 - Test timeout scenarios
 - Test resource cleanup under various failure conditions
+- **🧹 NEW:** Test abrupt parent process termination and subsequent cleanup
+- **🧹 NEW:** Test idempotent cleanup (safe to run multiple times)
 
 **Success Criteria:**
 - Detailed error reporting from child workflows
 - No resource leaks from failed executions
+- Cleanup works even after abrupt termination
+- Idempotent cleanup prevents double-cleanup errors
 - Proper timeout handling
 - Clean failure modes
 
@@ -136,6 +153,37 @@ Phase 1 (Factory) → Phase 2 (Executor) → Phase 3 (Wiring) → Phase 4 (Repla
 - Maintain overall coverage ≥ 68.5% (max 1% drop from baseline 69.5%)
 - New functions must have ≥ 80% coverage
 - Critical paths (child execution, error handling) must have ≥ 95% coverage
+
+## Key Architectural Improvements (From Gemini Review)
+
+### 🔒 Cache Locking Strategy
+- Use existing `LockManager` to prevent race conditions in shared cache
+- Lock granularity: per-repository to allow concurrent access to different repos
+- Implement in Phase 1 as critical foundation
+
+### 📋 Child Configuration Discovery
+- Robust `tako.yml` location logic within child workspaces
+- Graceful handling of missing/malformed configuration files
+- Security validation to prevent workspace escape attempts
+
+### 🔧 Resource Management Integration
+- Connect `ChildWorkflowExecutor` with existing `ResourceManager`
+- Implement configurable resource limits for child workflows
+- Prevent system resource exhaustion from fan-out operations
+
+### 🧹 Robust Cleanup Design
+- Idempotent cleanup operations (safe to run multiple times)
+- Orphan workspace reaper for recovery from abrupt terminations
+- State tracking to determine what needs cleanup
+
+## Risk Mitigation Strategies
+
+### High-Risk Areas:
+1. **Concurrent Cache Access** → Implement fine-grained locking
+2. **Workspace Security** → Path traversal testing and validation
+3. **Resource Exhaustion** → Integration with ResourceManager
+4. **Orphaned Resources** → Idempotent cleanup and reaper design
+5. **Dependency Injection** → Inject at `NewRunner()` level for cleaner architecture
 
 ## Rollback Strategy
 Each phase is atomic and can be rolled back independently:
