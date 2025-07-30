@@ -8,61 +8,51 @@ Implement the `Orchestrator` component in `internal/engine/orchestrator.go` with
 
 Each phase must leave the codebase in a healthy state (compiling + passing tests).
 
-### Phase 1: Create Orchestrator Structure and Constructor
-**Goal**: Establish the basic `Orchestrator` component with dependency injection
+### Phase 1: Initial Implementation & Core Tests
+**Goal**: Create the Orchestrator component with pass-through functionality and basic testing
 
 **Tasks**:
-1. Create `internal/engine/orchestrator.go`
+1. Create `internal/engine/orchestrator.go` and `internal/engine/orchestrator_test.go`
 2. Define `Orchestrator` struct with `SubscriptionDiscoverer` dependency
 3. Implement `NewOrchestrator` constructor
-4. Add package documentation
-5. Create basic compilation test
+4. Implement `DiscoverSubscriptions(ctx context.Context, artifact, eventType string) ([]interfaces.SubscriptionMatch, error)` as pass-through
+5. Create `MockSubscriptionDiscoverer` in test file
+6. Add core unit tests:
+   - Constructor sets dependency correctly
+   - DiscoverSubscriptions happy path (returns matches)
+   - DiscoverSubscriptions error path (returns error)
+7. Add basic package and method documentation
 
 **Expected State**: 
-- New file compiles without errors
-- Constructor works with dependency injection
-- No functional logic yet
+- Complete working component with pass-through functionality
+- Core functionality tested with mocked dependencies
+- All tests passing
 
-**Tests**: Basic constructor test to verify dependency is set correctly
+**Tests**: Core unit tests for constructor and basic DiscoverSubscriptions functionality
 
-### Phase 2: Implement DiscoverSubscriptions Method
-**Goal**: Add the core `DiscoverSubscriptions` method as pass-through to discoverer
+### Phase 2: Comprehensive Unit Testing & Documentation
+**Goal**: Expand test coverage and add comprehensive documentation
 
 **Tasks**:
-1. Implement `DiscoverSubscriptions(ctx context.Context, artifact, eventType string) ([]interfaces.SubscriptionMatch, error)`
-2. Initial implementation: simple pass-through to `discoverer.FindSubscribers`
-3. Add method documentation explaining current and future purpose
+1. Add expanded unit tests for:
+   - Parameter validation (empty artifact, empty eventType)
+   - Context handling (context cancellation)
+   - Edge cases and boundary conditions
+2. Enhance package and method documentation with:
+   - Usage examples
+   - Future extensibility notes
+   - Clear explanation of orchestration purpose
+3. Verify test coverage meets >90% target for new code
 4. Update coverage tracking
 
 **Expected State**:
-- Method works correctly as pass-through
-- All existing tests still pass
-- Method signature matches design decisions
-
-**Tests**: Unit tests for happy path and error handling using mocked discoverer
-
-### Phase 3: Comprehensive Unit Testing
-**Goal**: Add complete test coverage for the Orchestrator
-
-**Tasks**:
-1. Create `internal/engine/orchestrator_test.go`
-2. Implement `MockSubscriptionDiscoverer` for testing
-3. Add tests for:
-   - Constructor with valid dependency
-   - DiscoverSubscriptions happy path
-   - DiscoverSubscriptions error handling
-   - Parameter validation
-   - Context handling
-4. Verify test coverage meets requirements
-
-**Expected State**:
-- High test coverage for new component
+- High test coverage for new component (>90%)
 - All edge cases covered
-- Mock infrastructure in place for future tests
+- Comprehensive documentation for future developers
 
 **Tests**: Complete test suite achieving >90% coverage for orchestrator.go
 
-### Phase 4: Integration and Documentation
+### Phase 3: Integration and Documentation
 **Goal**: Ensure integration with existing system and add comprehensive documentation
 
 **Tasks**:
@@ -86,6 +76,7 @@ Each phase must leave the codebase in a healthy state (compiling + passing tests
 - [ ] `DiscoverSubscriptions` method correctly finds and returns subscription matches
 - [ ] High unit test coverage (>90% for new code)
 - [ ] Integration test with existing `DiscoveryManager`
+- [ ] Integration test successfully demonstrates Orchestrator using live DiscoveryManager to find known subscriptions
 - [ ] All existing tests continue to pass
 - [ ] Test coverage maintained within 1% of baseline (76.7%)
 - [ ] Code passes all linters and formatting checks
@@ -97,6 +88,7 @@ Each phase must leave the codebase in a healthy state (compiling + passing tests
 - **Breaking Changes**: Since this is new functionality, no existing code should be affected
 - **Test Complexity**: Mock-based testing will keep tests fast and reliable
 - **Performance**: Pass-through implementation ensures no performance impact
+- **Configuration Drift**: Future changes to `tako.yml` format could break DiscoveryManager (and by extension, Orchestrator). Integration test will catch such changes.
 
 ## Future Extensions (Not in This Issue)
 
