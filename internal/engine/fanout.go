@@ -447,11 +447,21 @@ func (fe *FanOutExecutor) triggerSubscribersWithState(subscribers []Subscription
 
 			var finalErr error
 			var runID string
+			var executionResult *interfaces.ExecutionResult
 
 			// Execute with resilience (circuit breaker + retry)
 			err := circuitBreaker.Call(func() error {
 				return retryExecutor.ExecuteWithCallback(context.Background(), func() error {
-					return fe.simulateWorkflowTrigger(sub.Repository, sub.Subscription.Workflow, childWorkflow.Inputs)
+					result, execErr := fe.executeChildWorkflow(context.Background(), sub.Repository, sub.Subscription.Workflow, childWorkflow.Inputs)
+					if execErr != nil {
+						return execErr
+					}
+					// Store the result for later use
+					executionResult = result
+					if result != nil {
+						runID = result.RunID
+					}
+					return nil
 				}, func(attempt int, retryErr error) {
 					fe.logger.Warn("Child workflow execution retry",
 						"repository", sub.Repository,
@@ -479,12 +489,22 @@ func (fe *FanOutExecutor) triggerSubscribersWithState(subscribers []Subscription
 				errors = append(errors, fmt.Sprintf("failed to trigger workflow in %s: %v", sub.Repository, err))
 				mutex.Unlock()
 			} else {
-				finalStatus = ChildStatusCompleted
-				runID = fmt.Sprintf("run-%d", time.Now().Unix())
+				// Execution completed, but check if the workflow itself succeeded
+				if executionResult != nil && !executionResult.Success {
+					finalStatus = ChildStatusFailed
+					finalErr = fmt.Errorf("child workflow execution completed but workflow failed")
 
-				mutex.Lock()
-				triggeredCount++
-				mutex.Unlock()
+					mutex.Lock()
+					errors = append(errors, fmt.Sprintf("workflow failed in %s: workflow execution was unsuccessful", sub.Repository))
+					mutex.Unlock()
+				} else {
+					finalStatus = ChildStatusCompleted
+					// runID is already set from the execution result
+
+					mutex.Lock()
+					triggeredCount++
+					mutex.Unlock()
+				}
 			}
 
 			// Record child completion metrics
@@ -514,22 +534,40 @@ func (fe *FanOutExecutor) triggerSubscribersWithState(subscribers []Subscription
 	return triggeredCount, errors
 }
 
-// simulateWorkflowTrigger simulates triggering a workflow in a repository.
-// This is a placeholder for Phase 2 - actual workflow triggering will be implemented in later phases.
-func (fe *FanOutExecutor) simulateWorkflowTrigger(repository, workflow string, inputs map[string]string) error {
+// executeChildWorkflow executes a workflow in a child repository using the injected WorkflowRunner.
+// This replaces the simulation with actual isolated child workflow execution.
+func (fe *FanOutExecutor) executeChildWorkflow(ctx context.Context, repository, workflow string, inputs map[string]string) (*interfaces.ExecutionResult, error) {
+	if fe.workflowRunner == nil {
+		return nil, fmt.Errorf("workflow runner not configured for child execution")
+	}
+
 	if fe.debug {
-		fmt.Printf("SIMULATION: Would trigger workflow '%s' in '%s' with inputs: %v\n", workflow, repository, inputs)
+		fmt.Printf("EXECUTING: Triggering workflow '%s' in '%s' with inputs: %v\n", workflow, repository, inputs)
 	}
 
-	// Simulate some work
-	time.Sleep(10 * time.Millisecond)
-
-	// For testing purposes, fail if repository name contains "fail"
-	if strings.Contains(repository, "fail") {
-		return fmt.Errorf("simulated failure for repository %s", repository)
+	// Execute the child workflow using the injected WorkflowRunner
+	result, err := fe.workflowRunner.ExecuteWorkflow(ctx, repository, workflow, inputs)
+	if err != nil {
+		return nil, fmt.Errorf("child workflow execution failed in %s: %w", repository, err)
 	}
 
-	return nil
+	if fe.debug {
+		status := "SUCCESS"
+		if result != nil && !result.Success {
+			status = "FAILED"
+		}
+		fmt.Printf("COMPLETED: Child workflow '%s' in '%s' - Status: %s\n", workflow, repository, status)
+	}
+
+	return result, nil
+}
+
+// simulateWorkflowTrigger is kept for backward compatibility with tests.
+// TODO: Remove this method after all tests are updated to use real execution.
+func (fe *FanOutExecutor) simulateWorkflowTrigger(repository, workflow string, inputs map[string]string) error {
+	// Convert to real execution with a background context
+	_, err := fe.executeChildWorkflow(context.Background(), repository, workflow, inputs)
+	return err
 }
 
 // waitForChildrenWithState waits for child workflows to complete using state management.
