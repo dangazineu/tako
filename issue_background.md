@@ -68,3 +68,40 @@ The current simulation approach avoids actual execution, preventing:
 
 ## Implementation Strategy
 The gap is clear: replace `simulateWorkflowTrigger()` with actual child workflow execution through a new `ExecuteChildWorkflow` method on the Runner.
+
+## Architectural Decisions (Resolved with Gemini)
+
+### 1. Isolation Strategy: ✅ DECIDED
+- **Create completely new Runner instances** for each child workflow
+- **Separate workspace roots**: `<parent_workspace>/children/<child_run_id>`
+- **Shared cache directory** to avoid re-downloading repositories
+- **Factory pattern**: Create `ChildRunnerFactory` for clean instantiation
+
+### 2. Integration Point: ✅ DECIDED  
+- **Dependency injection approach**: FanOutExecutor receives WorkflowRunner interface
+- **No ExecuteChildWorkflow on Runner**: Keep Runner focused on single workflow execution
+- **Use existing FanOutStepExecutor** in `internal/steps/fanout.go` which already has the right interface
+
+### 3. Context Isolation: ✅ DECIDED
+- **Separate workspace directories**: Essential for file-level isolation
+- **Independent state management**: Each child gets own ExecutionState 
+- **Isolated locks**: Each child gets own LockManager directory
+- **Shared template engine & container manager**: Thread-safe, can be shared
+
+### 4. Error Handling: ✅ DECIDED
+- **Fail parent on any child failure**: Fan-out step is atomic unit of work
+- **Collect all errors**: Modify FanOutStepResult to include detailed error list
+- **No failure threshold initially**: Start simple, add later if needed
+- **Cleanup with defer blocks**: Ensure child workspaces are cleaned up
+
+### 5. Concurrency: ✅ DECIDED
+- **Goroutines with semaphore**: Control concurrency limit via semaphore
+- **Workspace path isolation**: Key to preventing resource conflicts  
+- **Concurrent cache access**: Handled by existing locking mechanisms
+
+## Implementation Plan Summary
+1. Create `ChildRunnerFactory` with workspace isolation
+2. Create `ChildWorkflowExecutor` implementing `interfaces.WorkflowRunner`
+3. Wire dependency injection through existing `FanOutStepExecutor`
+4. Replace `simulateWorkflowTrigger()` with actual child workflow execution
+5. Implement proper error collection and cleanup
