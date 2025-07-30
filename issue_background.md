@@ -89,11 +89,35 @@ Since #131 is specifically focused on just discovery (no workflow triggering), i
 4. **No Workflow Triggering**: Discovery only, execution comes later
 5. **Integration**: Work with existing `DiscoveryManager` and interfaces
 
-## Approach Considerations
+## Technical Questions and Resolution
 
-The `Orchestrator` could:
-- **Option A**: Wrap the existing `DiscoveryManager` and add orchestration logic
-- **Option B**: Be a higher-level component that coordinates multiple discovery managers
-- **Option C**: Be a separate component that uses `SubscriptionDiscoverer` interface
+### Key Architectural Questions Resolved with Gemini
 
-Option A seems most appropriate since the core discovery logic already exists and works well.
+1. **Architecture Design**: Should Orchestrator wrap DiscoveryManager or be separate?
+   - **Decision**: Create separate component using `SubscriptionDiscoverer` interface
+   - **Rationale**: Better separation of concerns, improved testability, and flexibility for future changes
+
+2. **Method Signature**: What should DiscoverSubscriptions look like?
+   - **Decision**: `DiscoverSubscriptions(ctx context.Context, artifact, eventType string) ([]interfaces.SubscriptionMatch, error)`
+   - **Rationale**: Matches current FindSubscribers signature, provides stable high-level API
+
+3. **Differentiation**: How should it differ from FindSubscribers?
+   - **Purpose**: Acts as abstraction layer and future home for orchestration logic
+   - **Initial**: Simple pass-through to discoverer
+   - **Future**: Will add filtering, prioritization, logging, error handling
+
+4. **Integration**: Use dependency injection with SubscriptionDiscoverer interface
+   - **Decision**: Constructor accepts interface, not concrete implementation
+   - **Benefits**: Loose coupling, testability, standard Go practice
+
+5. **Testing Strategy**: Focus on orchestrator logic, not re-testing DiscoveryManager
+   - **Approach**: Mock SubscriptionDiscoverer interface
+   - **Focus**: Test orchestrator's coordination and error handling
+
+## Implementation Approach
+
+Create `internal/engine/orchestrator.go` with:
+- `Orchestrator` struct with `SubscriptionDiscoverer` dependency
+- `NewOrchestrator` constructor using dependency injection  
+- `DiscoverSubscriptions` method as initial pass-through
+- Comprehensive unit tests with mocked dependencies
