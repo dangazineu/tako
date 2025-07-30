@@ -193,7 +193,7 @@ func TestRunner_executeBuiltinStep(t *testing.T) {
 		t.Error("Expected error for invalid built-in step parameters")
 	}
 
-	expectedErrMsg := "event_type is required"
+	expectedErrMsg := "event_type is required for fan-out step"
 	if err.Error() != expectedErrMsg {
 		t.Errorf("Expected error message %q, got %q", expectedErrMsg, err.Error())
 	}
@@ -259,7 +259,7 @@ func TestRunner_executeBuiltinStep_DifferentBuiltins(t *testing.T) {
 
 			var expectedErrMsg string
 			if builtin == "tako/fan-out@v1" {
-				expectedErrMsg = "event_type is required"
+				expectedErrMsg = "event_type is required for fan-out step"
 			} else {
 				expectedErrMsg = "unknown built-in step: " + builtin
 			}

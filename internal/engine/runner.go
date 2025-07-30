@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,6 +51,9 @@ type Runner struct {
 
 	// Resource management
 	resourceManager *ResourceManager
+
+	// Orchestration
+	orchestrator *Orchestrator
 
 	// Configuration
 	maxConcurrentRepos int
@@ -108,6 +112,13 @@ func NewRunner(opts RunnerOptions) (*Runner, error) {
 	}
 	resourceManager := NewResourceManager(resourceConfig)
 
+	// Initialize orchestrator with discovery manager
+	discoveryManager := NewDiscoveryManager(opts.CacheDir)
+	orchestrator, err := NewOrchestrator(discoveryManager)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize orchestrator: %v", err)
+	}
+
 	mode := ExecutionModeNormal
 	if opts.DryRun {
 		mode = ExecutionModeDryRun
@@ -125,6 +136,7 @@ func NewRunner(opts RunnerOptions) (*Runner, error) {
 		templateEngine:     NewTemplateEngine(),
 		containerManager:   containerManager,
 		resourceManager:    resourceManager,
+		orchestrator:       orchestrator,
 		maxConcurrentRepos: opts.MaxConcurrentRepos,
 		dryRun:             opts.DryRun,
 		debug:              opts.Debug,
@@ -526,6 +538,51 @@ func (r *Runner) executeBuiltinStep(ctx context.Context, step config.WorkflowSte
 //
 //nolint:contextcheck,unparam // TODO: Pass context through FanOutExecutor in future refactoring
 func (r *Runner) executeFanOutStep(ctx context.Context, step config.WorkflowStep, stepID string, startTime time.Time) (StepResult, error) {
+	// Extract event type from step parameters
+	eventType, ok := step.With["event_type"].(string)
+	if !ok || eventType == "" {
+		err := fmt.Errorf("event_type is required for fan-out step")
+		r.state.FailStep(stepID, err.Error())
+		return StepResult{
+			ID:        stepID,
+			Success:   false,
+			Error:     err,
+			StartTime: startTime,
+			EndTime:   time.Now(),
+		}, err
+	}
+
+	// Get source repository for artifact discovery
+	sourceRepo := r.getSourceRepository()
+	artifact := fmt.Sprintf("%s:default", sourceRepo)
+
+	// Use Orchestrator to discover subscriptions
+	subscriptions, err := r.orchestrator.DiscoverSubscriptions(ctx, artifact, eventType)
+	if err != nil {
+		slog.Error("failed to discover subscriptions", "event", eventType, "error", err)
+		r.state.FailStep(stepID, err.Error())
+		return StepResult{
+			ID:        stepID,
+			Success:   false,
+			Error:     fmt.Errorf("failed to discover subscriptions: %w", err),
+			StartTime: startTime,
+			EndTime:   time.Now(),
+		}, err
+	}
+
+	// Log discovered subscriptions
+	if len(subscriptions) == 0 {
+		slog.Info("no subscriptions found for event, skipping fan-out", "event", eventType)
+	} else {
+		slog.Info("discovered subscriptions for fan-out", "event", eventType, "count", len(subscriptions))
+		for _, sub := range subscriptions {
+			slog.Debug("subscription found",
+				"repository", sub.Repository,
+				"workflow", sub.Subscription.Workflow,
+				"artifact", sub.Subscription.Artifact)
+		}
+	}
+
 	// Create fan-out executor with cache directory and debug mode
 	cacheDir := r.getCacheDir()
 	debug := r.isDebugMode()
@@ -543,8 +600,8 @@ func (r *Runner) executeFanOutStep(ctx context.Context, step config.WorkflowStep
 		}, err
 	}
 
-	// Execute the fan-out step
-	result, err := executor.Execute(step, r.getSourceRepository())
+	// Execute the fan-out step with pre-discovered subscriptions
+	result, err := executor.ExecuteWithSubscriptions(step, sourceRepo, subscriptions)
 	endTime := time.Now()
 
 	if err != nil {
