@@ -39,7 +39,7 @@ func (dm *DiscoveryManager) FindSubscribers(artifact, eventType string) ([]Subsc
 		return nil, fmt.Errorf("event type cannot be empty")
 	}
 
-	var matches []SubscriptionMatch
+	matches := make([]SubscriptionMatch, 0)
 
 	// Scan the cache directory for repositories
 	repoBaseDir := filepath.Join(dm.cacheDir, "repos")
