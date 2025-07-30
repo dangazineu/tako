@@ -35,14 +35,14 @@ Wire up the `tako/fan-out@v1` step to use the Orchestrator for discovery mechani
 **Goal**: Modify FanOutExecutor to accept pre-discovered subscriptions instead of discovering them itself
 
 **Tasks**:
-1. Add new method to FanOutExecutor: ExecuteWithSubscriptions
-2. Modify existing Execute method to maintain backward compatibility
-3. Update executeFanOutStep to use ExecuteWithSubscriptions
-4. Remove direct discovery from FanOutExecutor when using ExecuteWithSubscriptions
+1. Modify FanOutExecutor.Execute to accept []interfaces.SubscriptionMatch parameter
+2. Update executeFanOutStep to pass discovered subscriptions
+3. Remove direct discovery call from FanOutExecutor.Execute
+4. Ensure proper handling when no subscriptions found (graceful success with logging)
 
 **Testing**:
-- Test new ExecuteWithSubscriptions method
-- Ensure backward compatibility of Execute method
+- Test modified Execute method with various subscription scenarios
+- Test no subscriptions found case (should succeed with appropriate log)
 - Verify FanOutExecutor uses provided subscriptions
 
 ## Phase 4: Integration testing
@@ -76,6 +76,14 @@ Wire up the `tako/fan-out@v1` step to use the Orchestrator for discovery mechani
 ## Success Criteria
 1. executeBuiltinStep correctly routes tako/fan-out@v1 to executeFanOutStep ✓ (already done)
 2. executeFanOutStep uses Orchestrator to discover subscriptions
-3. Discovered subscriptions are properly logged
-4. All tests pass with good coverage
-5. The fan-out step works in actual workflows
+3. Discovered subscriptions are properly logged with structured logging
+4. No subscriptions found case handled gracefully with appropriate logging
+5. Context properly propagated for cancellation/timeout support
+6. All tests pass with good coverage
+7. The fan-out step works in actual workflows
+
+## Logging Patterns to Follow
+- Use structured logging with slog.Info/Debug/Error
+- Log discovered subscriptions: `slog.Info("discovered subscriptions for fan-out", "event", eventName, "count", len(subscriptions))`
+- Log when no subscriptions found: `slog.Info("no subscriptions found for event, skipping fan-out", "event", eventName)`
+- Log errors with context: `slog.Error("failed to discover subscriptions", "event", eventName, "error", err)`
