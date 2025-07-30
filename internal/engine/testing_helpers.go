@@ -9,10 +9,10 @@ import (
 	"github.com/dangazineu/tako/internal/interfaces"
 )
 
-// mockWorkflowRunner is a shared test implementation of interfaces.WorkflowRunner
+// testMockWorkflowRunner is a shared test implementation of interfaces.WorkflowRunner.
 type testMockWorkflowRunner struct{}
 
-// NewTestMockWorkflowRunner creates a new mock workflow runner for testing
+// NewTestMockWorkflowRunner creates a new mock workflow runner for testing.
 func NewTestMockWorkflowRunner() interfaces.WorkflowRunner {
 	return &testMockWorkflowRunner{}
 }
