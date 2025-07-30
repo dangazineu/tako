@@ -295,7 +295,8 @@ func TestStructuredLogger(t *testing.T) {
 
 func TestFanOutExecutorMonitoring(t *testing.T) {
 	tempDir := t.TempDir()
-	executor, err := NewFanOutExecutor(tempDir, false)
+	mockRunner := NewTestMockWorkflowRunner()
+	executor, err := NewFanOutExecutor(tempDir, false, mockRunner)
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}

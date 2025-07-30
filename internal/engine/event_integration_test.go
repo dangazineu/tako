@@ -61,7 +61,8 @@ subscriptions:
 		t.Fatalf("Failed to write tako.yml for repo2: %v", err)
 	}
 
-	executor, err := NewFanOutExecutor(tempDir, true)
+	mockRunner := NewTestMockWorkflowRunner()
+	executor, err := NewFanOutExecutor(tempDir, true, mockRunner)
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}

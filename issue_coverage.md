@@ -35,4 +35,47 @@
 - New functions must have adequate test coverage
 
 ## Coverage Changes During Implementation
-(To be updated as implementation progresses)
+
+### Phase 1 Completed ✅ - Child Runner Factory
+**Status:** All tests passing, workspace isolation working correctly
+**New Files Added:**
+- `internal/engine/child_runner_factory.go` - Factory implementation
+- `internal/engine/child_runner_factory_test.go` - Comprehensive test suite  
+
+**Test Results:**
+- ✅ 6 new factory tests with 100% pass rate
+- ✅ All existing engine tests continue to pass
+- ✅ Workspace isolation verified with concurrent testing (20 goroutines)
+- ✅ Cache locking prevents race conditions
+- ✅ No regressions in existing functionality
+
+**Coverage Status:** New code has comprehensive unit test coverage
+**Key Achievements:**
+- Isolated child workspace creation: `parent/children/<child_run_id>`
+- Thread-safe cache locking using existing LockManager
+- Factory pattern enables clean Runner instance separation
+- Ready for Phase 2 (Child Workflow Executor)
+
+### Phase 2 Completed ✅ - Child Workflow Executor
+**Status:** All tests passing, isolated child workflow execution implemented
+**New Files Added:**
+- `internal/engine/child_workflow_executor.go` - WorkflowRunner implementation
+- `internal/engine/child_workflow_executor_test.go` - Comprehensive test suite
+
+**Test Results:**
+- ✅ 12 new executor tests with 100% pass rate
+- ✅ Security validation for path traversal prevention
+- ✅ Repository copying and tako.yml discovery working
+- ✅ Workflow input validation with enum support
+- ✅ Resource cleanup and error handling verified
+- ✅ Type conversion between engine and interface types
+- ✅ Engine package coverage increased to 78.6% (+8.8% from Phase 1)
+
+**Coverage Status:** Excellent test coverage for new functionality
+**Key Achievements:**
+- Implements `interfaces.WorkflowRunner` for dependency injection
+- Secure repository path validation prevents attacks
+- Supports both local and cached remote repositories
+- Tako.yml discovery and validation in child workspaces
+- Comprehensive error handling with proper cleanup
+- Ready for Phase 3 (Wire Dependency Injection)

@@ -24,6 +24,7 @@ type FanOutExecutor struct {
 	metricsCollector      *MetricsCollector
 	healthChecker         *HealthChecker
 	logger                Logger
+	workflowRunner        interfaces.WorkflowRunner
 	cacheDir              string
 	debug                 bool
 
@@ -33,7 +34,7 @@ type FanOutExecutor struct {
 }
 
 // NewFanOutExecutor creates a new fan-out executor.
-func NewFanOutExecutor(cacheDir string, debug bool) (*FanOutExecutor, error) {
+func NewFanOutExecutor(cacheDir string, debug bool, workflowRunner interfaces.WorkflowRunner) (*FanOutExecutor, error) {
 	discoveryManager := NewDiscoveryManager(cacheDir)
 
 	subscriptionEvaluator, err := NewSubscriptionEvaluator()
@@ -72,6 +73,7 @@ func NewFanOutExecutor(cacheDir string, debug bool) (*FanOutExecutor, error) {
 		metricsCollector:      metricsCollector,
 		healthChecker:         healthChecker,
 		logger:                logger,
+		workflowRunner:        workflowRunner,
 		cacheDir:              cacheDir,
 		debug:                 debug,
 		retryConfig:           retryConfig,
