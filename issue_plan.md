@@ -15,15 +15,18 @@ Implement idempotency for fan-out state management to prevent duplicate workflow
    - Handle both EnhancedEvent and legacy Event types
 
 2. Add `normalizePayload` helper function:
-   - Sort map keys for consistent hashing
-   - Handle nested maps recursively
-   - Convert to canonical JSON representation
+   - Sort map keys at all levels for consistent ordering
+   - Handle nested maps and slices recursively
+   - Exclude non-deterministic fields (e.g., timestamps) if configured
+   - Use `json.Marshal` with sorted keys to produce canonical JSON
+   - Handle different numeric types consistently (int vs float64)
 
 3. Add unit tests for fingerprint generation:
    - Test with event ID present
    - Test fallback to hash
-   - Test payload normalization
-   - Test deterministic output
+   - Test payload normalization with nested structures
+   - Test deterministic output with different key orders
+   - Test handling of non-deterministic fields
 
 **Files to modify**:
 - `internal/engine/fanout_state.go`
@@ -56,9 +59,12 @@ Implement idempotency for fan-out state management to prevent duplicate workflow
    - Keep timestamp-based naming for non-idempotent mode
 
 3. Add `createStateAtomic` helper method:
-   - Write to temporary file
-   - Attempt atomic rename
-   - Handle race conditions gracefully
+   - Write to temporary file with pattern: `fanout-<fingerprint>.tmp.<random-uuid>`
+   - Attempt atomic rename to `fanout-<fingerprint>.json`
+   - If rename fails due to existing file:
+     - Load and return the existing state (winner of the race)
+     - Clean up the temporary file
+   - Return success indicator to distinguish creation vs existing
 
 **Files to modify**:
 - `internal/engine/fanout_state.go`
@@ -71,17 +77,22 @@ Implement idempotency for fan-out state management to prevent duplicate workflow
 1. Update `executeWithContextAndSubscriptions` in `fanout.go`:
    - Generate event fingerprint if idempotency enabled
    - Check for existing state before creating new one
-   - Return early with existing state if found
+   - If duplicate found, reconstruct FanOutResult from existing state
    - Log duplicate detection for debugging
 
 2. Handle existing state scenarios:
-   - If state is complete: return its result
-   - If state is running: optionally wait or return immediately
-   - If state is failed: optionally retry or return failure
+   - If state is complete: reconstruct and return FanOutResult
+   - If state is running: wait for completion (respect original timeout)
+   - If state is failed: return the failed result (no retry)
+   - Add `waitForExistingState` helper method for the running case
 
 3. Update state creation calls:
    - Pass fingerprint when idempotency is enabled
    - Use traditional ID generation when disabled
+
+4. Add `reconstructFanOutResult` helper method:
+   - Build FanOutResult from persisted FanOutState
+   - Include all fields: success, errors, child summary, etc.
 
 **Files to modify**:
 - `internal/engine/fanout.go`
@@ -158,6 +169,21 @@ Implement idempotency for fan-out state management to prevent duplicate workflow
 - Test with high concurrency
 - Verify backward compatibility
 
+## Dependencies
+- None
+
+## Risks
+- **Performance**: Fingerprinting and lookups may add overhead
+- **Concurrency**: Race conditions in state creation
+- **Compatibility**: Changes may affect existing deployments
+- **Complexity**: Adds complexity to state management
+
+## Mitigation
+- **Performance**: Use efficient hashing and file system operations
+- **Concurrency**: Implement atomic file creation
+- **Compatibility**: Make feature opt-in and backward compatible
+- **Complexity**: Add clear documentation and tests
+
 ## Rollback Plan
 If issues arise:
 1. Disable idempotency via configuration (default is disabled)
@@ -170,3 +196,9 @@ If issues arise:
 3. Performance impact is minimal (<5% overhead)
 4. Backward compatibility is maintained
 5. Coverage remains above baseline levels
+
+## Additional Considerations (from Review)
+1. **Filesystem Dependency**: Document that idempotency relies on atomic rename support
+2. **State Growth**: Monitor state directory size with high event volumes
+3. **Alternative Index**: Consider embedded KV store if file lookups become bottleneck
+4. **Non-deterministic Fields**: Define strategy for excluding timestamp-like fields from fingerprints
