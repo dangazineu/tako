@@ -117,21 +117,44 @@ Need to create 4 new repository templates under `test/e2e/templates/protobuf-api
 - Mock the actual protobuf compilation with simple file touches
 
 ### 3. CEL Filter Complexity
-The scenario requires advanced CEL filtering:
+The scenario requires advanced CEL filtering with edge case handling:
 ```cel
-'user-service' in event.payload.services_affected.split(',')
+'user-service' in event.payload.services_affected.split(',').map(s, s.trim())
 ```
 
 This tests:
 - String manipulation functions in CEL
 - Array operations and membership testing
 - Complex payload data extraction
+- Whitespace handling with trim()
+
+**Edge Cases to Test:**
+- Empty services_affected list
+- Malformed lists (trailing/leading commas, double commas)
+- Whitespace in service names
+- Case sensitivity
+- No matching services (negative case)
 
 ### 4. Mock Execution Strategy
 Replace real deployment scripts with mock scripts that create verifiable side effects:
-- `touch "go_user_service_deployed_with_api_$1"` instead of actual deployment
-- File creation patterns that can be verified by test framework
+- `echo "$commit_sha" > deployed_service_$commit_sha.txt` instead of simple touch
+- Include event payload data in verification files
+- File content verification in addition to existence checking
 - Predictable naming patterns for automation
+
+### 5. Multi-Step Test Scenarios
+Structure test with multiple steps to cover various triggering scenarios:
+1. **Step 1**: Trigger single service (user-service only)
+2. **Step 2**: Trigger multiple services (user-service,billing-service)
+3. **Step 3**: Trigger with malformed list (whitespace, commas)  
+4. **Step 4**: Trigger with no matching services (negative case)
+5. **Step 5**: Verify idempotency (same event twice)
+
+### 6. Enhanced Verification Strategy
+- File existence checks (positive and negative cases)
+- File content verification with event payload data
+- Log inspection for correct filtering reasons
+- Cleanup verification to ensure test isolation
 
 ## Risk Assessment
 
