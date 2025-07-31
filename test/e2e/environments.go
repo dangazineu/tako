@@ -208,5 +208,42 @@ func GetEnvironments(owner string) map[string]TestEnvironmentDef {
 				},
 			},
 		},
+		"protobuf-api-evolution": {
+			Name: "protobuf-api-evolution",
+			Repositories: []RepositoryDef{
+				{
+					Name:   "api-definitions",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "tako.yml", Template: "protobuf-api-evolution/api-definitions/tako.yml"},
+						{Path: "proto/user.proto", Template: "protobuf-api-evolution/api-definitions/proto/user.proto"},
+					},
+				},
+				{
+					Name:   "go-user-service",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "tako.yml", Template: "protobuf-api-evolution/go-user-service/tako.yml"},
+						{Path: "scripts/deploy.sh", Template: "protobuf-api-evolution/go-user-service/scripts/deploy.sh"},
+					},
+				},
+				{
+					Name:   "nodejs-billing-service",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "tako.yml", Template: "protobuf-api-evolution/nodejs-billing-service/tako.yml"},
+						{Path: "scripts/deploy.sh", Template: "protobuf-api-evolution/nodejs-billing-service/scripts/deploy.sh"},
+					},
+				},
+				{
+					Name:   "go-legacy-service",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "tako.yml", Template: "protobuf-api-evolution/go-legacy-service/tako.yml"},
+						{Path: "README.md", Template: "protobuf-api-evolution/go-legacy-service/README.md"},
+					},
+				},
+			},
+		},
 	}
 }
