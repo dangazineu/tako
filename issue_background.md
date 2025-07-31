@@ -80,9 +80,27 @@ Based on the issue description, I need to:
 4. **Input validation**: String inputs with defaults
 5. **Mixed execution**: Shell commands + containerized steps
 
-## Questions for Resolution
-1. Should this be a new environment or use existing `single-repo-workflow`?
-2. How to handle Docker-in-Docker requirements for the packaging step?
-3. Are there any specific assertions needed beyond successful execution?
-4. Should the test verify the actual Docker image creation?
+## Questions and Resolutions (via Gemini consultation)
+
+### Q1: Test Environment Structure
+**Question**: Should this be a new environment or use existing `single-repo-workflow`?
+**Resolution**: Create new environment `local-go-ci-pipeline` following best practices of existing specific scenarios.
+
+### Q2: Docker-in-Docker Considerations  
+**Question**: How to handle Docker-in-Docker requirements?
+**Resolution**: No complex Docker-in-Docker needed. Host Docker daemon is accessible. Containerized build step mounts working directory, native packaging step uses host Docker.
+
+### Q3: Artifact Validation
+**Question**: What level of verification is appropriate?
+**Resolution**: Full artifact validation required:
+- Check Docker image exists with `docker image inspect`  
+- Verify image runs correctly with `docker run`
+- Include cleanup step with `docker rmi`
+
+### Q4: Test Coverage
+**Question**: Should negative test cases be included?
+**Resolution**: Yes, create separate test cases for:
+- `local-go-ci-pipeline-lint-failure`
+- `local-go-ci-pipeline-build-failure` 
+- `local-go-ci-pipeline-package-failure`
 EOF < /dev/null
