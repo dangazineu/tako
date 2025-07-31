@@ -1,193 +1,172 @@
-# Issue #133 Implementation Plan
+# Issue #134: Implementation Plan - Idempotency for Fan-Out State
 
 ## Overview
-Replace `simulateWorkflowTrigger()` with actual isolated child workflow execution to enable real child workflow triggering from `tako/fan-out@v1` steps.
+Implement idempotency for fan-out state management to prevent duplicate workflow executions when the same event is processed multiple times.
 
 ## Implementation Phases
 
-### Phase 1: Create Child Runner Factory 🏗️
-**Goal:** Implement factory pattern for creating isolated child Runner instances
+### Phase 1: Add Event Fingerprinting
+**Goal**: Create deterministic identifiers for events to enable duplicate detection
 
-**Changes:**
-- Create `internal/engine/child_runner_factory.go`
-- Implement `ChildRunnerFactory` struct with workspace isolation
-- Add methods: `NewChildRunnerFactory()`, `CreateChildRunner()`
-- Ensure workspace path isolation: `<parent_workspace>/children/<child_run_id>`
-- Share cache directory between parent and children
-- **🔒 CRITICAL:** Implement cache locking mechanism using existing `LockManager`
+**Tasks**:
+1. Add `GenerateEventFingerprint` method to `fanout_state.go`:
+   - Use EnhancedEvent.Metadata.ID if available
+   - Fallback to SHA256 hash of (type + source + normalized payload)
+   - Handle both EnhancedEvent and legacy Event types
 
-**Testing:**
-- Unit tests for factory creation and workspace isolation
-- Test that each child gets unique workspace directory
-- Verify shared cache directory access
-- **🔒 NEW:** Test concurrent cache access to prevent race conditions
+2. Add `normalizePayload` helper function:
+   - Sort map keys for consistent hashing
+   - Handle nested maps recursively
+   - Convert to canonical JSON representation
 
-**Success Criteria:**
-- Factory creates isolated Runner instances
-- Workspace directories don't conflict
-- Cache access is thread-safe with proper locking
-- All existing tests pass
-- Code compiles and linter passes
+3. Add unit tests for fingerprint generation:
+   - Test with event ID present
+   - Test fallback to hash
+   - Test payload normalization
+   - Test deterministic output
 
----
+**Files to modify**:
+- `internal/engine/fanout_state.go`
+- `internal/engine/fanout_state_test.go`
 
-### Phase 2: Create Child Workflow Executor 🚀
-**Goal:** Implement component that uses factory to execute child workflows
+### Phase 2: Add Idempotency Configuration
+**Goal**: Make idempotency opt-in at the executor level
 
-**Changes:**
-- Create `internal/engine/child_workflow_executor.go`
-- Implement `ChildWorkflowExecutor` struct implementing `interfaces.WorkflowRunner`
-- Add methods: `NewChildWorkflowExecutor()`, `RunWorkflow()` 
-- Handle repository path resolution for child execution
-- **📋 CRITICAL:** Implement `tako.yml` discovery within child workspace
-- **🔄 CRITICAL:** Define input/payload passing from parent to child workflows
-- Implement proper error handling and cleanup with defer blocks
+**Tasks**:
+1. Add `EnableIdempotency` field to `FanOutExecutor` struct
+2. Update `NewFanOutExecutor` to accept idempotency option
+3. Add configuration method `SetIdempotency(enabled bool)`
+4. Update constructor to maintain backward compatibility
 
-**Testing:**
-- Unit tests for child workflow executor
-- Test workflow execution with isolated workspaces
-- Test error handling and cleanup scenarios
-- **📋 NEW:** Test missing/malformed `tako.yml` scenarios
-- **🔒 NEW:** Security testing for path traversal vulnerabilities
-- Mock tests for workflow execution
+**Files to modify**:
+- `internal/engine/fanout.go`
 
-**Success Criteria:**
-- ChildWorkflowExecutor properly executes workflows in isolation
-- `tako.yml` discovery works reliably in child workspaces
-- Security boundaries prevent workspace escape
-- Error handling works correctly
-- Cleanup prevents workspace leaks
-- All tests pass
+### Phase 3: Implement State Lookup by Fingerprint
+**Goal**: Enable efficient duplicate detection using file naming convention
 
----
+**Tasks**:
+1. Add `GetFanOutStateByFingerprint` method to `FanOutStateManager`:
+   - Check for file existence using fingerprint-based name
+   - Return existing state if found
+   - Return nil if not found (not an error)
 
-### Phase 3: Wire Dependency Injection 🔌
-**Goal:** Connect child executor to existing FanOutExecutor
+2. Update `CreateFanOutState` to support idempotent creation:
+   - Add `fingerprint` parameter
+   - Use fingerprint-based naming when provided
+   - Keep timestamp-based naming for non-idempotent mode
 
-**Changes:**
-- **🏗️ IMPROVED:** Create `ChildRunnerFactory` in `NewRunner()` instead of `executeFanOutStep()`
-- Modify `internal/engine/runner.go` `executeFanOutStep()` method
-- Wire `ChildWorkflowExecutor` as `WorkflowRunner` interface
-- Update `FanOutExecutor` to use injected executor instead of simulation
-- **🔧 CRITICAL:** Integrate with existing `ResourceManager` for resource limits
+3. Add `createStateAtomic` helper method:
+   - Write to temporary file
+   - Attempt atomic rename
+   - Handle race conditions gracefully
 
-**Testing:**
-- Integration tests for fan-out step with child execution
-- Test that fan-out step creates and uses child runners
-- Verify workspace isolation during concurrent execution
-- Test error propagation from children to parent
-- **🔧 NEW:** Verify other step types (shell, built-ins) remain unaffected
+**Files to modify**:
+- `internal/engine/fanout_state.go`
+- `internal/engine/fanout_state_test.go`
 
-**Success Criteria:**
-- Fan-out step uses real child workflow execution
-- Dependency injection works properly at `NewRunner()` level
-- Resource management applies to child workflows
-- Integration tests pass
-- No regression in existing functionality
+### Phase 4: Integrate Idempotency into Fan-Out Execution
+**Goal**: Use fingerprinting and state lookup to prevent duplicate executions
 
----
+**Tasks**:
+1. Update `executeWithContextAndSubscriptions` in `fanout.go`:
+   - Generate event fingerprint if idempotency enabled
+   - Check for existing state before creating new one
+   - Return early with existing state if found
+   - Log duplicate detection for debugging
 
-### Phase 4: Replace Simulation with Real Execution 🔄
-**Goal:** Remove simulation code and implement actual child workflow triggering
+2. Handle existing state scenarios:
+   - If state is complete: return its result
+   - If state is running: optionally wait or return immediately
+   - If state is failed: optionally retry or return failure
 
-**Changes:**
-- Replace `simulateWorkflowTrigger()` in `fanout.go` with real execution
-- Update `triggerSubscribersWithState()` to call child executor
-- Modify error collection to handle real child workflow errors
-- Update logging to reflect actual execution vs simulation
+3. Update state creation calls:
+   - Pass fingerprint when idempotency is enabled
+   - Use traditional ID generation when disabled
 
-**Testing:**
-- End-to-end tests with actual child workflow execution
-- Test concurrent child execution with semaphore limits
-- Test error scenarios (child failures, timeouts)
-- Performance testing with multiple child workflows
+**Files to modify**:
+- `internal/engine/fanout.go`
 
-**Success Criteria:**
-- Child workflows execute in separate repositories
-- Concurrent execution works without conflicts
-- Error handling properly aggregates child failures
-- Performance is acceptable for typical use cases
+### Phase 5: Enhance State Cleanup
+**Goal**: Implement configurable retention for idempotent states
 
----
+**Tasks**:
+1. Add `IdempotencyRetention` field to `FanOutStateManager`
+2. Update `CleanupCompletedStates` to respect retention policy:
+   - Default to 24 hours for idempotent states
+   - Keep existing behavior for non-idempotent states
+   - Only cleanup states with fingerprint-based names
 
-### Phase 5: Enhance Error Collection and Cleanup 🧹
-**Goal:** Improve error reporting and resource cleanup
+3. Add configuration method for retention period
 
-**Changes:**
-- Modify `FanOutResult` to include detailed error information
-- **🧹 CRITICAL:** Implement idempotent cleanup mechanism
-- **🧹 CRITICAL:** Design orphan workspace reaper for abrupt terminations
-- Add timeout handling for child workflow execution
-- Update structured logging with execution details
+**Files to modify**:
+- `internal/engine/fanout_state.go`
 
-**Testing:**
-- Test error collection with multiple failed children
-- Test cleanup when some children succeed and others fail
-- Test timeout scenarios
-- Test resource cleanup under various failure conditions
-- **🧹 NEW:** Test abrupt parent process termination and subsequent cleanup
-- **🧹 NEW:** Test idempotent cleanup (safe to run multiple times)
+### Phase 6: Add Comprehensive Tests
+**Goal**: Ensure idempotency works correctly in various scenarios
 
-**Success Criteria:**
-- Detailed error reporting from child workflows
-- No resource leaks from failed executions
-- Cleanup works even after abrupt termination
-- Idempotent cleanup prevents double-cleanup errors
-- Proper timeout handling
-- Clean failure modes
+**Tasks**:
+1. Add idempotency tests to `fanout_test.go`:
+   - Test duplicate event detection
+   - Test concurrent duplicate events
+   - Test with and without event IDs
+   - Test configuration toggle
 
----
+2. Add integration tests:
+   - Test end-to-end duplicate prevention
+   - Test state persistence and recovery
+   - Test cleanup behavior
 
-## Phase Dependencies
-```
-Phase 1 (Factory) → Phase 2 (Executor) → Phase 3 (Wiring) → Phase 4 (Replace) → Phase 5 (Enhance)
-```
+3. Add benchmark tests:
+   - Measure fingerprint generation performance
+   - Measure lookup performance with many states
 
-## Testing Strategy per Phase
-- **Unit Tests**: Each phase has isolated unit tests
-- **Integration Tests**: Phase 3+ includes integration testing
-- **E2E Tests**: Phase 4+ includes end-to-end validation
-- **Performance Tests**: Phase 4 includes basic performance validation
+**Files to modify**:
+- `internal/engine/fanout_test.go`
+- `internal/engine/fanout_state_test.go`
 
-## Coverage Requirements
-- Maintain overall coverage ≥ 68.5% (max 1% drop from baseline 69.5%)
-- New functions must have ≥ 80% coverage
-- Critical paths (child execution, error handling) must have ≥ 95% coverage
+### Phase 7: Update Documentation
+**Goal**: Document the new idempotency feature
 
-## Key Architectural Improvements (From Gemini Review)
+**Tasks**:
+1. Update code comments and godoc
+2. Add examples of enabling idempotency
+3. Document configuration options
+4. Explain duplicate detection behavior
 
-### 🔒 Cache Locking Strategy
-- Use existing `LockManager` to prevent race conditions in shared cache
-- Lock granularity: per-repository to allow concurrent access to different repos
-- Implement in Phase 1 as critical foundation
+**Files to modify**:
+- `internal/engine/fanout.go`
+- `internal/engine/fanout_state.go`
+- `README.md` (if applicable)
 
-### 📋 Child Configuration Discovery
-- Robust `tako.yml` location logic within child workspaces
-- Graceful handling of missing/malformed configuration files
-- Security validation to prevent workspace escape attempts
+## Testing Strategy
 
-### 🔧 Resource Management Integration
-- Connect `ChildWorkflowExecutor` with existing `ResourceManager`
-- Implement configurable resource limits for child workflows
-- Prevent system resource exhaustion from fan-out operations
+### Unit Tests
+- Event fingerprint generation
+- State lookup by fingerprint
+- Atomic file operations
+- Configuration options
 
-### 🧹 Robust Cleanup Design
-- Idempotent cleanup operations (safe to run multiple times)
-- Orphan workspace reaper for recovery from abrupt terminations
-- State tracking to determine what needs cleanup
+### Integration Tests
+- End-to-end duplicate prevention
+- Concurrent event handling
+- State persistence and recovery
+- Cleanup with retention
 
-## Risk Mitigation Strategies
+### Manual Testing
+- Create test scenario with duplicate events
+- Verify only one execution per event
+- Test with high concurrency
+- Verify backward compatibility
 
-### High-Risk Areas:
-1. **Concurrent Cache Access** → Implement fine-grained locking
-2. **Workspace Security** → Path traversal testing and validation
-3. **Resource Exhaustion** → Integration with ResourceManager
-4. **Orphaned Resources** → Idempotent cleanup and reaper design
-5. **Dependency Injection** → Inject at `NewRunner()` level for cleaner architecture
+## Rollback Plan
+If issues arise:
+1. Disable idempotency via configuration (default is disabled)
+2. Revert to previous version if critical issues
+3. States created with fingerprints can coexist with timestamp-based states
 
-## Rollback Strategy
-Each phase is atomic and can be rolled back independently:
-- Phase 1-2: Safe rollback, only new files added
-- Phase 3: Rollback requires reverting runner.go changes
-- Phase 4: Rollback requires restoring simulation behavior
-- Phase 5: Rollback requires reverting result structure changes
+## Success Criteria
+1. Duplicate events do not trigger duplicate workflows
+2. All existing tests continue to pass
+3. Performance impact is minimal (<5% overhead)
+4. Backward compatibility is maintained
+5. Coverage remains above baseline levels
