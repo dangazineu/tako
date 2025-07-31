@@ -630,7 +630,41 @@ func fileExists(path string) bool {
 }
 
 // GenerateEventFingerprint generates a deterministic fingerprint for an event to enable idempotency.
-// It uses the event ID if available, otherwise falls back to a hash of the event properties.
+//
+// This function provides duplicate detection for fan-out operations by creating consistent
+// identifiers for the same logical event, regardless of when it's processed.
+//
+// Fingerprint Generation Logic:
+//   - For EnhancedEvent: Uses Metadata.ID if present, otherwise generates SHA256 hash
+//   - For legacy Event: Always generates SHA256 hash from event properties
+//   - Hash includes: event type + source repository + normalized payload
+//
+// The payload normalization ensures deterministic hashing by:
+//   - Sorting map keys recursively at all levels
+//   - Converting numeric types to consistent representation
+//   - Handling nested structures and arrays
+//
+// Usage Examples:
+//
+//	// With explicit event ID (most deterministic)
+//	event := &EnhancedEvent{
+//	    Type: "library_built",
+//	    Metadata: EventMetadata{
+//	        ID: "build-123",
+//	        Source: "myorg/mylib",
+//	    },
+//	}
+//	fingerprint, _ := GenerateEventFingerprint(event) // Returns "build-123"
+//
+//	// Without ID (falls back to content hash)
+//	event := &EnhancedEvent{
+//	    Type: "library_built",
+//	    Metadata: EventMetadata{Source: "myorg/mylib"},
+//	    Payload: map[string]interface{}{"version": "1.0"},
+//	}
+//	fingerprint, _ := GenerateEventFingerprint(event) // Returns SHA256 hash
+//
+// Returns the fingerprint string or an error if the event type is unsupported.
 func GenerateEventFingerprint(event interface{}) (string, error) {
 	switch e := event.(type) {
 	case *EnhancedEvent:
@@ -675,7 +709,18 @@ func generateEventHash(eventType, source string, payload map[string]interface{})
 }
 
 // normalizePayload creates a normalized representation of a payload for consistent hashing.
-// It handles nested structures and ensures deterministic ordering.
+//
+// This function ensures that the same logical payload always produces the same hash,
+// regardless of the order in which map keys were added or other non-deterministic factors.
+//
+// Normalization Process:
+//   - Sorts all map keys alphabetically at every nesting level
+//   - Recursively processes nested maps and slices
+//   - Converts numeric types to consistent representations
+//   - Preserves the logical structure and values
+//
+// This is critical for idempotency because JSON objects with the same content but
+// different key ordering would otherwise produce different hashes.
 func normalizePayload(payload map[string]interface{}) (map[string]interface{}, error) {
 	if payload == nil {
 		return nil, nil

@@ -1,3 +1,38 @@
+// Package engine provides the core fan-out execution capabilities for Tako workflows.
+//
+// # Fan-Out with Idempotency
+//
+// The FanOutExecutor supports optional idempotency to prevent duplicate workflow executions
+// when the same event is processed multiple times. This is particularly useful in distributed
+// systems where events might be retried or replayed.
+//
+// Key Features:
+//   - Deterministic event fingerprinting using SHA256 hashing
+//   - Persistent state management across process restarts
+//   - Configurable retention periods for idempotent states
+//   - Atomic file operations to handle concurrent duplicates
+//   - Backward compatible (disabled by default)
+//
+// Example Usage:
+//
+//	// Create executor with idempotency enabled
+//	executor, err := NewFanOutExecutor("/cache/dir", false, workflowRunner)
+//	if err != nil {
+//	    return err
+//	}
+//	executor.SetIdempotency(true)
+//
+//	// Configure custom retention for idempotent states (optional)
+//	executor.stateManager.SetIdempotencyRetention(48 * time.Hour)
+//
+//	// Execute fan-out step (duplicates will be detected automatically)
+//	result, err := executor.Execute(step, sourceRepo)
+//
+// Duplicate Detection:
+//   - Events with the same type, source, and payload produce identical fingerprints
+//   - Fingerprints are used as state identifiers instead of timestamps
+//   - Existing states are loaded and their results returned for duplicates
+//   - Only the first execution triggers workflows; duplicates return cached results
 package engine
 
 import (
@@ -87,7 +122,39 @@ func NewFanOutExecutor(cacheDir string, debug bool, workflowRunner interfaces.Wo
 }
 
 // SetIdempotency enables or disables idempotency checking for duplicate events.
-// When enabled, the executor will prevent duplicate workflow executions for the same event.
+//
+// When enabled, the executor will prevent duplicate workflow executions for the same event
+// by using deterministic event fingerprinting and persistent state management.
+//
+// How Idempotency Works:
+//  1. Each event gets a deterministic fingerprint based on type, source, and payload
+//  2. The executor checks for existing states with the same fingerprint
+//  3. If found, returns cached result instead of triggering new workflows
+//  4. If not found, proceeds with normal execution and saves state for future duplicates
+//
+// Benefits:
+//   - Prevents duplicate workflow executions during retries or system restarts
+//   - Maintains consistency across distributed systems
+//   - Reduces resource usage and improves reliability
+//
+// Usage Examples:
+//
+//	// Enable idempotency for production deployments
+//	executor.SetIdempotency(true)
+//
+//	// Disable for testing or when duplicates are desired
+//	executor.SetIdempotency(false)
+//
+// Configuration Notes:
+//   - Idempotency is disabled by default for backward compatibility
+//   - When enabled, requires additional disk space for state persistence
+//   - Idempotent states are retained for 24 hours by default (configurable)
+//   - Works across process restarts and multiple executor instances
+//
+// Performance Impact:
+//   - Minimal overhead for fingerprint generation (~microseconds)
+//   - Small disk I/O overhead for state persistence
+//   - Significant savings when duplicates are prevented
 func (fe *FanOutExecutor) SetIdempotency(enabled bool) {
 	fe.enableIdempotency = enabled
 }
@@ -757,7 +824,7 @@ func (fe *FanOutExecutor) reconstructFanOutResult(state *FanOutState, startTime 
 		Success:          state.Status == FanOutStatusCompleted,
 		EventEmitted:     true, // Event was emitted in the original execution
 		SubscribersFound: summary.TotalChildren,
-		TriggeredCount:   summary.CompletedChildren, // Only count successfully completed children
+		TriggeredCount:   0, // Duplicate call - no new workflows were triggered
 		Errors:           []string{},
 		DetailedErrors:   []ChildExecutionError{},
 		StartTime:        startTime,  // Use current call's start time
