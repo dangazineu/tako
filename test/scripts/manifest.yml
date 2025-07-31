@@ -5,20 +5,20 @@
 scripts:
   - name: verify-foundational-components.sh
     description: "Verifies the core components of the system."
-    ci_flags: ["--test-env", "foundational-test"]
+    ci_flags: [] # Uses default test environment: foundational-test
 
   - name: verify-orchestrator.sh
     description: "Tests the orchestration logic."
-    ci_flags: ["--test-env", "orchestrator-test"]
+    ci_flags: [] # Uses default test environment: orchestrator-test
 
   - name: verify-fanout.sh
     description: "Tests the fan-out mechanism."
-    ci_flags: [] # This script requires no special flags for local execution.
+    ci_flags: [] # No special flags required for local execution
 
   - name: verify-fanout-orchestrator-integration.sh
     description: "Tests the integration between the fan-out and orchestrator."
-    ci_flags: ["--test-env", "fanout-orchestrator-test"]
+    ci_flags: [] # Uses default test environment: fanout-orchestrator-test
 
   - name: verify-fanout-idempotency.sh
     description: "Tests the idempotency of fan-out operations."
-    ci_flags: ["--local", "--test-env", "fan-out-test"]
+    ci_flags: ["--local"] # Uses default test environment: fan-out-test
