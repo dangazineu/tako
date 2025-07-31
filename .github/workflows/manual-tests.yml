@@ -33,16 +33,23 @@ jobs:
           git config --global user.email "test@example.com"
           git config --global user.name "GitHub Actions"
 
-      - name: Install yq
-        run: |
-          sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
-          sudo chmod +x /usr/bin/yq
-        
       - name: Make scripts executable
-        run: chmod +x test/run_all_verification.sh test/scripts/*.sh
+        run: chmod +x test/scripts/*.sh
 
       - name: Run all verification scripts
-        run: ./test/run_all_verification.sh
+        run: |
+          echo "Running all verification scripts in test/scripts/"
+          for script in test/scripts/verify-*.sh; do
+            if [ -f "$script" ]; then
+              echo "=========================================="
+              echo "Running: $(basename "$script")"
+              echo "=========================================="
+              "$script"
+              echo "✅ $(basename "$script") completed successfully"
+              echo ""
+            fi
+          done
+          echo "🎉 All verification scripts passed!"
 
       - name: Upload test artifacts on failure
         if: failure()
