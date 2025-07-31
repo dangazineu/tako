@@ -533,7 +533,7 @@ func (sm *FanOutStateManager) isIdempotentState(stateID string) bool {
 	// Check if suffix looks like a hex fingerprint (64 chars, all hex)
 	if len(suffix) == 64 {
 		for _, char := range suffix {
-			if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
+			if (char < '0' || char > '9') && (char < 'a' || char > 'f') && (char < 'A' || char > 'F') {
 				return false
 			}
 		}
@@ -623,7 +623,7 @@ func (sm *FanOutStateManager) createStateAtomic(id, parentRunID, sourceRepo, eve
 	return state, nil
 }
 
-// fileExists checks if a file exists
+// fileExists checks if a file exists.
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil

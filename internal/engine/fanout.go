@@ -321,7 +321,7 @@ func (fe *FanOutExecutor) executeWithContextAndSubscriptions(step config.Workflo
 		fanOutID = fmt.Sprintf("fanout-%s", eventFingerprint)
 		result.FanOutID = fanOutID
 
-		state, err = fe.stateManager.CreateFanOutStateWithFingerprint("", eventFingerprint, parentRunID, sourceRepo, params.EventType, params.WaitForChildren, timeout)
+		state, err = fe.stateManager.CreateFanOutStateWithFingerprint(fanOutID, eventFingerprint, parentRunID, sourceRepo, params.EventType, params.WaitForChildren, timeout) //nolint:staticcheck,ineffassign
 	} else {
 		// Traditional creation without idempotency - use nanoseconds for uniqueness
 		fanOutID = fmt.Sprintf("fanout-%d-%s", startTime.UnixNano(), params.EventType)

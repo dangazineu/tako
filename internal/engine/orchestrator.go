@@ -1,9 +1,3 @@
-// Package engine implements the core orchestration and execution logic for Tako.
-//
-// The orchestrator component provides a high-level coordination layer for
-// subscription-based workflow triggering. It acts as an abstraction layer
-// over lower-level discovery components and serves as the central hub for
-// future orchestration features like filtering, prioritization, and logging.
 package engine
 
 import (
