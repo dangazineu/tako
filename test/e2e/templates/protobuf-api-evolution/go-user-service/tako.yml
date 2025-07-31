@@ -1,14 +1,14 @@
 version: v1
-subscriptions:
-  - artifact: "{{.Owner}}/api-definitions:main"
-    events: ["api_published"]
-    schema_version: "^1.0.0"
-    filters:
-      - "'user-service' in event.payload.services_affected.split(',').map(s, s.trim().lower())"
-    workflow: "update-and-deploy"
-    inputs:
-      api_version: "{{ .event.payload.git_tag }}"
-      repo_name: "go-user-service"
+events:
+  subscriptions:
+    - artifact: "{{.Owner}}/api-definitions:main"
+      events:
+        - type: "api_published"
+      filter: "'user-service' in event.payload.services_affected.split(',').map(s, s.trim().lower())"
+      workflow: "update-and-deploy"
+      inputs:
+        api_version: "{{ .event.payload.git_tag }}"
+        repo_name: "go-user-service"
 workflows:
   update-and-deploy:
     inputs:

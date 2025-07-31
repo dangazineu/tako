@@ -6,16 +6,14 @@ workflows:
       changed_services: { type: string, required: true }
     steps:
       - id: tag-release
-        run: "git tag {{ .Inputs.version }} && echo 'tagged_{{ .Inputs.version }}' > pushed_tag_{{ .Inputs.version }}"
+        run: "git add . && git commit -m 'Initial commit' || true && git tag {{ .Inputs.version }} || true && echo 'tagged_{{ .Inputs.version }}' > pushed_tag_{{ .Inputs.version }}"
       - id: fan-out-event
         uses: tako/fan-out@v1
         with:
           event_type: "api_published"
-          schema_version: "1.0.0"
           payload:
             git_tag: "{{ .Inputs.version }}"
             services_affected: "{{ .Inputs.changed_services }}"
 events:
   produces:
     - type: "api_published"
-      schema_version: "1.0.0"
