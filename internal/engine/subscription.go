@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/dangazineu/tako/internal/config"
 	"github.com/google/cel-go/cel"
@@ -20,10 +21,140 @@ type Event struct {
 	Timestamp     int64
 }
 
+// celProgramCacheEntry represents a cached CEL program with metadata.
+type celProgramCacheEntry struct {
+	program cel.Program
+	prev    *celProgramCacheEntry
+	next    *celProgramCacheEntry
+	key     string
+}
+
+// celProgramCache implements a simple LRU cache for CEL programs.
+type celProgramCache struct {
+	mutex   sync.RWMutex
+	entries map[string]*celProgramCacheEntry
+	head    *celProgramCacheEntry
+	tail    *celProgramCacheEntry
+	maxSize int
+	hits    int64
+	misses  int64
+}
+
+// newCELProgramCache creates a new LRU cache for CEL programs.
+func newCELProgramCache(maxSize int) *celProgramCache {
+	return &celProgramCache{
+		entries: make(map[string]*celProgramCacheEntry),
+		maxSize: maxSize,
+	}
+}
+
+// get retrieves a CEL program from the cache.
+func (c *celProgramCache) get(key string) (cel.Program, bool) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	entry, exists := c.entries[key]
+	if !exists {
+		c.misses++
+		return nil, false
+	}
+
+	// Move entry to front (most recently used)
+	c.moveToFront(entry)
+	c.hits++
+	return entry.program, true
+}
+
+// put adds a CEL program to the cache.
+func (c *celProgramCache) put(key string, program cel.Program) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	// Check if already exists
+	if entry, exists := c.entries[key]; exists {
+		entry.program = program
+		c.moveToFront(entry)
+		return
+	}
+
+	// Create new entry
+	entry := &celProgramCacheEntry{
+		program: program,
+		key:     key,
+	}
+
+	// Add to front
+	c.addToFront(entry)
+	c.entries[key] = entry
+
+	// Evict if over capacity
+	if len(c.entries) > c.maxSize {
+		c.removeLRU()
+	}
+}
+
+// stats returns cache statistics.
+func (c *celProgramCache) stats() (hits, misses int64, size int) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	return c.hits, c.misses, len(c.entries)
+}
+
+// moveToFront moves an entry to the front of the LRU list.
+func (c *celProgramCache) moveToFront(entry *celProgramCacheEntry) {
+	if c.head == entry {
+		return
+	}
+
+	c.removeEntry(entry)
+	c.addToFront(entry)
+}
+
+// addToFront adds an entry to the front of the LRU list.
+func (c *celProgramCache) addToFront(entry *celProgramCacheEntry) {
+	entry.prev = nil
+	entry.next = c.head
+
+	if c.head != nil {
+		c.head.prev = entry
+	}
+	c.head = entry
+
+	if c.tail == nil {
+		c.tail = entry
+	}
+}
+
+// removeEntry removes an entry from the LRU list.
+func (c *celProgramCache) removeEntry(entry *celProgramCacheEntry) {
+	if entry.prev != nil {
+		entry.prev.next = entry.next
+	} else {
+		c.head = entry.next
+	}
+
+	if entry.next != nil {
+		entry.next.prev = entry.prev
+	} else {
+		c.tail = entry.prev
+	}
+}
+
+// removeLRU removes the least recently used entry.
+func (c *celProgramCache) removeLRU() {
+	if c.tail == nil {
+		return
+	}
+
+	delete(c.entries, c.tail.key)
+	c.removeEntry(c.tail)
+}
+
 // SubscriptionEvaluator handles event-subscription matching and filtering.
 type SubscriptionEvaluator struct {
-	celEnv    *cel.Env
-	costLimit uint64 // Maximum cost for CEL expression evaluation
+	celEnv       *cel.Env
+	costLimit    uint64           // Maximum cost for CEL expression evaluation
+	programCache *celProgramCache // LRU cache for compiled CEL programs
 }
 
 // NewSubscriptionEvaluator creates a new subscription evaluator with security safeguards.
@@ -41,8 +172,9 @@ func NewSubscriptionEvaluator() (*SubscriptionEvaluator, error) {
 	}
 
 	return &SubscriptionEvaluator{
-		celEnv:    env,
-		costLimit: 1000000, // 1M cost units - prevents complex expressions from causing DoS
+		celEnv:       env,
+		costLimit:    1000000,                 // 1M cost units - prevents complex expressions from causing DoS
+		programCache: newCELProgramCache(100), // Cache up to 100 compiled CEL programs
 	}, nil
 }
 
@@ -125,18 +257,31 @@ func (se *SubscriptionEvaluator) ProcessEventPayload(payload map[string]interfac
 	return result, nil
 }
 
+// GetCacheStats returns CEL program cache statistics.
+func (se *SubscriptionEvaluator) GetCacheStats() (hits, misses int64, size int) {
+	return se.programCache.stats()
+}
+
 // evaluateCELFilter evaluates a CEL expression against an event.
 func (se *SubscriptionEvaluator) evaluateCELFilter(filterExpr string, event Event) (bool, error) {
-	// Parse the CEL expression
-	ast, issues := se.celEnv.Compile(filterExpr)
-	if issues != nil && issues.Err() != nil {
-		return false, fmt.Errorf("CEL compilation error: %v", issues.Err())
-	}
+	// Try to get compiled program from cache
+	program, found := se.programCache.get(filterExpr)
+	if !found {
+		// Cache miss - compile the expression
+		ast, issues := se.celEnv.Compile(filterExpr)
+		if issues != nil && issues.Err() != nil {
+			return false, fmt.Errorf("CEL compilation error: %v", issues.Err())
+		}
 
-	// Create evaluation program
-	program, err := se.celEnv.Program(ast)
-	if err != nil {
-		return false, fmt.Errorf("CEL program creation error: %v", err)
+		// Create evaluation program
+		var err error
+		program, err = se.celEnv.Program(ast)
+		if err != nil {
+			return false, fmt.Errorf("CEL program creation error: %v", err)
+		}
+
+		// Cache the compiled program for future use
+		se.programCache.put(filterExpr, program)
 	}
 
 	// Prepare evaluation context

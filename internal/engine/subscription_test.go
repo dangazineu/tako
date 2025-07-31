@@ -1,10 +1,12 @@
 package engine
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/dangazineu/tako/internal/config"
+	"github.com/google/cel-go/cel"
 )
 
 func TestNewSubscriptionEvaluator(t *testing.T) {
@@ -679,5 +681,250 @@ func TestCompareVersions(t *testing.T) {
 				t.Errorf("compareVersions() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestNewSubscriptionEvaluator_Cache(t *testing.T) {
+	se, err := NewSubscriptionEvaluator()
+	if err != nil {
+		t.Fatalf("Failed to create subscription evaluator: %v", err)
+	}
+
+	// Check that cache is initialized
+	if se.programCache == nil {
+		t.Fatal("Expected non-nil program cache")
+	}
+
+	// Check initial cache stats
+	hits, misses, size := se.GetCacheStats()
+	if hits != 0 || misses != 0 || size != 0 {
+		t.Errorf("Expected initial cache stats (0, 0, 0), got (%d, %d, %d)", hits, misses, size)
+	}
+}
+
+func TestSubscriptionEvaluator_CELCaching(t *testing.T) {
+	se, err := NewSubscriptionEvaluator()
+	if err != nil {
+		t.Fatalf("Failed to create subscription evaluator: %v", err)
+	}
+
+	event := Event{
+		Type:          "library_built",
+		SchemaVersion: "1.0.0",
+		Payload: map[string]interface{}{
+			"version": "2.1.0",
+			"status":  "success",
+		},
+		Source:    "test-org/library",
+		Timestamp: time.Now().Unix(),
+	}
+
+	subscription := config.Subscription{
+		Artifact:      "test-org/library:lib",
+		Events:        []string{"library_built"},
+		SchemaVersion: "^1.0.0",
+		Filters:       []string{"event.payload.version >= '2.0.0'"},
+		Workflow:      "update-deps",
+	}
+
+	// First evaluation - should be a cache miss
+	result1, err := se.EvaluateSubscription(subscription, event)
+	if err != nil {
+		t.Fatalf("First evaluation failed: %v", err)
+	}
+	if !result1 {
+		t.Error("Expected first evaluation to return true")
+	}
+
+	// Check cache stats after first evaluation
+	hits, misses, size := se.GetCacheStats()
+	if hits != 0 || misses != 1 || size != 1 {
+		t.Errorf("Expected cache stats after first evaluation (0, 1, 1), got (%d, %d, %d)", hits, misses, size)
+	}
+
+	// Second evaluation with same filter - should be a cache hit
+	result2, err := se.EvaluateSubscription(subscription, event)
+	if err != nil {
+		t.Fatalf("Second evaluation failed: %v", err)
+	}
+	if !result2 {
+		t.Error("Expected second evaluation to return true")
+	}
+
+	// Check cache stats after second evaluation
+	hits, misses, size = se.GetCacheStats()
+	if hits != 1 || misses != 1 || size != 1 {
+		t.Errorf("Expected cache stats after second evaluation (1, 1, 1), got (%d, %d, %d)", hits, misses, size)
+	}
+
+	// Third evaluation with different filter - should be another cache miss
+	subscription.Filters = []string{"event.payload.status == 'success'"}
+	result3, err := se.EvaluateSubscription(subscription, event)
+	if err != nil {
+		t.Fatalf("Third evaluation failed: %v", err)
+	}
+	if !result3 {
+		t.Error("Expected third evaluation to return true")
+	}
+
+	// Check cache stats after third evaluation
+	hits, misses, size = se.GetCacheStats()
+	if hits != 1 || misses != 2 || size != 2 {
+		t.Errorf("Expected cache stats after third evaluation (1, 2, 2), got (%d, %d, %d)", hits, misses, size)
+	}
+
+	// Fourth evaluation with first filter again - should be a cache hit
+	subscription.Filters = []string{"event.payload.version >= '2.0.0'"}
+	result4, err := se.EvaluateSubscription(subscription, event)
+	if err != nil {
+		t.Fatalf("Fourth evaluation failed: %v", err)
+	}
+	if !result4 {
+		t.Error("Expected fourth evaluation to return true")
+	}
+
+	// Check final cache stats
+	hits, misses, size = se.GetCacheStats()
+	if hits != 2 || misses != 2 || size != 2 {
+		t.Errorf("Expected final cache stats (2, 2, 2), got (%d, %d, %d)", hits, misses, size)
+	}
+}
+
+func TestSubscriptionEvaluator_CacheThreadSafety(t *testing.T) {
+	se, err := NewSubscriptionEvaluator()
+	if err != nil {
+		t.Fatalf("Failed to create subscription evaluator: %v", err)
+	}
+
+	event := Event{
+		Type:          "library_built",
+		SchemaVersion: "1.0.0",
+		Payload: map[string]interface{}{
+			"version": "2.1.0",
+		},
+		Source:    "test-org/library",
+		Timestamp: time.Now().Unix(),
+	}
+
+	subscription := config.Subscription{
+		Artifact:      "test-org/library:lib",
+		Events:        []string{"library_built"},
+		SchemaVersion: "^1.0.0",
+		Filters:       []string{"event.payload.version >= '2.0.0'"},
+		Workflow:      "update-deps",
+	}
+
+	// Run concurrent evaluations to test thread safety
+	const numGoroutines = 10
+	const numEvaluations = 100
+
+	done := make(chan bool, numGoroutines)
+	errors := make(chan error, numGoroutines*numEvaluations)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer func() { done <- true }()
+
+			for j := 0; j < numEvaluations; j++ {
+				result, err := se.EvaluateSubscription(subscription, event)
+				if err != nil {
+					errors <- err
+					return
+				}
+				if !result {
+					errors <- fmt.Errorf("expected evaluation to return true")
+					return
+				}
+			}
+		}()
+	}
+
+	// Wait for all goroutines to complete
+	for i := 0; i < numGoroutines; i++ {
+		<-done
+	}
+
+	// Check for any errors
+	close(errors)
+	for err := range errors {
+		t.Errorf("Concurrent evaluation error: %v", err)
+	}
+
+	// Verify cache stats make sense
+	hits, misses, size := se.GetCacheStats()
+	if misses == 0 {
+		t.Error("Expected at least one cache miss")
+	}
+	if hits == 0 {
+		t.Error("Expected at least one cache hit")
+	}
+	if size == 0 {
+		t.Error("Expected cache to contain at least one entry")
+	}
+}
+
+func TestCELProgramCache_LRUEviction(t *testing.T) {
+	// Test LRU eviction with a small cache
+	cache := newCELProgramCache(2)
+
+	// Create a simple CEL environment for testing
+	env, err := cel.NewEnv(
+		cel.Variable("x", cel.IntType),
+	)
+	if err != nil {
+		t.Fatalf("Failed to create CEL environment: %v", err)
+	}
+
+	// Create three different programs
+	expressions := []string{"x > 0", "x < 10", "x == 5"}
+	programs := make([]cel.Program, len(expressions))
+
+	for i, expr := range expressions {
+		ast, issues := env.Compile(expr)
+		if issues != nil && issues.Err() != nil {
+			t.Fatalf("Failed to compile expression %s: %v", expr, issues.Err())
+		}
+
+		program, err := env.Program(ast)
+		if err != nil {
+			t.Fatalf("Failed to create program for %s: %v", expr, err)
+		}
+		programs[i] = program
+	}
+
+	// Add first two programs
+	cache.put("expr1", programs[0])
+	cache.put("expr2", programs[1])
+
+	_, _, size := cache.stats()
+	if size != 2 {
+		t.Errorf("Expected cache size 2, got %d", size)
+	}
+
+	// Verify both are retrievable
+	if _, found := cache.get("expr1"); !found {
+		t.Error("Expected to find expr1 in cache")
+	}
+	if _, found := cache.get("expr2"); !found {
+		t.Error("Expected to find expr2 in cache")
+	}
+
+	// Add third program - should evict the least recently used (expr1)
+	cache.put("expr3", programs[2])
+
+	_, _, size = cache.stats()
+	if size != 2 {
+		t.Errorf("Expected cache size 2 after eviction, got %d", size)
+	}
+
+	// expr1 should be evicted, expr2 and expr3 should remain
+	if _, found := cache.get("expr1"); found {
+		t.Error("Expected expr1 to be evicted from cache")
+	}
+	if _, found := cache.get("expr2"); !found {
+		t.Error("Expected expr2 to remain in cache")
+	}
+	if _, found := cache.get("expr3"); !found {
+		t.Error("Expected expr3 to be in cache")
 	}
 }
