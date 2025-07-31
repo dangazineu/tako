@@ -32,6 +32,7 @@ type FanOutExecutor struct {
 	// Configuration
 	retryConfig          RetryConfig
 	circuitBreakerConfig CircuitBreakerConfig
+	enableIdempotency    bool
 }
 
 // NewFanOutExecutor creates a new fan-out executor.
@@ -81,7 +82,19 @@ func NewFanOutExecutor(cacheDir string, debug bool, workflowRunner interfaces.Wo
 		debug:                 debug,
 		retryConfig:           retryConfig,
 		circuitBreakerConfig:  circuitBreakerConfig,
+		enableIdempotency:     false, // Default to disabled for backward compatibility
 	}, nil
+}
+
+// SetIdempotency enables or disables idempotency checking for duplicate events.
+// When enabled, the executor will prevent duplicate workflow executions for the same event.
+func (fe *FanOutExecutor) SetIdempotency(enabled bool) {
+	fe.enableIdempotency = enabled
+}
+
+// IsIdempotencyEnabled returns whether idempotency checking is enabled.
+func (fe *FanOutExecutor) IsIdempotencyEnabled() bool {
+	return fe.enableIdempotency
 }
 
 // FanOutParams represents the parameters for the tako/fan-out@v1 step.

@@ -24,6 +24,38 @@ func TestNewFanOutExecutor(t *testing.T) {
 	if executor.debug != false {
 		t.Errorf("Expected debug false, got %v", executor.debug)
 	}
+
+	// Verify idempotency is disabled by default
+	if executor.IsIdempotencyEnabled() {
+		t.Error("Expected idempotency to be disabled by default")
+	}
+}
+
+func TestFanOutExecutor_IdempotencyConfiguration(t *testing.T) {
+	tempDir := t.TempDir()
+	mockRunner := NewTestMockWorkflowRunner()
+
+	executor, err := NewFanOutExecutor(tempDir, false, mockRunner)
+	if err != nil {
+		t.Fatalf("Failed to create executor: %v", err)
+	}
+
+	// Test that idempotency is disabled by default
+	if executor.IsIdempotencyEnabled() {
+		t.Error("Expected idempotency to be disabled by default")
+	}
+
+	// Test enabling idempotency
+	executor.SetIdempotency(true)
+	if !executor.IsIdempotencyEnabled() {
+		t.Error("Expected idempotency to be enabled after SetIdempotency(true)")
+	}
+
+	// Test disabling idempotency
+	executor.SetIdempotency(false)
+	if executor.IsIdempotencyEnabled() {
+		t.Error("Expected idempotency to be disabled after SetIdempotency(false)")
+	}
 }
 
 func TestFanOutExecutor_parseFanOutParams(t *testing.T) {
