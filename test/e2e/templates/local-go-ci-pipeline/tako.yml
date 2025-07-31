@@ -1,0 +1,34 @@
+version: v1
+workflows:
+  ci-pipeline:
+    inputs:
+      image_tag:
+        type: string
+        description: "The tag for the final Docker image"
+        default: "latest"
+    steps:
+      - id: lint
+        name: "Run Go Linter"
+        run: "go vet ./..."
+
+      - id: test
+        name: "Run Unit Tests"
+        run: "go test -v ./..."
+
+      - id: build
+        name: "Build for Linux"
+        image: "golang:1.22-alpine"
+        script: |
+          echo "Building Go binary for linux/amd64..."
+          GOOS=linux GOARCH=amd64 go build -o my-app main.go
+          echo "Build complete."
+        produces:
+          artifacts:
+            - path: ./my-app
+
+      - id: package
+        name: "Package Docker Image"
+        run: |
+          echo "Building Docker image my-app:{{ .Inputs.image_tag }}..."
+          docker build . -t my-app:{{ .Inputs.image_tag }}
+          echo "Image built successfully."
