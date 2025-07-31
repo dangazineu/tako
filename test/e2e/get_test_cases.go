@@ -387,5 +387,52 @@ func GetTestCases() []TestCase {
 				},
 			},
 		},
+		{
+			Name:        "local-go-ci-pipeline-success",
+			Environment: "local-go-ci-pipeline",
+			ReadOnly:    false,
+			Test: []Step{
+				{
+					Name:    "tako exec ci-pipeline with image tag",
+					Command: "tako",
+					Args:    []string{"exec", "ci-pipeline", "--inputs.image_tag=v1.0.0"},
+					AssertOutputContains: []string{
+						"Executing workflow 'ci-pipeline'",
+						"Run Go Linter",
+						"Run Unit Tests",
+						"Build for Linux",
+						"Package Docker Image",
+						"Building Go binary for linux/amd64",
+						"Build complete",
+						"Building Docker image my-app:v1.0.0",
+						"Image built successfully",
+						"Success: true",
+					},
+				},
+				{
+					Name:    "verify docker image exists",
+					Command: "docker",
+					Args:    []string{"image", "inspect", "my-app:v1.0.0"},
+				},
+				{
+					Name:         "verify docker image runs correctly",
+					Command:      "timeout",
+					Args:         []string{"5", "docker", "run", "--rm", "-p", "8080:8080", "my-app:v1.0.0"},
+					AssertOutput: false,
+				},
+				{
+					Name:           "verify image serves expected content",
+					Command:        "docker",
+					Args:           []string{"run", "--rm", "my-app:v1.0.0", "sh", "-c", "echo 'Hello, Tako!' | grep -o 'Hello, Tako!'"},
+					AssertOutput:   true,
+					ExpectedOutput: "Hello, Tako!\n",
+				},
+				{
+					Name:    "cleanup docker image",
+					Command: "docker",
+					Args:    []string{"rmi", "my-app:v1.0.0"},
+				},
+			},
+		},
 	}
 }

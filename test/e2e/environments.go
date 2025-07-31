@@ -148,5 +148,19 @@ func GetEnvironments(owner string) map[string]TestEnvironmentDef {
 				},
 			},
 		},
+		"local-go-ci-pipeline": {
+			Name: "local-go-ci-pipeline",
+			Repositories: []RepositoryDef{
+				{
+					Name:   "go-app",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "main.go", Template: "local-go-ci-pipeline/main.go"},
+						{Path: "Dockerfile", Template: "local-go-ci-pipeline/Dockerfile"},
+						{Path: "tako.yml", Template: "local-go-ci-pipeline/tako.yml"},
+					},
+				},
+			},
+		},
 	}
 }
