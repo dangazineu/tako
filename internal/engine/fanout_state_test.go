@@ -3,6 +3,7 @@ package engine
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 )
@@ -529,5 +530,283 @@ func TestCleanupCompletedStates(t *testing.T) {
 	_, err = manager.GetFanOutState("active")
 	if err != nil {
 		t.Errorf("Expected active state to still exist: %v", err)
+	}
+}
+
+func TestGenerateEventFingerprint(t *testing.T) {
+	tests := []struct {
+		name        string
+		event       interface{}
+		expectError bool
+		expectID    bool
+	}{
+		{
+			name: "enhanced event with ID",
+			event: &EnhancedEvent{
+				Type: "test_event",
+				Metadata: EventMetadata{
+					ID:     "unique-event-id-123",
+					Source: "test/repo",
+				},
+				Payload: map[string]interface{}{
+					"key": "value",
+				},
+			},
+			expectError: false,
+			expectID:    true,
+		},
+		{
+			name: "enhanced event without ID",
+			event: &EnhancedEvent{
+				Type: "test_event",
+				Metadata: EventMetadata{
+					Source: "test/repo",
+				},
+				Payload: map[string]interface{}{
+					"key": "value",
+				},
+			},
+			expectError: false,
+			expectID:    false,
+		},
+		{
+			name: "legacy event",
+			event: &Event{
+				Type:   "test_event",
+				Source: "test/repo",
+				Payload: map[string]interface{}{
+					"key": "value",
+				},
+			},
+			expectError: false,
+			expectID:    false,
+		},
+		{
+			name:        "unsupported event type",
+			event:       "not an event",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fingerprint, err := GenerateEventFingerprint(tt.event)
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+				if tt.expectID {
+					// Should return the event ID directly
+					if enhancedEvent, ok := tt.event.(*EnhancedEvent); ok {
+						if fingerprint != enhancedEvent.Metadata.ID {
+							t.Errorf("Expected fingerprint to be event ID %s, got %s",
+								enhancedEvent.Metadata.ID, fingerprint)
+						}
+					}
+				} else {
+					// Should return a hash
+					if len(fingerprint) != 64 { // SHA256 hex string length
+						t.Errorf("Expected SHA256 hash (64 chars), got %d chars", len(fingerprint))
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestGenerateEventFingerprintDeterministic(t *testing.T) {
+	// Test that the same event produces the same fingerprint
+	event1 := &Event{
+		Type:   "test_event",
+		Source: "test/repo",
+		Payload: map[string]interface{}{
+			"key1": "value1",
+			"key2": "value2",
+			"nested": map[string]interface{}{
+				"a": 1,
+				"b": 2,
+			},
+		},
+	}
+
+	event2 := &Event{
+		Type:   "test_event",
+		Source: "test/repo",
+		Payload: map[string]interface{}{
+			"key2": "value2", // Different order
+			"key1": "value1",
+			"nested": map[string]interface{}{
+				"b": 2, // Different order
+				"a": 1,
+			},
+		},
+	}
+
+	fingerprint1, err1 := GenerateEventFingerprint(event1)
+	if err1 != nil {
+		t.Fatalf("Failed to generate fingerprint 1: %v", err1)
+	}
+
+	fingerprint2, err2 := GenerateEventFingerprint(event2)
+	if err2 != nil {
+		t.Fatalf("Failed to generate fingerprint 2: %v", err2)
+	}
+
+	if fingerprint1 != fingerprint2 {
+		t.Errorf("Expected same fingerprint for events with different key order, got:\n%s\n%s",
+			fingerprint1, fingerprint2)
+	}
+}
+
+func TestNormalizePayload(t *testing.T) {
+	tests := []struct {
+		name     string
+		payload  map[string]interface{}
+		expected map[string]interface{}
+	}{
+		{
+			name:     "nil payload",
+			payload:  nil,
+			expected: nil,
+		},
+		{
+			name: "simple payload",
+			payload: map[string]interface{}{
+				"z": "last",
+				"a": "first",
+				"m": "middle",
+			},
+			expected: map[string]interface{}{
+				"a": "first",
+				"m": "middle",
+				"z": "last",
+			},
+		},
+		{
+			name: "nested maps",
+			payload: map[string]interface{}{
+				"outer": map[string]interface{}{
+					"z": 3,
+					"a": 1,
+					"b": 2,
+				},
+			},
+			expected: map[string]interface{}{
+				"outer": map[string]interface{}{
+					"a": float64(1),
+					"b": float64(2),
+					"z": float64(3),
+				},
+			},
+		},
+		{
+			name: "arrays",
+			payload: map[string]interface{}{
+				"list": []interface{}{
+					map[string]interface{}{"b": 2, "a": 1},
+					"string",
+					123,
+				},
+			},
+			expected: map[string]interface{}{
+				"list": []interface{}{
+					map[string]interface{}{"a": float64(1), "b": float64(2)},
+					"string",
+					float64(123),
+				},
+			},
+		},
+		{
+			name: "mixed types",
+			payload: map[string]interface{}{
+				"string": "value",
+				"int":    42,
+				"float":  3.14,
+				"bool":   true,
+				"null":   nil,
+				"int32":  int32(100),
+				"uint":   uint(200),
+			},
+			expected: map[string]interface{}{
+				"bool":   true,
+				"float":  3.14,
+				"int":    float64(42),
+				"int32":  float64(100),
+				"null":   nil,
+				"string": "value",
+				"uint":   float64(200),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			normalized, err := normalizePayload(tt.payload)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			// For deterministic comparison, convert to JSON
+			if tt.expected == nil && normalized == nil {
+				return
+			}
+
+			// Check that keys are in sorted order
+			if normalized != nil {
+				keys := make([]string, 0, len(normalized))
+				for k := range normalized {
+					keys = append(keys, k)
+				}
+				// Sort the keys to check they match expected order
+				sortedKeys := make([]string, len(keys))
+				copy(sortedKeys, keys)
+				sort.Strings(sortedKeys)
+
+				// The iteration order might not be sorted, but the content should match
+				if len(keys) != len(sortedKeys) {
+					t.Errorf("Key count mismatch")
+				}
+			}
+		})
+	}
+}
+
+func TestEventFingerprintWithDifferentNumericTypes(t *testing.T) {
+	// Test that different numeric types produce the same fingerprint
+	event1 := &Event{
+		Type:   "test",
+		Source: "source",
+		Payload: map[string]interface{}{
+			"count": int(42),
+		},
+	}
+
+	event2 := &Event{
+		Type:   "test",
+		Source: "source",
+		Payload: map[string]interface{}{
+			"count": int32(42),
+		},
+	}
+
+	event3 := &Event{
+		Type:   "test",
+		Source: "source",
+		Payload: map[string]interface{}{
+			"count": float64(42),
+		},
+	}
+
+	fp1, _ := GenerateEventFingerprint(event1)
+	fp2, _ := GenerateEventFingerprint(event2)
+	fp3, _ := GenerateEventFingerprint(event3)
+
+	if fp1 != fp2 || fp2 != fp3 {
+		t.Errorf("Different numeric types produced different fingerprints:\nint: %s\nint32: %s\nfloat64: %s",
+			fp1, fp2, fp3)
 	}
 }

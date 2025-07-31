@@ -1,10 +1,13 @@
 package engine
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
@@ -433,4 +436,127 @@ func (sm *FanOutStateManager) CleanupCompletedStates(olderThan time.Duration) er
 	}
 
 	return nil
+}
+
+// GenerateEventFingerprint generates a deterministic fingerprint for an event to enable idempotency.
+// It uses the event ID if available, otherwise falls back to a hash of the event properties.
+func GenerateEventFingerprint(event interface{}) (string, error) {
+	switch e := event.(type) {
+	case *EnhancedEvent:
+		// Use event ID if available
+		if e.Metadata.ID != "" {
+			return e.Metadata.ID, nil
+		}
+		// Fallback to hash
+		return generateEventHash(e.Type, e.Metadata.Source, e.Payload)
+	case *Event:
+		// Legacy event - always use hash
+		return generateEventHash(e.Type, e.Source, e.Payload)
+	default:
+		return "", fmt.Errorf("unsupported event type: %T", event)
+	}
+}
+
+// generateEventHash creates a SHA256 hash from event properties.
+func generateEventHash(eventType, source string, payload map[string]interface{}) (string, error) {
+	// Normalize the payload for consistent hashing
+	normalizedPayload, err := normalizePayload(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to normalize payload: %v", err)
+	}
+
+	// Create a composite key from event properties
+	composite := map[string]interface{}{
+		"type":    eventType,
+		"source":  source,
+		"payload": normalizedPayload,
+	}
+
+	// Convert to canonical JSON
+	data, err := json.Marshal(composite)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal event for hashing: %v", err)
+	}
+
+	// Generate SHA256 hash
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:]), nil
+}
+
+// normalizePayload creates a normalized representation of a payload for consistent hashing.
+// It handles nested structures and ensures deterministic ordering.
+func normalizePayload(payload map[string]interface{}) (map[string]interface{}, error) {
+	if payload == nil {
+		return nil, nil
+	}
+
+	normalized := make(map[string]interface{})
+
+	// Get sorted keys for deterministic ordering
+	keys := make([]string, 0, len(payload))
+	for k := range payload {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// Process each key in sorted order
+	for _, key := range keys {
+		value := payload[key]
+		normalizedValue, err := normalizeValue(value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to normalize key %s: %v", key, err)
+		}
+		normalized[key] = normalizedValue
+	}
+
+	return normalized, nil
+}
+
+// normalizeValue recursively normalizes a value for consistent representation.
+func normalizeValue(value interface{}) (interface{}, error) {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		// Recursively normalize nested maps
+		return normalizePayload(v)
+	case []interface{}:
+		// Normalize each element in the slice
+		normalized := make([]interface{}, len(v))
+		for i, elem := range v {
+			normalizedElem, err := normalizeValue(elem)
+			if err != nil {
+				return nil, err
+			}
+			normalized[i] = normalizedElem
+		}
+		return normalized, nil
+	case float64, int, int64, string, bool, nil:
+		// Primitive types are already normalized
+		return v, nil
+	default:
+		// Convert other numeric types to float64 for consistency
+		// This handles cases where JSON unmarshaling might produce different numeric types
+		switch v := v.(type) {
+		case int32:
+			return float64(v), nil
+		case int16:
+			return float64(v), nil
+		case int8:
+			return float64(v), nil
+		case uint:
+			return float64(v), nil
+		case uint64:
+			return float64(v), nil
+		case uint32:
+			return float64(v), nil
+		case uint16:
+			return float64(v), nil
+		case uint8:
+			return float64(v), nil
+		case float32:
+			return float64(v), nil
+		default:
+			// For unknown types, convert to string representation
+			return fmt.Sprintf("%v", v), nil
+		}
+	}
 }
