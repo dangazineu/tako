@@ -162,5 +162,47 @@ func GetEnvironments(owner string) map[string]TestEnvironmentDef {
 				},
 			},
 		},
+		"local-go-ci-pipeline-lint-failure": {
+			Name: "local-go-ci-pipeline-lint-failure",
+			Repositories: []RepositoryDef{
+				{
+					Name:   "go-app",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "main.go", Template: "local-go-ci-pipeline-lint-failure/main.go"},
+						{Path: "Dockerfile", Template: "local-go-ci-pipeline-lint-failure/Dockerfile"},
+						{Path: "tako.yml", Template: "local-go-ci-pipeline-lint-failure/tako.yml"},
+					},
+				},
+			},
+		},
+		"local-go-ci-pipeline-build-failure": {
+			Name: "local-go-ci-pipeline-build-failure",
+			Repositories: []RepositoryDef{
+				{
+					Name:   "go-app",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "main.go", Template: "local-go-ci-pipeline-build-failure/main.go"},
+						{Path: "Dockerfile", Template: "local-go-ci-pipeline-build-failure/Dockerfile"},
+						{Path: "tako.yml", Template: "local-go-ci-pipeline-build-failure/tako.yml"},
+					},
+				},
+			},
+		},
+		"local-go-ci-pipeline-package-failure": {
+			Name: "local-go-ci-pipeline-package-failure",
+			Repositories: []RepositoryDef{
+				{
+					Name:   "go-app",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "main.go", Template: "local-go-ci-pipeline-package-failure/main.go"},
+						{Path: "Dockerfile", Template: "local-go-ci-pipeline-package-failure/Dockerfile"},
+						{Path: "tako.yml", Template: "local-go-ci-pipeline-package-failure/tako.yml"},
+					},
+				},
+			},
+		},
 	}
 }
