@@ -1,0 +1,67 @@
+name: Manual Verification Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  manual-verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Display Go version
+        run: go version
+
+      - name: Build tako binary
+        run: go build -o ./tako ./cmd/tako
+
+      - name: Build takotest binary
+        run: go build -o ./takotest ./cmd/takotest
+
+      - name: Make scripts executable
+        run: chmod +x test/scripts/*.sh
+
+      - name: Run foundational components verification
+        run: |
+          echo "=== Running foundational components verification ==="
+          ./test/scripts/verify-foundational-components.sh --local
+
+      - name: Run orchestrator verification
+        run: |
+          echo "=== Running orchestrator verification ==="
+          ./test/scripts/verify-orchestrator.sh --local
+
+      - name: Run fan-out verification
+        run: |
+          echo "=== Running fan-out verification ==="
+          ./test/scripts/verify-fanout.sh
+
+      - name: Run fan-out orchestrator integration verification
+        run: |
+          echo "=== Running fan-out orchestrator integration verification ==="
+          ./test/scripts/verify-fanout-orchestrator-integration.sh
+
+      - name: Run fan-out idempotency verification
+        run: |
+          echo "=== Running fan-out idempotency verification ==="
+          ./test/scripts/verify-fanout-idempotency.sh --local
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-test-artifacts
+          path: |
+            test-*/
+            /tmp/tako_*
+          retention-days: 7
