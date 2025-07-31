@@ -960,3 +960,153 @@ func TestCreateStateAtomicRaceCondition(t *testing.T) {
 		t.Errorf("Expected original state ParentRunID, got %s vs %s", state2.ParentRunID, state1.ParentRunID)
 	}
 }
+
+func TestIdempotencyRetentionConfiguration(t *testing.T) {
+	tempDir := t.TempDir()
+	manager, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+
+	// Check default retention period
+	defaultRetention := manager.GetIdempotencyRetention()
+	if defaultRetention != 24*time.Hour {
+		t.Errorf("Expected default retention of 24 hours, got %v", defaultRetention)
+	}
+
+	// Set custom retention period
+	customRetention := 12 * time.Hour
+	manager.SetIdempotencyRetention(customRetention)
+
+	// Verify retention was set
+	if manager.GetIdempotencyRetention() != customRetention {
+		t.Errorf("Expected custom retention %v, got %v", customRetention, manager.GetIdempotencyRetention())
+	}
+}
+
+func TestIsIdempotentState(t *testing.T) {
+	tempDir := t.TempDir()
+	manager, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		stateID  string
+		expected bool
+	}{
+		{
+			name:     "idempotent state with valid hex fingerprint",
+			stateID:  "fanout-abc123def4567890123456789012345678901234567890123456789012345678",
+			expected: true,
+		},
+		{
+			name:     "idempotent state with uppercase hex",
+			stateID:  "fanout-ABC123DEF4567890123456789012345678901234567890123456789012345678",
+			expected: true,
+		},
+		{
+			name:     "timestamp-based state",
+			stateID:  "fanout-1753922275-library_built",
+			expected: false,
+		},
+		{
+			name:     "short hex string",
+			stateID:  "fanout-abc123",
+			expected: false,
+		},
+		{
+			name:     "invalid hex characters",
+			stateID:  "fanout-xyz123def456789012345678901234567890123456789012345678901234567890",
+			expected: false,
+		},
+		{
+			name:     "no fanout prefix",
+			stateID:  "state-abc123def456789012345678901234567890123456789012345678901234567890",
+			expected: false,
+		},
+		{
+			name:     "too short",
+			stateID:  "fanout-",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := manager.isIdempotentState(tt.stateID)
+			if result != tt.expected {
+				t.Errorf("isIdempotentState(%s) = %v, want %v", tt.stateID, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCleanupCompletedStatesWithIdempotencyRetention(t *testing.T) {
+	tempDir := t.TempDir()
+	manager, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+
+	// Set custom retention periods
+	traditionalRetention := 1 * time.Hour
+	idempotentRetention := 2 * time.Hour
+	manager.SetIdempotencyRetention(idempotentRetention)
+
+	// Create traditional timestamp-based state (old)
+	traditionalState, _ := manager.CreateFanOutState("fanout-1234567890-test", "", "org/repo", "test", false, 0)
+	traditionalState.CompleteFanOut()
+	oldTime := time.Now().Add(-3 * time.Hour) // 3 hours ago
+	traditionalState.EndTime = &oldTime
+
+	// Create idempotent fingerprint-based state (old but within idempotent retention)
+	idempotentState, _ := manager.CreateFanOutStateWithFingerprint("", "abc123def4567890123456789012345678901234567890123456789012345678", "", "org/repo", "test", false, 0)
+	idempotentState.CompleteFanOut()
+	mediumOldTime := time.Now().Add(-90 * time.Minute) // 1.5 hours ago
+	idempotentState.EndTime = &mediumOldTime
+
+	// Create another idempotent state (very old, should be cleaned)
+	veryOldIdempotentState, _ := manager.CreateFanOutStateWithFingerprint("", "def456789012345678901234567890123456789012345678901234567890abc123", "", "org/repo", "test", false, 0)
+	veryOldIdempotentState.CompleteFanOut()
+	veryOldTime := time.Now().Add(-5 * time.Hour) // 5 hours ago
+	veryOldIdempotentState.EndTime = &veryOldTime
+
+	// Create recent traditional state (should not be cleaned)
+	recentTraditionalState, _ := manager.CreateFanOutState("fanout-9876543210-test", "", "org/repo", "test", false, 0)
+	recentTraditionalState.CompleteFanOut()
+	recentTime := time.Now().Add(-30 * time.Minute) // 30 minutes ago
+	recentTraditionalState.EndTime = &recentTime
+
+	// Cleanup with traditional retention period
+	err = manager.CleanupCompletedStates(traditionalRetention)
+	if err != nil {
+		t.Fatalf("Failed to cleanup completed states: %v", err)
+	}
+
+	// Verify cleanup results
+	// Traditional old state should be removed (older than 1 hour)
+	_, err = manager.GetFanOutState("fanout-1234567890-test")
+	if err == nil {
+		t.Errorf("Expected old traditional state to be removed")
+	}
+
+	// Idempotent state should still exist (1.5 hours old, but retention is 2 hours)
+	_, err = manager.GetFanOutState("fanout-abc123def4567890123456789012345678901234567890123456789012345678")
+	if err != nil {
+		t.Errorf("Expected idempotent state to still exist: %v", err)
+	}
+
+	// Very old idempotent state should be removed (5 hours old, retention is 2 hours)
+	_, err = manager.GetFanOutState("fanout-def456789012345678901234567890123456789012345678901234567890abc123")
+	if err == nil {
+		t.Errorf("Expected very old idempotent state to be removed")
+	}
+
+	// Recent traditional state should still exist
+	_, err = manager.GetFanOutState("fanout-9876543210-test")
+	if err != nil {
+		t.Errorf("Expected recent traditional state to still exist: %v", err)
+	}
+}

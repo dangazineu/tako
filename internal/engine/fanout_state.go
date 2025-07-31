@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -69,9 +70,10 @@ const (
 
 // FanOutStateManager manages the persistent state of fan-out operations.
 type FanOutStateManager struct {
-	stateDir string
-	mu       sync.RWMutex
-	states   map[string]*FanOutState
+	stateDir             string
+	mu                   sync.RWMutex
+	states               map[string]*FanOutState
+	idempotencyRetention time.Duration
 }
 
 // NewFanOutStateManager creates a new state manager for fan-out operations.
@@ -81,8 +83,9 @@ func NewFanOutStateManager(stateDir string) (*FanOutStateManager, error) {
 	}
 
 	manager := &FanOutStateManager{
-		stateDir: stateDir,
-		states:   make(map[string]*FanOutState),
+		stateDir:             stateDir,
+		states:               make(map[string]*FanOutState),
+		idempotencyRetention: 24 * time.Hour, // Default 24 hours for idempotent states
 	}
 
 	// Load existing states from disk
@@ -133,6 +136,21 @@ func (sm *FanOutStateManager) CreateFanOutStateWithFingerprint(id, fingerprint, 
 	}
 
 	return state, nil
+}
+
+// SetIdempotencyRetention sets the retention period for idempotent states.
+// This only affects cleanup of states with fingerprint-based names.
+func (sm *FanOutStateManager) SetIdempotencyRetention(retention time.Duration) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.idempotencyRetention = retention
+}
+
+// GetIdempotencyRetention returns the current retention period for idempotent states.
+func (sm *FanOutStateManager) GetIdempotencyRetention() time.Duration {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.idempotencyRetention
 }
 
 // GetFanOutState retrieves a fan-out state by ID.
@@ -460,15 +478,32 @@ func (sm *FanOutStateManager) ListActiveFanOuts() []FanOutSummary {
 }
 
 // CleanupCompletedStates removes completed fan-out states older than the specified duration.
+// For idempotent states (those with fingerprint-based names), it uses the configured
+// idempotency retention period instead of the provided duration.
 func (sm *FanOutStateManager) CleanupCompletedStates(olderThan time.Duration) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	cutoff := time.Now().Add(-olderThan)
+	now := time.Now()
 	var toDelete []string
 
 	for id, state := range sm.states {
-		if state.IsComplete() && state.EndTime != nil && state.EndTime.Before(cutoff) {
+		if !state.IsComplete() || state.EndTime == nil {
+			continue
+		}
+
+		// Determine retention period based on state type
+		var retentionPeriod time.Duration
+		if sm.isIdempotentState(id) {
+			// Use idempotency retention for fingerprint-based states
+			retentionPeriod = sm.idempotencyRetention
+		} else {
+			// Use provided duration for traditional timestamp-based states
+			retentionPeriod = olderThan
+		}
+
+		cutoff := now.Add(-retentionPeriod)
+		if state.EndTime.Before(cutoff) {
 			toDelete = append(toDelete, id)
 		}
 	}
@@ -482,6 +517,30 @@ func (sm *FanOutStateManager) CleanupCompletedStates(olderThan time.Duration) er
 	}
 
 	return nil
+}
+
+// isIdempotentState checks if a state ID represents an idempotent state
+// by checking if it follows the fingerprint-based naming pattern.
+func (sm *FanOutStateManager) isIdempotentState(stateID string) bool {
+	// Idempotent states have the pattern: "fanout-<fingerprint>"
+	// where fingerprint is a hex string (SHA256 = 64 chars)
+	if !strings.HasPrefix(stateID, "fanout-") {
+		return false
+	}
+
+	suffix := strings.TrimPrefix(stateID, "fanout-")
+
+	// Check if suffix looks like a hex fingerprint (64 chars, all hex)
+	if len(suffix) == 64 {
+		for _, char := range suffix {
+			if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
+				return false
+			}
+		}
+		return true
+	}
+
+	return false
 }
 
 // createStateAtomic creates a fan-out state using atomic file operations to handle race conditions.
