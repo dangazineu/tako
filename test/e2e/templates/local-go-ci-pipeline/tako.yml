@@ -18,7 +18,7 @@ workflows:
       - id: build
         name: "Build for Linux"
         image: "golang:1.22-alpine"
-        script: |
+        run: |
           echo "Building Go binary for linux/amd64..."
           GOOS=linux GOARCH=amd64 go build -o my-app main.go
           echo "Build complete."
