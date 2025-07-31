@@ -34,12 +34,12 @@ jobs:
       - name: Run foundational components verification
         run: |
           echo "=== Running foundational components verification ==="
-          ./test/scripts/verify-foundational-components.sh --local
+          ./test/scripts/verify-foundational-components.sh
 
       - name: Run orchestrator verification
         run: |
           echo "=== Running orchestrator verification ==="
-          ./test/scripts/verify-orchestrator.sh --local
+          ./test/scripts/verify-orchestrator.sh
 
       - name: Run fan-out verification
         run: |
