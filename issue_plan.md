@@ -5,6 +5,13 @@ Implement advanced subscription features including CEL caching, enhanced schema 
 
 ## Phase-by-Phase Implementation Plan
 
+**Updated based on Gemini review - Key improvements:**
+- Combined phases 3&4 for better cohesion (fingerprinting + diamond resolution)
+- Added explicit sorting requirement for deterministic first-wins behavior  
+- Added input normalization to prevent fingerprint brittleness
+- Added complexity reduction through refactoring requirements
+- Enhanced testing strategy with "near diamond" and E2E test scenarios
+
 ### Phase 1: CEL Expression Caching Infrastructure
 **Goal**: Add in-memory CEL expression caching to SubscriptionEvaluator  
 **Status**: ⏳ Pending  
@@ -62,68 +69,62 @@ Implement advanced subscription features including CEL caching, enhanced schema 
 
 ---
 
-### Phase 3: Subscription Fingerprinting for Diamond Resolution
-**Goal**: Enhance event fingerprinting to include subscription details  
-**Status**: ⏳ Pending  
-**Health Check**: All existing tests pass + fingerprinting tests
-
-#### Implementation Details
-- Modify `GenerateEventFingerprint` to accept optional subscription details
-- Create `GenerateSubscriptionFingerprint` function for subscription-specific hashing
-- Include subscription filters, inputs, workflow, and target repository in fingerprint
-- Ensure deterministic ordering of subscription components in hash
-- Maintain backward compatibility with existing event fingerprinting
-
-#### Files to Modify
-- `internal/engine/fanout_state.go` - Enhance fingerprinting functions
-- `internal/engine/fanout_state_test.go` - Add subscription fingerprinting tests
-
-#### Testing Requirements
-- Unit tests for subscription fingerprint generation
-- Consistency tests (same subscription = same fingerprint)
-- Uniqueness tests (different subscriptions = different fingerprints)
-- Backward compatibility with existing event fingerprints
-
-#### Success Criteria
-- Subscription fingerprints are deterministic and unique
-- Existing event fingerprinting functionality unchanged
-- Clear separation between event and subscription fingerprints
-
----
-
-### Phase 4: Diamond Dependency Resolution in FanOutExecutor
-**Goal**: Implement "first-wins" logic for duplicate subscriptions  
+### Phase 3: Diamond Dependency Resolution (Combined)
+**Goal**: Implement subscription fingerprinting and "first-wins" logic for duplicate subscriptions  
 **Status**: ⏳ Pending  
 **Health Check**: All existing tests pass + diamond resolution tests
 
 #### Implementation Details
-- Modify `triggerSubscribersWithState` to detect duplicate subscriptions
+**Subscription Fingerprinting:**
+- Create `GenerateSubscriptionFingerprint` function for subscription-specific hashing
+- Include subscription filters, inputs, workflow, and target repository in fingerprint
+- **Normalize inputs**: Canonicalize CEL expressions and input values before hashing
+- Ensure deterministic ordering of subscription components in hash
+- Maintain backward compatibility with existing event fingerprinting
+
+**Diamond Resolution Logic:**
+- Refactor `triggerSubscribersWithState` into smaller helper functions
+- Create `resolveDiamondDependencies` function for deduplication logic
+- **Add explicit sorting** of subscribers by repository path for deterministic first-wins
 - Use subscription fingerprinting to identify identical subscriptions
-- Implement first-wins ordering (likely based on repository discovery order)
-- Add logging for skipped duplicate subscriptions
+- Add detailed logging for skipped duplicate subscriptions with clear reasoning
 - Integrate with existing idempotency infrastructure
 - Update result reporting to include skipped subscription counts
 
 #### Files to Modify
-- `internal/engine/fanout.go` - Enhance `triggerSubscribersWithState`
+- `internal/engine/fanout_state.go` - Add subscription fingerprinting functions
+- `internal/engine/fanout.go` - Enhance and refactor `triggerSubscribersWithState`
+- `internal/engine/fanout_state_test.go` - Add subscription fingerprinting tests
 - `internal/engine/fanout_test.go` - Add diamond dependency test cases
 
 #### Testing Requirements
+**Fingerprinting Tests:**
+- Unit tests for subscription fingerprint generation with normalization
+- Consistency tests (same subscription = same fingerprint)
+- Uniqueness tests (different subscriptions = different fingerprints)
+- "Near diamond" tests: almost identical subscriptions should NOT deduplicate
+- Fingerprint brittleness tests: whitespace/formatting changes should normalize
+
+**Diamond Resolution Tests:**
 - Unit tests for duplicate subscription detection
 - Integration tests with multiple repositories subscribing to same event
 - Test various diamond dependency scenarios (2, 3, 4+ duplicates)
-- Verify first-wins ordering is consistent and predictable
+- Verify first-wins ordering is deterministic and stable
+- Test that explicit sorting produces consistent results
+- Test detailed logging content and accuracy
 - Test interaction with existing idempotency features
 
 #### Success Criteria
+- Subscription fingerprints are deterministic, unique, and normalized
 - Duplicate subscriptions are correctly identified and deduplicated
-- Only first subscription in discovery order executes
-- Comprehensive logging and metrics for monitoring
-- No regression in existing fan-out functionality
+- First-wins ordering is stable and deterministic (sorted by repository path)
+- Comprehensive, clear logging explains why subscriptions were skipped
+- Existing event fingerprinting and fan-out functionality unchanged
+- Reduced cyclomatic complexity through refactoring
 
 ---
 
-### Phase 5: Enhanced Orchestrator Logic
+### Phase 4: Enhanced Orchestrator Prioritization
 **Goal**: Add filtering and prioritization capabilities to Orchestrator  
 **Status**: ⏳ Pending  
 **Health Check**: All existing tests pass + orchestrator enhancement tests
@@ -131,10 +132,9 @@ Implement advanced subscription features including CEL caching, enhanced schema 
 #### Implementation Details
 - Add subscription filtering methods to Orchestrator
 - Implement priority-based sorting for subscription matches
-- Add structured logging for orchestrator operations
-- Integrate metrics collection for monitoring
 - Add configuration options for orchestrator behavior
 - Maintain backward compatibility with simple pass-through behavior
+- Consider adding debug flag (`--tako-debug-subscriptions`) for detailed diagnostics
 
 #### Files to Modify
 - `internal/engine/orchestrator.go` - Add filtering and prioritization logic
@@ -150,12 +150,11 @@ Implement advanced subscription features including CEL caching, enhanced schema 
 #### Success Criteria
 - Orchestrator provides valuable filtering and prioritization
 - Performance remains acceptable for typical workloads
-- Enhanced observability through logging and metrics
 - No breaking changes to existing Orchestrator interface
 
 ---
 
-### Phase 6: Integration Testing and Performance Optimization
+### Phase 5: Integration Testing and Performance Optimization
 **Goal**: End-to-end testing and performance tuning  
 **Status**: ⏳ Pending  
 **Health Check**: All tests pass + comprehensive integration tests
@@ -174,8 +173,15 @@ Implement advanced subscription features including CEL caching, enhanced schema 
 - Add performance benchmarking utilities
 
 #### Testing Requirements
-- End-to-end diamond dependency resolution tests
-- Performance benchmarks for CEL caching effectiveness
+**E2E Integration Tests:**
+- Create dedicated E2E test in `test/e2e/templates/` for multi-repository diamond dependency
+- End-to-end diamond dependency resolution with 3-4 repositories
+- Test recursive fan-out scenarios (subscribers that themselves fan out)
+- Error condition testing: fingerprint generation failures, invalid configurations
+
+**Performance and Load Testing:**
+- Performance benchmarks for CEL caching effectiveness using `go test -bench`
+- Memory usage measurement with `testing.B.ReportAllocs()` to verify <10MB target
 - Memory leak detection and resource cleanup verification
 - Concurrent access testing for thread safety
 - Large-scale subscription processing tests
@@ -198,8 +204,10 @@ Implement advanced subscription features including CEL caching, enhanced schema 
 
 ### Integration Risks
 1. **State Management Conflicts**: Careful integration with existing idempotency
-2. **Discovery Order Dependencies**: Ensure deterministic first-wins behavior
+2. **Discovery Order Dependencies**: **CRITICAL** - Ensure deterministic first-wins behavior through explicit sorting
 3. **Configuration Validation**: Clear error messages for invalid configurations
+4. **Fingerprint Brittleness**: **NEW** - Normalize CEL expressions and inputs to avoid semantic false-positives
+5. **Complexity Growth**: **NEW** - Refactor `triggerSubscribersWithState` to maintain readability
 
 ## Success Metrics
 
@@ -210,8 +218,8 @@ Implement advanced subscription features including CEL caching, enhanced schema 
 - ✅ All existing functionality remains unchanged
 
 ### Performance Metrics
-- 🎯 CEL evaluation performance improvement (target: 50% faster for repeated expressions)
-- 🎯 Memory usage remains bounded (target: <10MB for typical workloads)
+- 🎯 CEL evaluation performance improvement (target: 50% faster for repeated expressions, measured via `go test -bench`)
+- 🎯 Memory usage remains bounded (target: <10MB for typical workloads, measured via `testing.B.ReportAllocs()`)
 - 🎯 No measurable performance regression in existing functionality
 
 ### Quality Metrics
