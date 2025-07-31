@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -94,6 +95,20 @@ func NewFanOutStateManager(stateDir string) (*FanOutStateManager, error) {
 
 // CreateFanOutState creates a new fan-out state and persists it.
 func (sm *FanOutStateManager) CreateFanOutState(id, parentRunID, sourceRepo, eventType string, waitingForAll bool, timeout time.Duration) (*FanOutState, error) {
+	return sm.CreateFanOutStateWithFingerprint(id, "", parentRunID, sourceRepo, eventType, waitingForAll, timeout)
+}
+
+// CreateFanOutStateWithFingerprint creates a new fan-out state with optional fingerprint for idempotency.
+// If fingerprint is provided, it uses fingerprint-based naming and atomic creation.
+// If fingerprint is empty, it uses traditional timestamp-based naming.
+func (sm *FanOutStateManager) CreateFanOutStateWithFingerprint(id, fingerprint, parentRunID, sourceRepo, eventType string, waitingForAll bool, timeout time.Duration) (*FanOutState, error) {
+	if fingerprint != "" {
+		// Use fingerprint-based ID and atomic creation
+		fingerprintID := fmt.Sprintf("fanout-%s", fingerprint)
+		return sm.createStateAtomic(fingerprintID, parentRunID, sourceRepo, eventType, waitingForAll, timeout)
+	}
+
+	// Traditional creation without fingerprint
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -128,6 +143,37 @@ func (sm *FanOutStateManager) GetFanOutState(id string) (*FanOutState, error) {
 	state, exists := sm.states[id]
 	if !exists {
 		return nil, fmt.Errorf("fan-out state not found: %s", id)
+	}
+
+	return state, nil
+}
+
+// GetFanOutStateByFingerprint retrieves a fan-out state by event fingerprint.
+// Returns nil (not an error) if no state exists for the given fingerprint.
+func (sm *FanOutStateManager) GetFanOutStateByFingerprint(fingerprint string) (*FanOutState, error) {
+	fingerprintID := fmt.Sprintf("fanout-%s", fingerprint)
+
+	sm.mu.RLock()
+	state, exists := sm.states[fingerprintID]
+	sm.mu.RUnlock()
+
+	if !exists {
+		// Check if the state file exists on disk but wasn't loaded
+		stateFile := filepath.Join(sm.stateDir, fmt.Sprintf("%s.json", fingerprintID))
+		if _, err := os.Stat(stateFile); err == nil {
+			// File exists, try to load it
+			if err := sm.loadStateFile(fmt.Sprintf("%s.json", fingerprintID)); err != nil {
+				return nil, fmt.Errorf("failed to load state file for fingerprint %s: %v", fingerprint, err)
+			}
+			// Try again after loading
+			sm.mu.RLock()
+			state, exists = sm.states[fingerprintID]
+			sm.mu.RUnlock()
+		}
+	}
+
+	if !exists {
+		return nil, nil // Not found, but not an error
 	}
 
 	return state, nil
@@ -436,6 +482,92 @@ func (sm *FanOutStateManager) CleanupCompletedStates(olderThan time.Duration) er
 	}
 
 	return nil
+}
+
+// createStateAtomic creates a fan-out state using atomic file operations to handle race conditions.
+// If a state with the same ID already exists, it loads and returns the existing state.
+// Returns the state and a boolean indicating whether it was newly created (true) or existing (false).
+func (sm *FanOutStateManager) createStateAtomic(id, parentRunID, sourceRepo, eventType string, waitingForAll bool, timeout time.Duration) (*FanOutState, error) {
+	// Check if state already exists in memory
+	sm.mu.RLock()
+	if existingState, exists := sm.states[id]; exists {
+		sm.mu.RUnlock()
+		return existingState, nil
+	}
+	sm.mu.RUnlock()
+
+	// Create new state
+	state := &FanOutState{
+		ID:            id,
+		ParentRunID:   parentRunID,
+		SourceRepo:    sourceRepo,
+		EventType:     eventType,
+		Status:        FanOutStatusPending,
+		StartTime:     time.Now(),
+		Children:      make(map[string]*ChildWorkflow),
+		WaitingForAll: waitingForAll,
+		Timeout:       timeout,
+		stateManager:  sm,
+	}
+
+	// Generate temporary filename with random UUID
+	tempID := make([]byte, 16)
+	if _, err := rand.Read(tempID); err != nil {
+		return nil, fmt.Errorf("failed to generate temp ID: %v", err)
+	}
+	tempFileName := fmt.Sprintf("%s.tmp.%x", id, tempID)
+	tempFile := filepath.Join(sm.stateDir, fmt.Sprintf("%s.json", tempFileName))
+	finalFile := filepath.Join(sm.stateDir, fmt.Sprintf("%s.json", id))
+
+	// Marshal state data
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal state: %v", err)
+	}
+
+	// Write to temporary file
+	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write temp state file: %v", err)
+	}
+
+	// Attempt atomic rename
+	if err := os.Rename(tempFile, finalFile); err != nil {
+		// Clean up temp file
+		os.Remove(tempFile)
+
+		// Check if the rename failed because the target already exists
+		if os.IsExist(err) || (finalFile != "" && fileExists(finalFile)) {
+			// Another process won the race, load the existing state
+			if err := sm.loadStateFile(fmt.Sprintf("%s.json", id)); err != nil {
+				return nil, fmt.Errorf("failed to load existing state after race condition: %v", err)
+			}
+
+			sm.mu.RLock()
+			existingState, exists := sm.states[id]
+			sm.mu.RUnlock()
+
+			if !exists {
+				return nil, fmt.Errorf("state should exist after loading but not found: %s", id)
+			}
+
+			return existingState, nil
+		}
+
+		return nil, fmt.Errorf("failed to rename temp file to final state file: %v", err)
+	}
+
+	// Successfully created new state, add to memory
+	sm.mu.Lock()
+	sm.states[id] = state
+	sm.mu.Unlock()
+
+	return state, nil
+}
+
+// fileExists checks if a file exists
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // GenerateEventFingerprint generates a deterministic fingerprint for an event to enable idempotency.

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -808,5 +809,154 @@ func TestEventFingerprintWithDifferentNumericTypes(t *testing.T) {
 	if fp1 != fp2 || fp2 != fp3 {
 		t.Errorf("Different numeric types produced different fingerprints:\nint: %s\nint32: %s\nfloat64: %s",
 			fp1, fp2, fp3)
+	}
+}
+
+func TestGetFanOutStateByFingerprint(t *testing.T) {
+	tempDir := t.TempDir()
+	manager, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+
+	fingerprint := "test-fingerprint-abc123"
+
+	// Test getting non-existent fingerprint state
+	state, err := manager.GetFanOutStateByFingerprint(fingerprint)
+	if err != nil {
+		t.Errorf("Expected no error for non-existent state, got: %v", err)
+	}
+	if state != nil {
+		t.Errorf("Expected nil state for non-existent fingerprint, got: %v", state)
+	}
+
+	// Create a state with fingerprint
+	createdState, err := manager.CreateFanOutStateWithFingerprint("", fingerprint, "parent-123", "org/repo", "test_event", true, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("Failed to create state with fingerprint: %v", err)
+	}
+
+	expectedID := fmt.Sprintf("fanout-%s", fingerprint)
+	if createdState.ID != expectedID {
+		t.Errorf("Expected state ID %s, got %s", expectedID, createdState.ID)
+	}
+
+	// Retrieve the state by fingerprint
+	retrievedState, err := manager.GetFanOutStateByFingerprint(fingerprint)
+	if err != nil {
+		t.Fatalf("Failed to get state by fingerprint: %v", err)
+	}
+	if retrievedState == nil {
+		t.Fatalf("Expected state to be found by fingerprint")
+	}
+	if retrievedState.ID != expectedID {
+		t.Errorf("Expected retrieved state ID %s, got %s", expectedID, retrievedState.ID)
+	}
+}
+
+func TestCreateFanOutStateWithFingerprint(t *testing.T) {
+	tempDir := t.TempDir()
+	manager, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+
+	fingerprint := "test-fingerprint-def456"
+	expectedID := fmt.Sprintf("fanout-%s", fingerprint)
+
+	// Create first state
+	state1, err := manager.CreateFanOutStateWithFingerprint("", fingerprint, "parent-123", "org/repo", "test_event", true, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("Failed to create first state: %v", err)
+	}
+	if state1.ID != expectedID {
+		t.Errorf("Expected state ID %s, got %s", expectedID, state1.ID)
+	}
+
+	// Attempt to create second state with same fingerprint
+	state2, err := manager.CreateFanOutStateWithFingerprint("", fingerprint, "parent-456", "org/repo2", "test_event2", false, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("Failed to handle duplicate fingerprint: %v", err)
+	}
+
+	// Should return the existing state
+	if state2.ID != state1.ID {
+		t.Errorf("Expected same state ID for duplicate fingerprint, got %s vs %s", state2.ID, state1.ID)
+	}
+	if state2.ParentRunID != state1.ParentRunID {
+		t.Errorf("Expected original state properties, got ParentRunID %s vs %s", state2.ParentRunID, state1.ParentRunID)
+	}
+}
+
+func TestCreateStateAtomic(t *testing.T) {
+	tempDir := t.TempDir()
+	manager, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+
+	id := "fanout-atomic-test"
+
+	// Create state atomically
+	state, err := manager.createStateAtomic(id, "parent-123", "org/repo", "test_event", true, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("Failed to create state atomically: %v", err)
+	}
+	if state.ID != id {
+		t.Errorf("Expected state ID %s, got %s", id, state.ID)
+	}
+
+	// Verify state was persisted
+	stateFile := filepath.Join(tempDir, fmt.Sprintf("%s.json", id))
+	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
+		t.Errorf("State file was not created")
+	}
+
+	// Verify state is in memory
+	retrievedState, err := manager.GetFanOutState(id)
+	if err != nil {
+		t.Fatalf("Failed to retrieve state from memory: %v", err)
+	}
+	if retrievedState.ID != id {
+		t.Errorf("Expected retrieved state ID %s, got %s", id, retrievedState.ID)
+	}
+}
+
+func TestCreateStateAtomicRaceCondition(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Test that concurrent creation with same ID returns existing state
+	manager1, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create first state manager: %v", err)
+	}
+
+	// Create new manager after first state is created to simulate race condition
+	id := "fanout-race-test"
+
+	// Create state with first manager
+	state1, err := manager1.createStateAtomic(id, "parent-123", "org/repo", "test_event", true, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("Failed to create state with first manager: %v", err)
+	}
+
+	// Create second manager after state file exists
+	manager2, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create second state manager: %v", err)
+	}
+
+	// Attempt to create state with same ID using second manager
+	state2, err := manager2.createStateAtomic(id, "parent-456", "org/repo2", "test_event2", false, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("Failed to handle existing state: %v", err)
+	}
+
+	// Should return the existing state properties (loaded from disk)
+	if state2.ID != state1.ID {
+		t.Errorf("Expected same state ID, got %s vs %s", state2.ID, state1.ID)
+	}
+	if state2.ParentRunID != state1.ParentRunID {
+		t.Errorf("Expected original state ParentRunID, got %s vs %s", state2.ParentRunID, state1.ParentRunID)
 	}
 }
