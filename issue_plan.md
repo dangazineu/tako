@@ -102,18 +102,24 @@ Implement a comprehensive E2E test scenario demonstrating a real-world Local Go 
 **Deliverables**: Three additional test cases covering different failure modes
 
 ### Tasks:
-1. Create `local-go-ci-pipeline-lint-failure`:
-   - Modify template to include lint errors
+1. Create separate template directories for test isolation:
+   - `test/e2e/templates/local-go-ci-pipeline/` (main success case)
+   - `test/e2e/templates/local-go-ci-pipeline-lint-failure/`
+   - `test/e2e/templates/local-go-ci-pipeline-build-failure/`  
+   - `test/e2e/templates/local-go-ci-pipeline-package-failure/`
+
+2. Create `local-go-ci-pipeline-lint-failure`:
+   - Separate template with lint errors in Go code
    - Assert pipeline fails at lint step
    - Verify appropriate error messages
 
-2. Create `local-go-ci-pipeline-build-failure`:
-   - Modify template to include syntax errors  
+3. Create `local-go-ci-pipeline-build-failure`:
+   - Separate template with syntax errors  
    - Assert pipeline fails at build step
    - Verify containerized build failure handling
 
-3. Create `local-go-ci-pipeline-package-failure`:
-   - Create invalid Dockerfile scenario
+4. Create `local-go-ci-pipeline-package-failure`:
+   - Separate template with invalid Dockerfile
    - Assert pipeline fails at package step
    - Verify Docker build failure handling
 
@@ -132,11 +138,16 @@ Implement a comprehensive E2E test scenario demonstrating a real-world Local Go 
    - `go test -v -tags=e2e --remote ./...`
    - Address remote-specific issues
 
-3. Validate test coverage and assertions:
+3. CI simulation validation:
+   - Run tests using `act --container-architecture linux/amd64 -P ubuntu-latest=catthehacker/ubuntu:act-latest`
+   - Address any CI-specific issues
+
+4. Validate test coverage and assertions:
    - Ensure all specified acceptance criteria are met
    - Verify test output matches expected patterns
+   - Confirm artifact handling between containerized build and native package steps
 
-**Test Requirements**: All tests pass in both local and remote modes
+**Test Requirements**: All tests pass in local, remote, and CI simulation modes
 
 ## Phase 5: Documentation and Cleanup
 **Goal**: Finalize implementation with proper documentation
