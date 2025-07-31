@@ -28,6 +28,11 @@ jobs:
       - name: Build takotest binary
         run: go build -o ./takotest ./cmd/takotest
 
+      - name: Configure Git for testing
+        run: |
+          git config --global user.email "test@example.com"
+          git config --global user.name "GitHub Actions"
+
       - name: Make scripts executable
         run: chmod +x test/scripts/*.sh
 
