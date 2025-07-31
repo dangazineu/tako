@@ -378,8 +378,40 @@ func parseSemVer(version string) (SemVer, error) {
 }
 
 // evaluateVersionRange evaluates whether a semantic version satisfies a version range.
-// Supports basic ranges like "1.0.0", "^1.0.0", "~1.0.0", ">=1.0.0".
+// Supports ranges like "1.0.0", "^1.0.0", "~1.0.0", ">=1.0.0", and compound ranges like ">=1.0.0 <2.0.0".
 func evaluateVersionRange(version SemVer, rangeSpec string) (bool, error) {
+	rangeSpec = strings.TrimSpace(rangeSpec)
+
+	// Check for compound ranges (multiple ranges separated by spaces)
+	if strings.Contains(rangeSpec, " ") {
+		return evaluateCompoundVersionRange(version, rangeSpec)
+	}
+
+	// Single range evaluation
+	return evaluateSingleVersionRange(version, rangeSpec)
+}
+
+// evaluateCompoundVersionRange evaluates compound version ranges like ">=1.0.0 <2.0.0".
+func evaluateCompoundVersionRange(version SemVer, rangeSpec string) (bool, error) {
+	// Split the range spec into individual ranges
+	ranges := strings.Fields(rangeSpec)
+
+	// All individual ranges must be satisfied (AND logic)
+	for _, singleRange := range ranges {
+		satisfied, err := evaluateSingleVersionRange(version, singleRange)
+		if err != nil {
+			return false, fmt.Errorf("invalid range component '%s': %v", singleRange, err)
+		}
+		if !satisfied {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+// evaluateSingleVersionRange evaluates a single version range component.
+func evaluateSingleVersionRange(version SemVer, rangeSpec string) (bool, error) {
 	rangeSpec = strings.TrimSpace(rangeSpec)
 
 	// Exact version match

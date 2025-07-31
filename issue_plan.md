@@ -14,7 +14,7 @@ Implement advanced subscription features including CEL caching, enhanced schema 
 
 ### Phase 1: CEL Expression Caching Infrastructure
 **Goal**: Add in-memory CEL expression caching to SubscriptionEvaluator  
-**Status**: ⏳ Pending  
+**Status**: ✅ Completed  
 **Health Check**: All existing tests pass + caching unit tests
 
 #### Implementation Details
@@ -43,7 +43,7 @@ Implement advanced subscription features including CEL caching, enhanced schema 
 
 ### Phase 2: Enhanced Schema Compatibility
 **Goal**: Add support for compound version ranges  
-**Status**: ⏳ Pending  
+**Status**: ⏳ In Progress  
 **Health Check**: All existing tests pass + extended range tests
 
 #### Implementation Details

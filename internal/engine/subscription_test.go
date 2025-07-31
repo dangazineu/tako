@@ -928,3 +928,216 @@ func TestCELProgramCache_LRUEviction(t *testing.T) {
 		t.Error("Expected expr3 to be in cache")
 	}
 }
+
+func TestSubscriptionEvaluator_CompoundVersionRanges(t *testing.T) {
+	se, err := NewSubscriptionEvaluator()
+	if err != nil {
+		t.Fatalf("Failed to create subscription evaluator: %v", err)
+	}
+
+	tests := []struct {
+		name              string
+		eventVersion      string
+		subscriptionRange string
+		compatible        bool
+		expectError       bool
+	}{
+		// Compound ranges - basic
+		{
+			name:              "compound range >=1.0.0 <2.0.0 - compatible",
+			eventVersion:      "1.5.0",
+			subscriptionRange: ">=1.0.0 <2.0.0",
+			compatible:        true,
+		},
+		{
+			name:              "compound range >=1.0.0 <2.0.0 - not compatible (too low)",
+			eventVersion:      "0.9.0",
+			subscriptionRange: ">=1.0.0 <2.0.0",
+			compatible:        false,
+		},
+		{
+			name:              "compound range >=1.0.0 <2.0.0 - not compatible (too high)",
+			eventVersion:      "2.0.0",
+			subscriptionRange: ">=1.0.0 <2.0.0",
+			compatible:        false,
+		},
+		{
+			name:              "compound range >=1.0.0 <=2.0.0 - compatible (equal upper bound)",
+			eventVersion:      "2.0.0",
+			subscriptionRange: ">=1.0.0 <=2.0.0",
+			compatible:        true,
+		},
+		{
+			name:              "compound range >1.0.0 <2.0.0 - compatible",
+			eventVersion:      "1.5.0",
+			subscriptionRange: ">1.0.0 <2.0.0",
+			compatible:        true,
+		},
+		{
+			name:              "compound range >1.0.0 <2.0.0 - not compatible (equal lower bound)",
+			eventVersion:      "1.0.0",
+			subscriptionRange: ">1.0.0 <2.0.0",
+			compatible:        false,
+		},
+		// Triple compound ranges
+		{
+			name:              "triple compound range >=1.0.0 <2.0.0 >=1.2.0 - compatible",
+			eventVersion:      "1.5.0",
+			subscriptionRange: ">=1.0.0 <2.0.0 >=1.2.0",
+			compatible:        true,
+		},
+		{
+			name:              "triple compound range >=1.0.0 <2.0.0 >=1.2.0 - not compatible",
+			eventVersion:      "1.1.0",
+			subscriptionRange: ">=1.0.0 <2.0.0 >=1.2.0",
+			compatible:        false,
+		},
+		// Mixed with caret and tilde
+		{
+			name:              "compound with caret ^1.0.0 <1.5.0 - compatible",
+			eventVersion:      "1.3.0",
+			subscriptionRange: "^1.0.0 <1.5.0",
+			compatible:        true,
+		},
+		{
+			name:              "compound with caret ^1.0.0 <1.5.0 - not compatible (version too high)",
+			eventVersion:      "1.6.0",
+			subscriptionRange: "^1.0.0 <1.5.0",
+			compatible:        false,
+		},
+		{
+			name:              "compound with tilde ~1.2.0 >=1.2.5 - compatible",
+			eventVersion:      "1.2.8",
+			subscriptionRange: "~1.2.0 >=1.2.5",
+			compatible:        true,
+		},
+		{
+			name:              "compound with tilde ~1.2.0 >=1.2.5 - not compatible",
+			eventVersion:      "1.2.3",
+			subscriptionRange: "~1.2.0 >=1.2.5",
+			compatible:        false,
+		},
+		// Error cases
+		{
+			name:              "compound range with invalid first component",
+			eventVersion:      "1.0.0",
+			subscriptionRange: ">=invalid <2.0.0",
+			compatible:        false,
+			expectError:       true,
+		},
+		{
+			name:              "compound range with invalid second component",
+			eventVersion:      "1.0.0",
+			subscriptionRange: ">=1.0.0 <invalid",
+			compatible:        false,
+			expectError:       true,
+		},
+		// Edge cases
+		{
+			name:              "compound range with extra spaces",
+			eventVersion:      "1.5.0",
+			subscriptionRange: "  >=1.0.0   <2.0.0  ",
+			compatible:        true,
+		},
+		{
+			name:              "compound range with single component (should work)",
+			eventVersion:      "1.5.0",
+			subscriptionRange: ">=1.0.0",
+			compatible:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			compatible, err := se.CheckSchemaCompatibility(tt.eventVersion, tt.subscriptionRange)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error for range '%s', but got none", tt.subscriptionRange)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error for range '%s': %v", tt.subscriptionRange, err)
+				return
+			}
+
+			if compatible != tt.compatible {
+				t.Errorf("CheckSchemaCompatibility(%s, %s) = %v, want %v",
+					tt.eventVersion, tt.subscriptionRange, compatible, tt.compatible)
+			}
+		})
+	}
+}
+
+func TestEvaluateCompoundVersionRange_Directly(t *testing.T) {
+	tests := []struct {
+		name        string
+		version     SemVer
+		rangeSpec   string
+		expected    bool
+		expectError bool
+	}{
+		{
+			name:      "basic compound range - in range",
+			version:   SemVer{Major: 1, Minor: 5, Patch: 0},
+			rangeSpec: ">=1.0.0 <2.0.0",
+			expected:  true,
+		},
+		{
+			name:      "basic compound range - below range",
+			version:   SemVer{Major: 0, Minor: 9, Patch: 0},
+			rangeSpec: ">=1.0.0 <2.0.0",
+			expected:  false,
+		},
+		{
+			name:      "basic compound range - above range",
+			version:   SemVer{Major: 2, Minor: 0, Patch: 0},
+			rangeSpec: ">=1.0.0 <2.0.0",
+			expected:  false,
+		},
+		{
+			name:      "narrow compound range",
+			version:   SemVer{Major: 1, Minor: 2, Patch: 5},
+			rangeSpec: ">=1.2.0 <=1.2.10",
+			expected:  true,
+		},
+		{
+			name:      "contradictory compound range",
+			version:   SemVer{Major: 1, Minor: 5, Patch: 0},
+			rangeSpec: ">=2.0.0 <1.0.0",
+			expected:  false,
+		},
+		{
+			name:        "invalid range component",
+			version:     SemVer{Major: 1, Minor: 0, Patch: 0},
+			rangeSpec:   ">=1.0.0 <invalid",
+			expected:    false,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := evaluateCompoundVersionRange(tt.version, tt.rangeSpec)
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if result != tt.expected {
+				t.Errorf("evaluateCompoundVersionRange(%+v, %s) = %v, want %v",
+					tt.version, tt.rangeSpec, result, tt.expected)
+			}
+		})
+	}
+}
