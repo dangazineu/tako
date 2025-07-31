@@ -7,6 +7,8 @@ import (
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/dangazineu/tako/internal/config"
 )
 
 func TestNewFanOutStateManager(t *testing.T) {
@@ -1108,5 +1110,471 @@ func TestCleanupCompletedStatesWithIdempotencyRetention(t *testing.T) {
 	_, err = manager.GetFanOutState("fanout-9876543210-test")
 	if err != nil {
 		t.Errorf("Expected recent traditional state to still exist: %v", err)
+	}
+}
+
+// Test subscription fingerprinting functionality.
+func TestGenerateSubscriptionFingerprint(t *testing.T) {
+	eventFingerprint := "test-event-fingerprint-abc123"
+
+	tests := []struct {
+		name        string
+		subscriber1 SubscriptionMatch
+		subscriber2 SubscriptionMatch
+		expectSame  bool
+		description string
+	}{
+		{
+			name: "identical subscriptions should have same fingerprint",
+			subscriber1: SubscriptionMatch{
+				Repository: "org/repo1",
+				Subscription: config.Subscription{
+					Workflow: "build.yml",
+					Filters:  []string{"event.payload.version != null"},
+					Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+				},
+			},
+			subscriber2: SubscriptionMatch{
+				Repository: "org/repo1",
+				Subscription: config.Subscription{
+					Workflow: "build.yml",
+					Filters:  []string{"event.payload.version != null"},
+					Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+				},
+			},
+			expectSame:  true,
+			description: "Identical subscriptions should produce identical fingerprints",
+		},
+		{
+			name: "different repositories should have same fingerprints for diamond detection",
+			subscriber1: SubscriptionMatch{
+				Repository: "org/repo1",
+				Subscription: config.Subscription{
+					Workflow: "build.yml",
+					Filters:  []string{"event.payload.version != null"},
+					Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+				},
+			},
+			subscriber2: SubscriptionMatch{
+				Repository: "org/repo2",
+				Subscription: config.Subscription{
+					Workflow: "build.yml",
+					Filters:  []string{"event.payload.version != null"},
+					Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+				},
+			},
+			expectSame:  true,
+			description: "Different repositories with identical subscriptions should produce same fingerprints for diamond dependency detection",
+		},
+		{
+			name: "different workflows should have different fingerprints",
+			subscriber1: SubscriptionMatch{
+				Repository: "org/repo1",
+				Subscription: config.Subscription{
+					Workflow: "build.yml",
+					Filters:  []string{"event.payload.version != null"},
+					Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+				},
+			},
+			subscriber2: SubscriptionMatch{
+				Repository: "org/repo1",
+				Subscription: config.Subscription{
+					Workflow: "test.yml",
+					Filters:  []string{"event.payload.version != null"},
+					Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+				},
+			},
+			expectSame:  false,
+			description: "Different workflows should produce different fingerprints",
+		},
+		{
+			name: "different filters should have different fingerprints",
+			subscriber1: SubscriptionMatch{
+				Repository: "org/repo1",
+				Subscription: config.Subscription{
+					Workflow: "build.yml",
+					Filters:  []string{"event.payload.version != null"},
+					Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+				},
+			},
+			subscriber2: SubscriptionMatch{
+				Repository: "org/repo1",
+				Subscription: config.Subscription{
+					Workflow: "build.yml",
+					Filters:  []string{"event.payload.tag != null"},
+					Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+				},
+			},
+			expectSame:  false,
+			description: "Different filters should produce different fingerprints",
+		},
+		{
+			name: "different inputs should have different fingerprints",
+			subscriber1: SubscriptionMatch{
+				Repository: "org/repo1",
+				Subscription: config.Subscription{
+					Workflow: "build.yml",
+					Filters:  []string{"event.payload.version != null"},
+					Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+				},
+			},
+			subscriber2: SubscriptionMatch{
+				Repository: "org/repo1",
+				Subscription: config.Subscription{
+					Workflow: "build.yml",
+					Filters:  []string{"event.payload.version != null"},
+					Inputs:   map[string]string{"tag": "{{ .payload.tag }}"},
+				},
+			},
+			expectSame:  false,
+			description: "Different inputs should produce different fingerprints",
+		},
+		{
+			name: "normalized CEL expressions should have same fingerprints",
+			subscriber1: SubscriptionMatch{
+				Repository: "org/repo1",
+				Subscription: config.Subscription{
+					Workflow: "build.yml",
+					Filters:  []string{"event.payload.version != null"},
+					Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+				},
+			},
+			subscriber2: SubscriptionMatch{
+				Repository: "org/repo1",
+				Subscription: config.Subscription{
+					Workflow: "build.yml",
+					Filters:  []string{"event.payload.version!=null"},              // Different whitespace
+					Inputs:   map[string]string{"version": "{{.payload.version}}"}, // Different whitespace
+				},
+			},
+			expectSame:  true,
+			description: "CEL expressions with different whitespace should normalize to same fingerprint",
+		},
+		{
+			name: "input key order should not affect fingerprint",
+			subscriber1: SubscriptionMatch{
+				Repository: "org/repo1",
+				Subscription: config.Subscription{
+					Workflow: "build.yml",
+					Filters:  []string{},
+					Inputs:   map[string]string{"version": "v1", "tag": "latest"},
+				},
+			},
+			subscriber2: SubscriptionMatch{
+				Repository: "org/repo1",
+				Subscription: config.Subscription{
+					Workflow: "build.yml",
+					Filters:  []string{},
+					Inputs:   map[string]string{"tag": "latest", "version": "v1"}, // Different order
+				},
+			},
+			expectSame:  true,
+			description: "Input key order should not affect fingerprint due to normalization",
+		},
+		{
+			name: "filter order should not affect fingerprint",
+			subscriber1: SubscriptionMatch{
+				Repository: "org/repo1",
+				Subscription: config.Subscription{
+					Workflow: "build.yml",
+					Filters:  []string{"event.payload.version != null", "event.payload.tag != null"},
+					Inputs:   map[string]string{},
+				},
+			},
+			subscriber2: SubscriptionMatch{
+				Repository: "org/repo1",
+				Subscription: config.Subscription{
+					Workflow: "build.yml",
+					Filters:  []string{"event.payload.tag != null", "event.payload.version != null"}, // Different order
+					Inputs:   map[string]string{},
+				},
+			},
+			expectSame:  true,
+			description: "Filter order should not affect fingerprint due to normalization",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fp1, err1 := GenerateSubscriptionFingerprint(tt.subscriber1, eventFingerprint)
+			if err1 != nil {
+				t.Fatalf("Failed to generate fingerprint for subscriber1: %v", err1)
+			}
+
+			fp2, err2 := GenerateSubscriptionFingerprint(tt.subscriber2, eventFingerprint)
+			if err2 != nil {
+				t.Fatalf("Failed to generate fingerprint for subscriber2: %v", err2)
+			}
+
+			if tt.expectSame {
+				if fp1 != fp2 {
+					t.Errorf("Expected same fingerprints but got different:\nSubscriber1: %s\nSubscriber2: %s\nDescription: %s",
+						fp1, fp2, tt.description)
+				}
+			} else {
+				if fp1 == fp2 {
+					t.Errorf("Expected different fingerprints but got same: %s\nDescription: %s",
+						fp1, tt.description)
+				}
+			}
+
+			// Verify fingerprints are deterministic (same input produces same output)
+			fp1_repeat, _ := GenerateSubscriptionFingerprint(tt.subscriber1, eventFingerprint)
+			if fp1 != fp1_repeat {
+				t.Errorf("Fingerprint generation is not deterministic for subscriber1: %s vs %s", fp1, fp1_repeat)
+			}
+		})
+	}
+}
+
+func TestNormalizeCELExpression(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "basic normalization",
+			input:    "  event.payload.version != null  ",
+			expected: "event.payload.version!=null",
+		},
+		{
+			name:     "multiple spaces",
+			input:    "event.payload.version    !=    null",
+			expected: "event.payload.version!=null",
+		},
+		{
+			name:     "parentheses normalization",
+			input:    "( event.payload.version != null )",
+			expected: "(event.payload.version!=null)",
+		},
+		{
+			name:     "brackets normalization",
+			input:    "event.payload[ 'key' ] != null",
+			expected: "event.payload['key']!=null",
+		},
+		{
+			name:     "dots normalization",
+			input:    "event . payload . version",
+			expected: "event.payload.version",
+		},
+		{
+			name:     "complex expression",
+			input:    "event.payload.version >= '1.0.0' && event.payload.tag != null",
+			expected: "event.payload.version>='1.0.0'&&event.payload.tag!=null",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "whitespace only",
+			input:    "   \t\n   ",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeCELExpression(tt.input)
+			if result != tt.expected {
+				t.Errorf("normalizeCELExpression(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestNormalizeInputs(t *testing.T) {
+	tests := []struct {
+		name     string
+		inputs   map[string]string
+		expected map[string]string
+	}{
+		{
+			name:     "nil inputs",
+			inputs:   nil,
+			expected: nil,
+		},
+		{
+			name:     "empty inputs",
+			inputs:   map[string]string{},
+			expected: map[string]string{},
+		},
+		{
+			name: "single input normalization",
+			inputs: map[string]string{
+				"version": "  {{ .payload.version }}  ",
+			},
+			expected: map[string]string{
+				"version": "{{.payload.version}}",
+			},
+		},
+		{
+			name: "multiple inputs with normalization",
+			inputs: map[string]string{
+				"version": "{{ .payload . version }}",
+				"tag":     "{{   .payload.tag   }}",
+				"branch":  "main",
+			},
+			expected: map[string]string{
+				"branch":  "main",
+				"tag":     "{{.payload.tag}}",
+				"version": "{{.payload.version}}",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeInputs(tt.inputs)
+
+			if tt.expected == nil && result == nil {
+				return
+			}
+
+			if len(result) != len(tt.expected) {
+				t.Errorf("Expected %d inputs, got %d", len(tt.expected), len(result))
+				return
+			}
+
+			for key, expectedValue := range tt.expected {
+				if actualValue, exists := result[key]; !exists {
+					t.Errorf("Expected key %q not found in result", key)
+				} else if actualValue != expectedValue {
+					t.Errorf("For key %q, expected %q, got %q", key, expectedValue, actualValue)
+				}
+			}
+		})
+	}
+}
+
+func TestNormalizeFilters(t *testing.T) {
+	tests := []struct {
+		name     string
+		filters  []string
+		expected []string
+	}{
+		{
+			name:     "nil filters",
+			filters:  nil,
+			expected: nil,
+		},
+		{
+			name:     "empty filters",
+			filters:  []string{},
+			expected: []string{},
+		},
+		{
+			name: "single filter normalization",
+			filters: []string{
+				"  event.payload.version != null  ",
+			},
+			expected: []string{
+				"event.payload.version!=null",
+			},
+		},
+		{
+			name: "multiple filters with sorting",
+			filters: []string{
+				"event.payload.version != null",
+				"event.payload.tag >= '1.0.0'",
+				"event.payload.branch == 'main'",
+			},
+			expected: []string{
+				"event.payload.branch=='main'",
+				"event.payload.tag>='1.0.0'",
+				"event.payload.version!=null",
+			},
+		},
+		{
+			name: "filters with different whitespace",
+			filters: []string{
+				"  event.payload.version   !=   null  ",
+				"event.payload.tag >= '1.0.0'",
+			},
+			expected: []string{
+				"event.payload.tag>='1.0.0'",
+				"event.payload.version!=null",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeFilters(tt.filters)
+
+			if tt.expected == nil && result == nil {
+				return
+			}
+
+			if len(result) != len(tt.expected) {
+				t.Errorf("Expected %d filters, got %d", len(tt.expected), len(result))
+				return
+			}
+
+			for i, expectedFilter := range tt.expected {
+				if result[i] != expectedFilter {
+					t.Errorf("Filter %d: expected %q, got %q", i, expectedFilter, result[i])
+				}
+			}
+		})
+	}
+}
+
+func TestSubscriptionFingerprintConsistency(t *testing.T) {
+	// Test that the same subscription produces the same fingerprint across multiple calls
+	eventFingerprint := "consistent-test-fingerprint"
+	subscriber := SubscriptionMatch{
+		Repository: "org/repo",
+		Subscription: config.Subscription{
+			Workflow: "build.yml",
+			Filters:  []string{"event.payload.version != null", "event.payload.tag >= '1.0.0'"},
+			Inputs:   map[string]string{"version": "{{ .payload.version }}", "tag": "{{ .payload.tag }}"},
+		},
+	}
+
+	// Generate fingerprint multiple times
+	fingerprints := make([]string, 10)
+	for i := 0; i < 10; i++ {
+		fp, err := GenerateSubscriptionFingerprint(subscriber, eventFingerprint)
+		if err != nil {
+			t.Fatalf("Failed to generate fingerprint on attempt %d: %v", i+1, err)
+		}
+		fingerprints[i] = fp
+	}
+
+	// Verify all fingerprints are identical
+	for i := 1; i < len(fingerprints); i++ {
+		if fingerprints[i] != fingerprints[0] {
+			t.Errorf("Inconsistent fingerprints: attempt 1 = %s, attempt %d = %s",
+				fingerprints[0], i+1, fingerprints[i])
+		}
+	}
+}
+
+func TestSubscriptionFingerprintDifferentEventFingerprints(t *testing.T) {
+	// Test that same subscription with different event fingerprints produces different results
+	subscriber := SubscriptionMatch{
+		Repository: "org/repo",
+		Subscription: config.Subscription{
+			Workflow: "build.yml",
+			Filters:  []string{"event.payload.version != null"},
+			Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+		},
+	}
+
+	fp1, err1 := GenerateSubscriptionFingerprint(subscriber, "event-fp-1")
+	if err1 != nil {
+		t.Fatalf("Failed to generate fingerprint 1: %v", err1)
+	}
+
+	fp2, err2 := GenerateSubscriptionFingerprint(subscriber, "event-fp-2")
+	if err2 != nil {
+		t.Fatalf("Failed to generate fingerprint 2: %v", err2)
+	}
+
+	if fp1 == fp2 {
+		t.Errorf("Expected different fingerprints for different event fingerprints, but got same: %s", fp1)
 	}
 }
