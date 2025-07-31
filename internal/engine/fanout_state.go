@@ -1,10 +1,15 @@
 package engine
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -65,9 +70,10 @@ const (
 
 // FanOutStateManager manages the persistent state of fan-out operations.
 type FanOutStateManager struct {
-	stateDir string
-	mu       sync.RWMutex
-	states   map[string]*FanOutState
+	stateDir             string
+	mu                   sync.RWMutex
+	states               map[string]*FanOutState
+	idempotencyRetention time.Duration
 }
 
 // NewFanOutStateManager creates a new state manager for fan-out operations.
@@ -77,8 +83,9 @@ func NewFanOutStateManager(stateDir string) (*FanOutStateManager, error) {
 	}
 
 	manager := &FanOutStateManager{
-		stateDir: stateDir,
-		states:   make(map[string]*FanOutState),
+		stateDir:             stateDir,
+		states:               make(map[string]*FanOutState),
+		idempotencyRetention: 24 * time.Hour, // Default 24 hours for idempotent states
 	}
 
 	// Load existing states from disk
@@ -91,6 +98,20 @@ func NewFanOutStateManager(stateDir string) (*FanOutStateManager, error) {
 
 // CreateFanOutState creates a new fan-out state and persists it.
 func (sm *FanOutStateManager) CreateFanOutState(id, parentRunID, sourceRepo, eventType string, waitingForAll bool, timeout time.Duration) (*FanOutState, error) {
+	return sm.CreateFanOutStateWithFingerprint(id, "", parentRunID, sourceRepo, eventType, waitingForAll, timeout)
+}
+
+// CreateFanOutStateWithFingerprint creates a new fan-out state with optional fingerprint for idempotency.
+// If fingerprint is provided, it uses fingerprint-based naming and atomic creation.
+// If fingerprint is empty, it uses traditional timestamp-based naming.
+func (sm *FanOutStateManager) CreateFanOutStateWithFingerprint(id, fingerprint, parentRunID, sourceRepo, eventType string, waitingForAll bool, timeout time.Duration) (*FanOutState, error) {
+	if fingerprint != "" {
+		// Use fingerprint-based ID and atomic creation
+		fingerprintID := fmt.Sprintf("fanout-%s", fingerprint)
+		return sm.createStateAtomic(fingerprintID, parentRunID, sourceRepo, eventType, waitingForAll, timeout)
+	}
+
+	// Traditional creation without fingerprint
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -117,6 +138,21 @@ func (sm *FanOutStateManager) CreateFanOutState(id, parentRunID, sourceRepo, eve
 	return state, nil
 }
 
+// SetIdempotencyRetention sets the retention period for idempotent states.
+// This only affects cleanup of states with fingerprint-based names.
+func (sm *FanOutStateManager) SetIdempotencyRetention(retention time.Duration) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.idempotencyRetention = retention
+}
+
+// GetIdempotencyRetention returns the current retention period for idempotent states.
+func (sm *FanOutStateManager) GetIdempotencyRetention() time.Duration {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.idempotencyRetention
+}
+
 // GetFanOutState retrieves a fan-out state by ID.
 func (sm *FanOutStateManager) GetFanOutState(id string) (*FanOutState, error) {
 	sm.mu.RLock()
@@ -125,6 +161,37 @@ func (sm *FanOutStateManager) GetFanOutState(id string) (*FanOutState, error) {
 	state, exists := sm.states[id]
 	if !exists {
 		return nil, fmt.Errorf("fan-out state not found: %s", id)
+	}
+
+	return state, nil
+}
+
+// GetFanOutStateByFingerprint retrieves a fan-out state by event fingerprint.
+// Returns nil (not an error) if no state exists for the given fingerprint.
+func (sm *FanOutStateManager) GetFanOutStateByFingerprint(fingerprint string) (*FanOutState, error) {
+	fingerprintID := fmt.Sprintf("fanout-%s", fingerprint)
+
+	sm.mu.RLock()
+	state, exists := sm.states[fingerprintID]
+	sm.mu.RUnlock()
+
+	if !exists {
+		// Check if the state file exists on disk but wasn't loaded
+		stateFile := filepath.Join(sm.stateDir, fmt.Sprintf("%s.json", fingerprintID))
+		if _, err := os.Stat(stateFile); err == nil {
+			// File exists, try to load it
+			if err := sm.loadStateFile(fmt.Sprintf("%s.json", fingerprintID)); err != nil {
+				return nil, fmt.Errorf("failed to load state file for fingerprint %s: %v", fingerprint, err)
+			}
+			// Try again after loading
+			sm.mu.RLock()
+			state, exists = sm.states[fingerprintID]
+			sm.mu.RUnlock()
+		}
+	}
+
+	if !exists {
+		return nil, nil // Not found, but not an error
 	}
 
 	return state, nil
@@ -411,15 +478,32 @@ func (sm *FanOutStateManager) ListActiveFanOuts() []FanOutSummary {
 }
 
 // CleanupCompletedStates removes completed fan-out states older than the specified duration.
+// For idempotent states (those with fingerprint-based names), it uses the configured
+// idempotency retention period instead of the provided duration.
 func (sm *FanOutStateManager) CleanupCompletedStates(olderThan time.Duration) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	cutoff := time.Now().Add(-olderThan)
+	now := time.Now()
 	var toDelete []string
 
 	for id, state := range sm.states {
-		if state.IsComplete() && state.EndTime != nil && state.EndTime.Before(cutoff) {
+		if !state.IsComplete() || state.EndTime == nil {
+			continue
+		}
+
+		// Determine retention period based on state type
+		var retentionPeriod time.Duration
+		if sm.isIdempotentState(id) {
+			// Use idempotency retention for fingerprint-based states
+			retentionPeriod = sm.idempotencyRetention
+		} else {
+			// Use provided duration for traditional timestamp-based states
+			retentionPeriod = olderThan
+		}
+
+		cutoff := now.Add(-retentionPeriod)
+		if state.EndTime.Before(cutoff) {
 			toDelete = append(toDelete, id)
 		}
 	}
@@ -433,4 +517,282 @@ func (sm *FanOutStateManager) CleanupCompletedStates(olderThan time.Duration) er
 	}
 
 	return nil
+}
+
+// isIdempotentState checks if a state ID represents an idempotent state
+// by checking if it follows the fingerprint-based naming pattern.
+func (sm *FanOutStateManager) isIdempotentState(stateID string) bool {
+	// Idempotent states have the pattern: "fanout-<fingerprint>"
+	// where fingerprint is a hex string (SHA256 = 64 chars)
+	if !strings.HasPrefix(stateID, "fanout-") {
+		return false
+	}
+
+	suffix := strings.TrimPrefix(stateID, "fanout-")
+
+	// Check if suffix looks like a hex fingerprint (64 chars, all hex)
+	if len(suffix) == 64 {
+		for _, char := range suffix {
+			if (char < '0' || char > '9') && (char < 'a' || char > 'f') && (char < 'A' || char > 'F') {
+				return false
+			}
+		}
+		return true
+	}
+
+	return false
+}
+
+// createStateAtomic creates a fan-out state using atomic file operations to handle race conditions.
+// If a state with the same ID already exists, it loads and returns the existing state.
+// Returns the state and a boolean indicating whether it was newly created (true) or existing (false).
+func (sm *FanOutStateManager) createStateAtomic(id, parentRunID, sourceRepo, eventType string, waitingForAll bool, timeout time.Duration) (*FanOutState, error) {
+	// Check if state already exists in memory
+	sm.mu.RLock()
+	if existingState, exists := sm.states[id]; exists {
+		sm.mu.RUnlock()
+		return existingState, nil
+	}
+	sm.mu.RUnlock()
+
+	// Create new state
+	state := &FanOutState{
+		ID:            id,
+		ParentRunID:   parentRunID,
+		SourceRepo:    sourceRepo,
+		EventType:     eventType,
+		Status:        FanOutStatusPending,
+		StartTime:     time.Now(),
+		Children:      make(map[string]*ChildWorkflow),
+		WaitingForAll: waitingForAll,
+		Timeout:       timeout,
+		stateManager:  sm,
+	}
+
+	// Generate temporary filename with random UUID
+	tempID := make([]byte, 16)
+	if _, err := rand.Read(tempID); err != nil {
+		return nil, fmt.Errorf("failed to generate temp ID: %v", err)
+	}
+	tempFileName := fmt.Sprintf("%s.tmp.%x", id, tempID)
+	tempFile := filepath.Join(sm.stateDir, fmt.Sprintf("%s.json", tempFileName))
+	finalFile := filepath.Join(sm.stateDir, fmt.Sprintf("%s.json", id))
+
+	// Marshal state data
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal state: %v", err)
+	}
+
+	// Write to temporary file
+	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write temp state file: %v", err)
+	}
+
+	// Attempt atomic rename
+	if err := os.Rename(tempFile, finalFile); err != nil {
+		// Clean up temp file
+		os.Remove(tempFile)
+
+		// Check if the rename failed because the target already exists
+		if os.IsExist(err) || (finalFile != "" && fileExists(finalFile)) {
+			// Another process won the race, load the existing state
+			if err := sm.loadStateFile(fmt.Sprintf("%s.json", id)); err != nil {
+				return nil, fmt.Errorf("failed to load existing state after race condition: %v", err)
+			}
+
+			sm.mu.RLock()
+			existingState, exists := sm.states[id]
+			sm.mu.RUnlock()
+
+			if !exists {
+				return nil, fmt.Errorf("state should exist after loading but not found: %s", id)
+			}
+
+			return existingState, nil
+		}
+
+		return nil, fmt.Errorf("failed to rename temp file to final state file: %v", err)
+	}
+
+	// Successfully created new state, add to memory
+	sm.mu.Lock()
+	sm.states[id] = state
+	sm.mu.Unlock()
+
+	return state, nil
+}
+
+// fileExists checks if a file exists.
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// GenerateEventFingerprint generates a deterministic fingerprint for an event to enable idempotency.
+//
+// This function provides duplicate detection for fan-out operations by creating consistent
+// identifiers for the same logical event, regardless of when it's processed.
+//
+// Fingerprint Generation Logic:
+//   - For EnhancedEvent: Uses Metadata.ID if present, otherwise generates SHA256 hash
+//   - For legacy Event: Always generates SHA256 hash from event properties
+//   - Hash includes: event type + source repository + normalized payload
+//
+// The payload normalization ensures deterministic hashing by:
+//   - Sorting map keys recursively at all levels
+//   - Converting numeric types to consistent representation
+//   - Handling nested structures and arrays
+//
+// Usage Examples:
+//
+//	// With explicit event ID (most deterministic)
+//	event := &EnhancedEvent{
+//	    Type: "library_built",
+//	    Metadata: EventMetadata{
+//	        ID: "build-123",
+//	        Source: "myorg/mylib",
+//	    },
+//	}
+//	fingerprint, _ := GenerateEventFingerprint(event) // Returns "build-123"
+//
+//	// Without ID (falls back to content hash)
+//	event := &EnhancedEvent{
+//	    Type: "library_built",
+//	    Metadata: EventMetadata{Source: "myorg/mylib"},
+//	    Payload: map[string]interface{}{"version": "1.0"},
+//	}
+//	fingerprint, _ := GenerateEventFingerprint(event) // Returns SHA256 hash
+//
+// Returns the fingerprint string or an error if the event type is unsupported.
+func GenerateEventFingerprint(event interface{}) (string, error) {
+	switch e := event.(type) {
+	case *EnhancedEvent:
+		// Use event ID if available
+		if e.Metadata.ID != "" {
+			return e.Metadata.ID, nil
+		}
+		// Fallback to hash
+		return generateEventHash(e.Type, e.Metadata.Source, e.Payload)
+	case *Event:
+		// Legacy event - always use hash
+		return generateEventHash(e.Type, e.Source, e.Payload)
+	default:
+		return "", fmt.Errorf("unsupported event type: %T", event)
+	}
+}
+
+// generateEventHash creates a SHA256 hash from event properties.
+func generateEventHash(eventType, source string, payload map[string]interface{}) (string, error) {
+	// Normalize the payload for consistent hashing
+	normalizedPayload, err := normalizePayload(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to normalize payload: %v", err)
+	}
+
+	// Create a composite key from event properties
+	composite := map[string]interface{}{
+		"type":    eventType,
+		"source":  source,
+		"payload": normalizedPayload,
+	}
+
+	// Convert to canonical JSON
+	data, err := json.Marshal(composite)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal event for hashing: %v", err)
+	}
+
+	// Generate SHA256 hash
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:]), nil
+}
+
+// normalizePayload creates a normalized representation of a payload for consistent hashing.
+//
+// This function ensures that the same logical payload always produces the same hash,
+// regardless of the order in which map keys were added or other non-deterministic factors.
+//
+// Normalization Process:
+//   - Sorts all map keys alphabetically at every nesting level
+//   - Recursively processes nested maps and slices
+//   - Converts numeric types to consistent representations
+//   - Preserves the logical structure and values
+//
+// This is critical for idempotency because JSON objects with the same content but
+// different key ordering would otherwise produce different hashes.
+func normalizePayload(payload map[string]interface{}) (map[string]interface{}, error) {
+	if payload == nil {
+		return nil, nil
+	}
+
+	normalized := make(map[string]interface{})
+
+	// Get sorted keys for deterministic ordering
+	keys := make([]string, 0, len(payload))
+	for k := range payload {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// Process each key in sorted order
+	for _, key := range keys {
+		value := payload[key]
+		normalizedValue, err := normalizeValue(value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to normalize key %s: %v", key, err)
+		}
+		normalized[key] = normalizedValue
+	}
+
+	return normalized, nil
+}
+
+// normalizeValue recursively normalizes a value for consistent representation.
+func normalizeValue(value interface{}) (interface{}, error) {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		// Recursively normalize nested maps
+		return normalizePayload(v)
+	case []interface{}:
+		// Normalize each element in the slice
+		normalized := make([]interface{}, len(v))
+		for i, elem := range v {
+			normalizedElem, err := normalizeValue(elem)
+			if err != nil {
+				return nil, err
+			}
+			normalized[i] = normalizedElem
+		}
+		return normalized, nil
+	case float64, int, int64, string, bool, nil:
+		// Primitive types are already normalized
+		return v, nil
+	default:
+		// Convert other numeric types to float64 for consistency
+		// This handles cases where JSON unmarshaling might produce different numeric types
+		switch v := v.(type) {
+		case int32:
+			return float64(v), nil
+		case int16:
+			return float64(v), nil
+		case int8:
+			return float64(v), nil
+		case uint:
+			return float64(v), nil
+		case uint64:
+			return float64(v), nil
+		case uint32:
+			return float64(v), nil
+		case uint16:
+			return float64(v), nil
+		case uint8:
+			return float64(v), nil
+		case float32:
+			return float64(v), nil
+		default:
+			// For unknown types, convert to string representation
+			return fmt.Sprintf("%v", v), nil
+		}
+	}
 }

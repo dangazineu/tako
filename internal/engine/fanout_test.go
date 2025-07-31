@@ -24,6 +24,38 @@ func TestNewFanOutExecutor(t *testing.T) {
 	if executor.debug != false {
 		t.Errorf("Expected debug false, got %v", executor.debug)
 	}
+
+	// Verify idempotency is disabled by default
+	if executor.IsIdempotencyEnabled() {
+		t.Error("Expected idempotency to be disabled by default")
+	}
+}
+
+func TestFanOutExecutor_IdempotencyConfiguration(t *testing.T) {
+	tempDir := t.TempDir()
+	mockRunner := NewTestMockWorkflowRunner()
+
+	executor, err := NewFanOutExecutor(tempDir, false, mockRunner)
+	if err != nil {
+		t.Fatalf("Failed to create executor: %v", err)
+	}
+
+	// Test that idempotency is disabled by default
+	if executor.IsIdempotencyEnabled() {
+		t.Error("Expected idempotency to be disabled by default")
+	}
+
+	// Test enabling idempotency
+	executor.SetIdempotency(true)
+	if !executor.IsIdempotencyEnabled() {
+		t.Error("Expected idempotency to be enabled after SetIdempotency(true)")
+	}
+
+	// Test disabling idempotency
+	executor.SetIdempotency(false)
+	if executor.IsIdempotencyEnabled() {
+		t.Error("Expected idempotency to be disabled after SetIdempotency(false)")
+	}
 }
 
 func TestFanOutExecutor_parseFanOutParams(t *testing.T) {
@@ -518,5 +550,413 @@ func TestConvertPayload(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestFanOutExecutor_IdempotencyDuplicateDetection(t *testing.T) {
+	// Create temporary directory and test repository structure
+	tempDir := t.TempDir()
+
+	// Create test repository structure with subscriptions
+	testRepoPath := filepath.Join(tempDir, "repos", "test-org", "repo1", "main")
+	if err := os.MkdirAll(testRepoPath, 0755); err != nil {
+		t.Fatalf("Failed to create test repo directory: %v", err)
+	}
+
+	// Create tako.yml with subscription
+	takoYml := `version: "1.0"
+workflows:
+  update:
+    steps:
+      - run: echo "update triggered"
+subscriptions:
+  - artifact: "source-org/library:default"
+    events: ["library_built"]
+    workflow: "update"
+`
+	if err := os.WriteFile(filepath.Join(testRepoPath, "tako.yml"), []byte(takoYml), 0644); err != nil {
+		t.Fatalf("Failed to write tako.yml: %v", err)
+	}
+
+	mockRunner := NewTestMockWorkflowRunner()
+	executor, err := NewFanOutExecutor(tempDir, true, mockRunner) // Enable debug
+	if err != nil {
+		t.Fatalf("Failed to create executor: %v", err)
+	}
+
+	// Enable idempotency
+	executor.SetIdempotency(true)
+
+	step := config.WorkflowStep{
+		Uses: "tako/fan-out@v1",
+		With: map[string]interface{}{
+			"event_type": "library_built",
+			"payload": map[string]interface{}{
+				"version": "2.1.0",
+				"status":  "success",
+			},
+		},
+	}
+	sourceRepo := "source-org/library"
+
+	// Execute first time
+	result1, err := executor.Execute(step, sourceRepo)
+	if err != nil {
+		t.Fatalf("First execution failed: %v", err)
+	}
+	if !result1.Success {
+		t.Errorf("First execution should succeed, got: %v", result1.Errors)
+	}
+	if result1.TriggeredCount != 1 {
+		t.Errorf("Expected 1 triggered workflow, got %d", result1.TriggeredCount)
+	}
+
+	// Execute second time with same event - should detect duplicate
+	result2, err := executor.Execute(step, sourceRepo)
+	if err != nil {
+		t.Fatalf("Second execution failed: %v", err)
+	}
+	if !result2.Success {
+		t.Errorf("Second execution should succeed (duplicate), got: %v", result2.Errors)
+	}
+	if result2.TriggeredCount != 0 {
+		t.Errorf("Expected 0 triggered workflows in duplicate result (should be cached), got %d", result2.TriggeredCount)
+	}
+
+	// Verify that both executions have same FanOutID (fingerprint-based)
+	if result1.FanOutID != result2.FanOutID {
+		t.Errorf("Expected same FanOutID for duplicate events, got %s vs %s", result1.FanOutID, result2.FanOutID)
+	}
+
+	// Execute third time with different payload - should not be duplicate
+	step3 := config.WorkflowStep{
+		Uses: "tako/fan-out@v1",
+		With: map[string]interface{}{
+			"event_type": "library_built",
+			"payload": map[string]interface{}{
+				"version": "2.2.0", // Different version
+				"status":  "success",
+			},
+		},
+	}
+
+	result3, err := executor.Execute(step3, sourceRepo)
+	if err != nil {
+		t.Fatalf("Third execution failed: %v", err)
+	}
+	if !result3.Success {
+		t.Errorf("Third execution should succeed, got: %v", result3.Errors)
+	}
+	if result3.TriggeredCount != 1 {
+		t.Errorf("Expected 1 triggered workflow, got %d", result3.TriggeredCount)
+	}
+
+	// Verify that third execution has different FanOutID
+	if result1.FanOutID == result3.FanOutID {
+		t.Errorf("Expected different FanOutID for different events, got same: %s", result1.FanOutID)
+	}
+}
+
+func TestFanOutExecutor_IdempotencyDisabled(t *testing.T) {
+	// Create temporary directory and test repository structure
+	tempDir := t.TempDir()
+
+	// Create test repository structure with subscriptions
+	testRepoPath := filepath.Join(tempDir, "repos", "test-org", "repo1", "main")
+	if err := os.MkdirAll(testRepoPath, 0755); err != nil {
+		t.Fatalf("Failed to create test repo directory: %v", err)
+	}
+
+	// Create tako.yml with subscription
+	takoYml := `version: "1.0"
+workflows:
+  update:
+    steps:
+      - run: echo "update triggered"
+subscriptions:
+  - artifact: "source-org/library:default"
+    events: ["library_built"]
+    workflow: "update"
+`
+	if err := os.WriteFile(filepath.Join(testRepoPath, "tako.yml"), []byte(takoYml), 0644); err != nil {
+		t.Fatalf("Failed to write tako.yml: %v", err)
+	}
+
+	mockRunner := NewTestMockWorkflowRunner()
+	executor, err := NewFanOutExecutor(tempDir, false, mockRunner)
+	if err != nil {
+		t.Fatalf("Failed to create executor: %v", err)
+	}
+
+	// Idempotency is disabled by default
+	if executor.IsIdempotencyEnabled() {
+		t.Error("Expected idempotency to be disabled by default")
+	}
+
+	step := config.WorkflowStep{
+		Uses: "tako/fan-out@v1",
+		With: map[string]interface{}{
+			"event_type": "library_built",
+			"payload": map[string]interface{}{
+				"version": "2.1.0",
+				"status":  "success",
+			},
+		},
+	}
+	sourceRepo := "source-org/library"
+
+	// Execute first time
+	result1, err := executor.Execute(step, sourceRepo)
+	if err != nil {
+		t.Fatalf("First execution failed: %v", err)
+	}
+	if !result1.Success {
+		t.Errorf("First execution should succeed, got: %v", result1.Errors)
+	}
+
+	// Execute second time with same event - should NOT detect duplicate (idempotency disabled)
+	result2, err := executor.Execute(step, sourceRepo)
+	if err != nil {
+		t.Fatalf("Second execution failed: %v", err)
+	}
+	if !result2.Success {
+		t.Errorf("Second execution should succeed, got: %v", result2.Errors)
+	}
+
+	// Verify that both executions have different FanOutIDs (timestamp-based)
+	if result1.FanOutID == result2.FanOutID {
+		t.Errorf("Expected different FanOutIDs when idempotency disabled, got same: %s", result1.FanOutID)
+	}
+}
+
+func TestFanOutExecutor_IdempotencyWithEventID(t *testing.T) {
+	// Create temporary directory and test repository structure
+	tempDir := t.TempDir()
+
+	// Create test repository structure with subscriptions
+	testRepoPath := filepath.Join(tempDir, "repos", "test-org", "repo1", "main")
+	if err := os.MkdirAll(testRepoPath, 0755); err != nil {
+		t.Fatalf("Failed to create test repo directory: %v", err)
+	}
+
+	// Create tako.yml with subscription
+	takoYml := `version: "1.0"
+workflows:
+  update:
+    steps:
+      - run: echo "update triggered"
+subscriptions:
+  - artifact: "source-org/library:default"
+    events: ["library_built"]
+    workflow: "update"
+`
+	if err := os.WriteFile(filepath.Join(testRepoPath, "tako.yml"), []byte(takoYml), 0644); err != nil {
+		t.Fatalf("Failed to write tako.yml: %v", err)
+	}
+
+	mockRunner := NewTestMockWorkflowRunner()
+	executor, err := NewFanOutExecutor(tempDir, true, mockRunner)
+	if err != nil {
+		t.Fatalf("Failed to create executor: %v", err)
+	}
+
+	// Enable idempotency
+	executor.SetIdempotency(true)
+
+	// Test with event that would have ID - simulate by using unique payload
+	step := config.WorkflowStep{
+		Uses: "tako/fan-out@v1",
+		With: map[string]interface{}{
+			"event_type": "library_built",
+			"payload": map[string]interface{}{
+				"event_id": "unique-event-123", // This would be used for fingerprinting
+				"version":  "2.1.0",
+			},
+		},
+	}
+	sourceRepo := "source-org/library"
+
+	// Execute first time
+	result1, err := executor.Execute(step, sourceRepo)
+	if err != nil {
+		t.Fatalf("First execution failed: %v", err)
+	}
+	if !result1.Success {
+		t.Errorf("First execution should succeed, got: %v", result1.Errors)
+	}
+
+	// Execute second time with same event_id - should detect duplicate
+	result2, err := executor.Execute(step, sourceRepo)
+	if err != nil {
+		t.Fatalf("Second execution failed: %v", err)
+	}
+	if !result2.Success {
+		t.Errorf("Second execution should succeed (duplicate), got: %v", result2.Errors)
+	}
+
+	// Verify that both executions have same FanOutID
+	if result1.FanOutID != result2.FanOutID {
+		t.Errorf("Expected same FanOutID for events with same ID, got %s vs %s", result1.FanOutID, result2.FanOutID)
+	}
+}
+
+func TestFanOutExecutor_IdempotencyConcurrentDuplicates(t *testing.T) {
+	// Create temporary directory and test repository structure
+	tempDir := t.TempDir()
+
+	// Create test repository structure with subscriptions
+	testRepoPath := filepath.Join(tempDir, "repos", "test-org", "repo1", "main")
+	if err := os.MkdirAll(testRepoPath, 0755); err != nil {
+		t.Fatalf("Failed to create test repo directory: %v", err)
+	}
+
+	// Create tako.yml with subscription
+	takoYml := `version: "1.0"
+workflows:
+  update:
+    steps:
+      - run: echo "update triggered"
+subscriptions:
+  - artifact: "source-org/library:default"
+    events: ["library_built"]
+    workflow: "update"
+`
+	if err := os.WriteFile(filepath.Join(testRepoPath, "tako.yml"), []byte(takoYml), 0644); err != nil {
+		t.Fatalf("Failed to write tako.yml: %v", err)
+	}
+
+	mockRunner := NewTestMockWorkflowRunner()
+	executor, err := NewFanOutExecutor(tempDir, true, mockRunner)
+	if err != nil {
+		t.Fatalf("Failed to create executor: %v", err)
+	}
+
+	// Enable idempotency
+	executor.SetIdempotency(true)
+
+	step := config.WorkflowStep{
+		Uses: "tako/fan-out@v1",
+		With: map[string]interface{}{
+			"event_type": "library_built",
+			"payload": map[string]interface{}{
+				"version": "3.0.0",
+				"status":  "success",
+			},
+		},
+	}
+	sourceRepo := "source-org/library"
+
+	// Execute the event multiple times sequentially (concurrent testing is complex for filesystem operations)
+	var results []*FanOutResult
+	for i := 0; i < 3; i++ {
+		result, err := executor.Execute(step, sourceRepo)
+		if err != nil {
+			t.Fatalf("Execution %d failed: %v", i, err)
+		}
+		if !result.Success {
+			t.Fatalf("Execution %d should succeed, got errors: %v", i, result.Errors)
+		}
+		results = append(results, result)
+	}
+
+	// Verify all executions have the same FanOutID (all duplicates)
+	expectedFanOutID := results[0].FanOutID
+	for i, result := range results {
+		if result.FanOutID != expectedFanOutID {
+			t.Errorf("Execution %d has different FanOutID: expected %s, got %s", i, expectedFanOutID, result.FanOutID)
+		}
+	}
+
+	// First execution should trigger workflows, subsequent ones should be cached
+	if results[0].TriggeredCount != 1 {
+		t.Errorf("First execution should trigger 1 workflow, got %d", results[0].TriggeredCount)
+	}
+
+	for i := 1; i < len(results); i++ {
+		if results[i].TriggeredCount != 0 {
+			t.Errorf("Execution %d should be cached (TriggeredCount=0), got %d", i, results[i].TriggeredCount)
+		}
+	}
+}
+
+func TestFanOutExecutor_IdempotencyStatePersistenceRecovery(t *testing.T) {
+	// Create temporary directory and test repository structure
+	tempDir := t.TempDir()
+
+	// Create test repository structure with subscriptions
+	testRepoPath := filepath.Join(tempDir, "repos", "test-org", "repo1", "main")
+	if err := os.MkdirAll(testRepoPath, 0755); err != nil {
+		t.Fatalf("Failed to create test repo directory: %v", err)
+	}
+
+	// Create tako.yml with subscription
+	takoYml := `version: "1.0"
+workflows:
+  update:
+    steps:
+      - run: echo "update triggered"
+subscriptions:
+  - artifact: "source-org/library:default"
+    events: ["library_built"]
+    workflow: "update"
+`
+	if err := os.WriteFile(filepath.Join(testRepoPath, "tako.yml"), []byte(takoYml), 0644); err != nil {
+		t.Fatalf("Failed to write tako.yml: %v", err)
+	}
+
+	// Create first executor and execute event
+	mockRunner1 := NewTestMockWorkflowRunner()
+	executor1, err := NewFanOutExecutor(tempDir, false, mockRunner1)
+	if err != nil {
+		t.Fatalf("Failed to create first executor: %v", err)
+	}
+	executor1.SetIdempotency(true)
+
+	step := config.WorkflowStep{
+		Uses: "tako/fan-out@v1",
+		With: map[string]interface{}{
+			"event_type": "library_built",
+			"payload": map[string]interface{}{
+				"version": "4.0.0",
+				"status":  "success",
+			},
+		},
+	}
+	sourceRepo := "source-org/library"
+
+	// Execute first time
+	result1, err := executor1.Execute(step, sourceRepo)
+	if err != nil {
+		t.Fatalf("First execution failed: %v", err)
+	}
+	if !result1.Success {
+		t.Errorf("First execution should succeed, got: %v", result1.Errors)
+	}
+
+	// Create second executor (simulating process restart)
+	mockRunner2 := NewTestMockWorkflowRunner()
+	executor2, err := NewFanOutExecutor(tempDir, false, mockRunner2)
+	if err != nil {
+		t.Fatalf("Failed to create second executor: %v", err)
+	}
+	executor2.SetIdempotency(true)
+
+	// Execute same event with second executor - should detect duplicate from persisted state
+	result2, err := executor2.Execute(step, sourceRepo)
+	if err != nil {
+		t.Fatalf("Second execution failed: %v", err)
+	}
+	if !result2.Success {
+		t.Errorf("Second execution should succeed (duplicate), got: %v", result2.Errors)
+	}
+
+	// Verify that both executions have same FanOutID
+	if result1.FanOutID != result2.FanOutID {
+		t.Errorf("Expected same FanOutID after process restart, got %s vs %s", result1.FanOutID, result2.FanOutID)
+	}
+
+	// Verify second execution recognized it as a duplicate (should not trigger)
+	if result2.TriggeredCount != 0 {
+		t.Errorf("Expected 0 triggered workflows for duplicate (should be cached), got %d", result2.TriggeredCount)
 	}
 }

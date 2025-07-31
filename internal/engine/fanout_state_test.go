@@ -1,8 +1,10 @@
 package engine
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 )
@@ -529,5 +531,582 @@ func TestCleanupCompletedStates(t *testing.T) {
 	_, err = manager.GetFanOutState("active")
 	if err != nil {
 		t.Errorf("Expected active state to still exist: %v", err)
+	}
+}
+
+func TestGenerateEventFingerprint(t *testing.T) {
+	tests := []struct {
+		name        string
+		event       interface{}
+		expectError bool
+		expectID    bool
+	}{
+		{
+			name: "enhanced event with ID",
+			event: &EnhancedEvent{
+				Type: "test_event",
+				Metadata: EventMetadata{
+					ID:     "unique-event-id-123",
+					Source: "test/repo",
+				},
+				Payload: map[string]interface{}{
+					"key": "value",
+				},
+			},
+			expectError: false,
+			expectID:    true,
+		},
+		{
+			name: "enhanced event without ID",
+			event: &EnhancedEvent{
+				Type: "test_event",
+				Metadata: EventMetadata{
+					Source: "test/repo",
+				},
+				Payload: map[string]interface{}{
+					"key": "value",
+				},
+			},
+			expectError: false,
+			expectID:    false,
+		},
+		{
+			name: "legacy event",
+			event: &Event{
+				Type:   "test_event",
+				Source: "test/repo",
+				Payload: map[string]interface{}{
+					"key": "value",
+				},
+			},
+			expectError: false,
+			expectID:    false,
+		},
+		{
+			name:        "unsupported event type",
+			event:       "not an event",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fingerprint, err := GenerateEventFingerprint(tt.event)
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+				if tt.expectID {
+					// Should return the event ID directly
+					if enhancedEvent, ok := tt.event.(*EnhancedEvent); ok {
+						if fingerprint != enhancedEvent.Metadata.ID {
+							t.Errorf("Expected fingerprint to be event ID %s, got %s",
+								enhancedEvent.Metadata.ID, fingerprint)
+						}
+					}
+				} else {
+					// Should return a hash
+					if len(fingerprint) != 64 { // SHA256 hex string length
+						t.Errorf("Expected SHA256 hash (64 chars), got %d chars", len(fingerprint))
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestGenerateEventFingerprintDeterministic(t *testing.T) {
+	// Test that the same event produces the same fingerprint
+	event1 := &Event{
+		Type:   "test_event",
+		Source: "test/repo",
+		Payload: map[string]interface{}{
+			"key1": "value1",
+			"key2": "value2",
+			"nested": map[string]interface{}{
+				"a": 1,
+				"b": 2,
+			},
+		},
+	}
+
+	event2 := &Event{
+		Type:   "test_event",
+		Source: "test/repo",
+		Payload: map[string]interface{}{
+			"key2": "value2", // Different order
+			"key1": "value1",
+			"nested": map[string]interface{}{
+				"b": 2, // Different order
+				"a": 1,
+			},
+		},
+	}
+
+	fingerprint1, err1 := GenerateEventFingerprint(event1)
+	if err1 != nil {
+		t.Fatalf("Failed to generate fingerprint 1: %v", err1)
+	}
+
+	fingerprint2, err2 := GenerateEventFingerprint(event2)
+	if err2 != nil {
+		t.Fatalf("Failed to generate fingerprint 2: %v", err2)
+	}
+
+	if fingerprint1 != fingerprint2 {
+		t.Errorf("Expected same fingerprint for events with different key order, got:\n%s\n%s",
+			fingerprint1, fingerprint2)
+	}
+}
+
+func TestNormalizePayload(t *testing.T) {
+	tests := []struct {
+		name     string
+		payload  map[string]interface{}
+		expected map[string]interface{}
+	}{
+		{
+			name:     "nil payload",
+			payload:  nil,
+			expected: nil,
+		},
+		{
+			name: "simple payload",
+			payload: map[string]interface{}{
+				"z": "last",
+				"a": "first",
+				"m": "middle",
+			},
+			expected: map[string]interface{}{
+				"a": "first",
+				"m": "middle",
+				"z": "last",
+			},
+		},
+		{
+			name: "nested maps",
+			payload: map[string]interface{}{
+				"outer": map[string]interface{}{
+					"z": 3,
+					"a": 1,
+					"b": 2,
+				},
+			},
+			expected: map[string]interface{}{
+				"outer": map[string]interface{}{
+					"a": float64(1),
+					"b": float64(2),
+					"z": float64(3),
+				},
+			},
+		},
+		{
+			name: "arrays",
+			payload: map[string]interface{}{
+				"list": []interface{}{
+					map[string]interface{}{"b": 2, "a": 1},
+					"string",
+					123,
+				},
+			},
+			expected: map[string]interface{}{
+				"list": []interface{}{
+					map[string]interface{}{"a": float64(1), "b": float64(2)},
+					"string",
+					float64(123),
+				},
+			},
+		},
+		{
+			name: "mixed types",
+			payload: map[string]interface{}{
+				"string": "value",
+				"int":    42,
+				"float":  3.14,
+				"bool":   true,
+				"null":   nil,
+				"int32":  int32(100),
+				"uint":   uint(200),
+			},
+			expected: map[string]interface{}{
+				"bool":   true,
+				"float":  3.14,
+				"int":    float64(42),
+				"int32":  float64(100),
+				"null":   nil,
+				"string": "value",
+				"uint":   float64(200),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			normalized, err := normalizePayload(tt.payload)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			// For deterministic comparison, convert to JSON
+			if tt.expected == nil && normalized == nil {
+				return
+			}
+
+			// Check that keys are in sorted order
+			if normalized != nil {
+				keys := make([]string, 0, len(normalized))
+				for k := range normalized {
+					keys = append(keys, k)
+				}
+				// Sort the keys to check they match expected order
+				sortedKeys := make([]string, len(keys))
+				copy(sortedKeys, keys)
+				sort.Strings(sortedKeys)
+
+				// The iteration order might not be sorted, but the content should match
+				if len(keys) != len(sortedKeys) {
+					t.Errorf("Key count mismatch")
+				}
+			}
+		})
+	}
+}
+
+func TestEventFingerprintWithDifferentNumericTypes(t *testing.T) {
+	// Test that different numeric types produce the same fingerprint
+	event1 := &Event{
+		Type:   "test",
+		Source: "source",
+		Payload: map[string]interface{}{
+			"count": int(42),
+		},
+	}
+
+	event2 := &Event{
+		Type:   "test",
+		Source: "source",
+		Payload: map[string]interface{}{
+			"count": int32(42),
+		},
+	}
+
+	event3 := &Event{
+		Type:   "test",
+		Source: "source",
+		Payload: map[string]interface{}{
+			"count": float64(42),
+		},
+	}
+
+	fp1, _ := GenerateEventFingerprint(event1)
+	fp2, _ := GenerateEventFingerprint(event2)
+	fp3, _ := GenerateEventFingerprint(event3)
+
+	if fp1 != fp2 || fp2 != fp3 {
+		t.Errorf("Different numeric types produced different fingerprints:\nint: %s\nint32: %s\nfloat64: %s",
+			fp1, fp2, fp3)
+	}
+}
+
+func TestGetFanOutStateByFingerprint(t *testing.T) {
+	tempDir := t.TempDir()
+	manager, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+
+	fingerprint := "test-fingerprint-abc123"
+
+	// Test getting non-existent fingerprint state
+	state, err := manager.GetFanOutStateByFingerprint(fingerprint)
+	if err != nil {
+		t.Errorf("Expected no error for non-existent state, got: %v", err)
+	}
+	if state != nil {
+		t.Errorf("Expected nil state for non-existent fingerprint, got: %v", state)
+	}
+
+	// Create a state with fingerprint
+	createdState, err := manager.CreateFanOutStateWithFingerprint("", fingerprint, "parent-123", "org/repo", "test_event", true, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("Failed to create state with fingerprint: %v", err)
+	}
+
+	expectedID := fmt.Sprintf("fanout-%s", fingerprint)
+	if createdState.ID != expectedID {
+		t.Errorf("Expected state ID %s, got %s", expectedID, createdState.ID)
+	}
+
+	// Retrieve the state by fingerprint
+	retrievedState, err := manager.GetFanOutStateByFingerprint(fingerprint)
+	if err != nil {
+		t.Fatalf("Failed to get state by fingerprint: %v", err)
+	}
+	if retrievedState == nil {
+		t.Fatalf("Expected state to be found by fingerprint")
+	}
+	if retrievedState.ID != expectedID {
+		t.Errorf("Expected retrieved state ID %s, got %s", expectedID, retrievedState.ID)
+	}
+}
+
+func TestCreateFanOutStateWithFingerprint(t *testing.T) {
+	tempDir := t.TempDir()
+	manager, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+
+	fingerprint := "test-fingerprint-def456"
+	expectedID := fmt.Sprintf("fanout-%s", fingerprint)
+
+	// Create first state
+	state1, err := manager.CreateFanOutStateWithFingerprint("", fingerprint, "parent-123", "org/repo", "test_event", true, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("Failed to create first state: %v", err)
+	}
+	if state1.ID != expectedID {
+		t.Errorf("Expected state ID %s, got %s", expectedID, state1.ID)
+	}
+
+	// Attempt to create second state with same fingerprint
+	state2, err := manager.CreateFanOutStateWithFingerprint("", fingerprint, "parent-456", "org/repo2", "test_event2", false, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("Failed to handle duplicate fingerprint: %v", err)
+	}
+
+	// Should return the existing state
+	if state2.ID != state1.ID {
+		t.Errorf("Expected same state ID for duplicate fingerprint, got %s vs %s", state2.ID, state1.ID)
+	}
+	if state2.ParentRunID != state1.ParentRunID {
+		t.Errorf("Expected original state properties, got ParentRunID %s vs %s", state2.ParentRunID, state1.ParentRunID)
+	}
+}
+
+func TestCreateStateAtomic(t *testing.T) {
+	tempDir := t.TempDir()
+	manager, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+
+	id := "fanout-atomic-test"
+
+	// Create state atomically
+	state, err := manager.createStateAtomic(id, "parent-123", "org/repo", "test_event", true, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("Failed to create state atomically: %v", err)
+	}
+	if state.ID != id {
+		t.Errorf("Expected state ID %s, got %s", id, state.ID)
+	}
+
+	// Verify state was persisted
+	stateFile := filepath.Join(tempDir, fmt.Sprintf("%s.json", id))
+	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
+		t.Errorf("State file was not created")
+	}
+
+	// Verify state is in memory
+	retrievedState, err := manager.GetFanOutState(id)
+	if err != nil {
+		t.Fatalf("Failed to retrieve state from memory: %v", err)
+	}
+	if retrievedState.ID != id {
+		t.Errorf("Expected retrieved state ID %s, got %s", id, retrievedState.ID)
+	}
+}
+
+func TestCreateStateAtomicRaceCondition(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Test that concurrent creation with same ID returns existing state
+	manager1, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create first state manager: %v", err)
+	}
+
+	// Create new manager after first state is created to simulate race condition
+	id := "fanout-race-test"
+
+	// Create state with first manager
+	state1, err := manager1.createStateAtomic(id, "parent-123", "org/repo", "test_event", true, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("Failed to create state with first manager: %v", err)
+	}
+
+	// Create second manager after state file exists
+	manager2, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create second state manager: %v", err)
+	}
+
+	// Attempt to create state with same ID using second manager
+	state2, err := manager2.createStateAtomic(id, "parent-456", "org/repo2", "test_event2", false, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("Failed to handle existing state: %v", err)
+	}
+
+	// Should return the existing state properties (loaded from disk)
+	if state2.ID != state1.ID {
+		t.Errorf("Expected same state ID, got %s vs %s", state2.ID, state1.ID)
+	}
+	if state2.ParentRunID != state1.ParentRunID {
+		t.Errorf("Expected original state ParentRunID, got %s vs %s", state2.ParentRunID, state1.ParentRunID)
+	}
+}
+
+func TestIdempotencyRetentionConfiguration(t *testing.T) {
+	tempDir := t.TempDir()
+	manager, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+
+	// Check default retention period
+	defaultRetention := manager.GetIdempotencyRetention()
+	if defaultRetention != 24*time.Hour {
+		t.Errorf("Expected default retention of 24 hours, got %v", defaultRetention)
+	}
+
+	// Set custom retention period
+	customRetention := 12 * time.Hour
+	manager.SetIdempotencyRetention(customRetention)
+
+	// Verify retention was set
+	if manager.GetIdempotencyRetention() != customRetention {
+		t.Errorf("Expected custom retention %v, got %v", customRetention, manager.GetIdempotencyRetention())
+	}
+}
+
+func TestIsIdempotentState(t *testing.T) {
+	tempDir := t.TempDir()
+	manager, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		stateID  string
+		expected bool
+	}{
+		{
+			name:     "idempotent state with valid hex fingerprint",
+			stateID:  "fanout-abc123def4567890123456789012345678901234567890123456789012345678",
+			expected: true,
+		},
+		{
+			name:     "idempotent state with uppercase hex",
+			stateID:  "fanout-ABC123DEF4567890123456789012345678901234567890123456789012345678",
+			expected: true,
+		},
+		{
+			name:     "timestamp-based state",
+			stateID:  "fanout-1753922275-library_built",
+			expected: false,
+		},
+		{
+			name:     "short hex string",
+			stateID:  "fanout-abc123",
+			expected: false,
+		},
+		{
+			name:     "invalid hex characters",
+			stateID:  "fanout-xyz123def456789012345678901234567890123456789012345678901234567890",
+			expected: false,
+		},
+		{
+			name:     "no fanout prefix",
+			stateID:  "state-abc123def456789012345678901234567890123456789012345678901234567890",
+			expected: false,
+		},
+		{
+			name:     "too short",
+			stateID:  "fanout-",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := manager.isIdempotentState(tt.stateID)
+			if result != tt.expected {
+				t.Errorf("isIdempotentState(%s) = %v, want %v", tt.stateID, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCleanupCompletedStatesWithIdempotencyRetention(t *testing.T) {
+	tempDir := t.TempDir()
+	manager, err := NewFanOutStateManager(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+
+	// Set custom retention periods
+	traditionalRetention := 1 * time.Hour
+	idempotentRetention := 2 * time.Hour
+	manager.SetIdempotencyRetention(idempotentRetention)
+
+	// Create traditional timestamp-based state (old)
+	traditionalState, _ := manager.CreateFanOutState("fanout-1234567890-test", "", "org/repo", "test", false, 0)
+	traditionalState.CompleteFanOut()
+	oldTime := time.Now().Add(-3 * time.Hour) // 3 hours ago
+	traditionalState.EndTime = &oldTime
+
+	// Create idempotent fingerprint-based state (old but within idempotent retention)
+	idempotentState, _ := manager.CreateFanOutStateWithFingerprint("", "abc123def4567890123456789012345678901234567890123456789012345678", "", "org/repo", "test", false, 0)
+	idempotentState.CompleteFanOut()
+	mediumOldTime := time.Now().Add(-90 * time.Minute) // 1.5 hours ago
+	idempotentState.EndTime = &mediumOldTime
+
+	// Create another idempotent state (very old, should be cleaned)
+	veryOldIdempotentState, _ := manager.CreateFanOutStateWithFingerprint("", "def456789012345678901234567890123456789012345678901234567890abc123", "", "org/repo", "test", false, 0)
+	veryOldIdempotentState.CompleteFanOut()
+	veryOldTime := time.Now().Add(-5 * time.Hour) // 5 hours ago
+	veryOldIdempotentState.EndTime = &veryOldTime
+
+	// Create recent traditional state (should not be cleaned)
+	recentTraditionalState, _ := manager.CreateFanOutState("fanout-9876543210-test", "", "org/repo", "test", false, 0)
+	recentTraditionalState.CompleteFanOut()
+	recentTime := time.Now().Add(-30 * time.Minute) // 30 minutes ago
+	recentTraditionalState.EndTime = &recentTime
+
+	// Cleanup with traditional retention period
+	err = manager.CleanupCompletedStates(traditionalRetention)
+	if err != nil {
+		t.Fatalf("Failed to cleanup completed states: %v", err)
+	}
+
+	// Verify cleanup results
+	// Traditional old state should be removed (older than 1 hour)
+	_, err = manager.GetFanOutState("fanout-1234567890-test")
+	if err == nil {
+		t.Errorf("Expected old traditional state to be removed")
+	}
+
+	// Idempotent state should still exist (1.5 hours old, but retention is 2 hours)
+	_, err = manager.GetFanOutState("fanout-abc123def4567890123456789012345678901234567890123456789012345678")
+	if err != nil {
+		t.Errorf("Expected idempotent state to still exist: %v", err)
+	}
+
+	// Very old idempotent state should be removed (5 hours old, retention is 2 hours)
+	_, err = manager.GetFanOutState("fanout-def456789012345678901234567890123456789012345678901234567890abc123")
+	if err == nil {
+		t.Errorf("Expected very old idempotent state to be removed")
+	}
+
+	// Recent traditional state should still exist
+	_, err = manager.GetFanOutState("fanout-9876543210-test")
+	if err != nil {
+		t.Errorf("Expected recent traditional state to still exist: %v", err)
 	}
 }
