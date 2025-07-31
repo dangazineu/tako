@@ -419,7 +419,7 @@ func GetTestCases() []TestCase {
 					ExpectedExitCode: 1,
 					AssertOutputContains: []string{
 						"Executing workflow 'ci-pipeline'",
-						"workflow execution failed: step 'lint' failed",
+						"execution failed: step 'lint' failed",
 					},
 				},
 			},
@@ -436,7 +436,7 @@ func GetTestCases() []TestCase {
 					ExpectedExitCode: 1,
 					AssertOutputContains: []string{
 						"Executing workflow 'ci-pipeline'",
-						"workflow execution failed: step 'lint' failed",
+						"execution failed: step 'lint' failed",
 					},
 				},
 			},
@@ -453,7 +453,7 @@ func GetTestCases() []TestCase {
 					ExpectedExitCode: 1,
 					AssertOutputContains: []string{
 						"Executing workflow 'ci-pipeline'",
-						"workflow execution failed: step 'package' failed",
+						"execution failed: step 'package' failed",
 					},
 				},
 			},
