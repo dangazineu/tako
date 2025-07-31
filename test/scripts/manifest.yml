@@ -21,4 +21,4 @@ scripts:
 
   - name: verify-fanout-idempotency.sh
     description: "Tests the idempotency of fan-out operations."
-    ci_flags: ["--local"] # Uses default test environment: fan-out-test
+    ci_flags: [] # Uses default test environment and local mode
