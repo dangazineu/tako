@@ -156,7 +156,7 @@ func GetEnvironments(owner string) map[string]TestEnvironmentDef {
 					Branch: "main",
 					Files: []FileDef{
 						{Path: "main.go", Template: "local-go-ci-pipeline/main.go"},
-						{Path: "go.mod", Template: "local-go-ci-pipeline/go.mod"},
+						{Path: "go.mod", Template: "local-go-ci-pipeline/go.mod.template"},
 						{Path: "Dockerfile", Template: "local-go-ci-pipeline/Dockerfile"},
 						{Path: "tako.yml", Template: "local-go-ci-pipeline/tako.yml"},
 					},
@@ -171,7 +171,7 @@ func GetEnvironments(owner string) map[string]TestEnvironmentDef {
 					Branch: "main",
 					Files: []FileDef{
 						{Path: "main.go", Template: "local-go-ci-pipeline-lint-failure/main.go"},
-						{Path: "go.mod", Template: "local-go-ci-pipeline-lint-failure/go.mod"},
+						{Path: "go.mod", Template: "local-go-ci-pipeline-lint-failure/go.mod.template"},
 						{Path: "Dockerfile", Template: "local-go-ci-pipeline-lint-failure/Dockerfile"},
 						{Path: "tako.yml", Template: "local-go-ci-pipeline-lint-failure/tako.yml"},
 					},
@@ -186,7 +186,7 @@ func GetEnvironments(owner string) map[string]TestEnvironmentDef {
 					Branch: "main",
 					Files: []FileDef{
 						{Path: "main.go", Template: "local-go-ci-pipeline-build-failure/main.go"},
-						{Path: "go.mod", Template: "local-go-ci-pipeline-build-failure/go.mod"},
+						{Path: "go.mod", Template: "local-go-ci-pipeline-build-failure/go.mod.template"},
 						{Path: "Dockerfile", Template: "local-go-ci-pipeline-build-failure/Dockerfile"},
 						{Path: "tako.yml", Template: "local-go-ci-pipeline-build-failure/tako.yml"},
 					},
@@ -201,7 +201,7 @@ func GetEnvironments(owner string) map[string]TestEnvironmentDef {
 					Branch: "main",
 					Files: []FileDef{
 						{Path: "main.go", Template: "local-go-ci-pipeline-package-failure/main.go"},
-						{Path: "go.mod", Template: "local-go-ci-pipeline-package-failure/go.mod"},
+						{Path: "go.mod", Template: "local-go-ci-pipeline-package-failure/go.mod.template"},
 						{Path: "Dockerfile", Template: "local-go-ci-pipeline-package-failure/Dockerfile"},
 						{Path: "tako.yml", Template: "local-go-ci-pipeline-package-failure/tako.yml"},
 					},
