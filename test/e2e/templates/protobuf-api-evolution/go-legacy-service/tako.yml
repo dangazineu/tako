@@ -1,0 +1,6 @@
+version: v1
+# This service has no subscriptions - it should never be triggered
+workflows:
+  manual-deploy:
+    steps:
+      - run: "echo 'Manual deployment only'"

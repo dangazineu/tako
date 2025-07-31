@@ -458,5 +458,186 @@ func GetTestCases() []TestCase {
 				},
 			},
 		},
+		{
+			Name:        "protobuf-api-evolution",
+			Environment: "protobuf-api-evolution",
+			ReadOnly:    false,
+			Test: []Step{
+				{
+					Name:    "trigger user-service only",
+					Command: "tako",
+					Args:    []string{"exec", "release-api", "--inputs.version=v1.0.0", "--inputs.changed_services=user-service"},
+					AssertOutputContains: []string{
+						"Executing workflow 'release-api'",
+						"Success: true",
+					},
+				},
+				{
+					Name:    "trigger both user-service and billing-service",
+					Command: "tako",
+					Args:    []string{"exec", "release-api", "--inputs.version=v1.1.0", "--inputs.changed_services=user-service,billing-service"},
+					AssertOutputContains: []string{
+						"Executing workflow 'release-api'",
+						"Success: true",
+					},
+				},
+				{
+					Name:    "trigger with whitespace and malformed list",
+					Command: "tako",
+					Args:    []string{"exec", "release-api", "--inputs.version=v1.2.0", "--inputs.changed_services= user-service , "},
+					AssertOutputContains: []string{
+						"Executing workflow 'release-api'",
+						"Success: true",
+					},
+				},
+				{
+					Name:    "trigger with case-insensitive service names",
+					Command: "tako",
+					Args:    []string{"exec", "release-api", "--inputs.version=v1.2.1", "--inputs.changed_services=User-Service,BILLING-SERVICE"},
+					AssertOutputContains: []string{
+						"Executing workflow 'release-api'",
+						"Success: true",
+					},
+				},
+				{
+					Name:    "trigger with duplicate services in list",
+					Command: "tako",
+					Args:    []string{"exec", "release-api", "--inputs.version=v1.2.2", "--inputs.changed_services=user-service,user-service,billing-service"},
+					AssertOutputContains: []string{
+						"Executing workflow 'release-api'",
+						"Success: true",
+					},
+				},
+				{
+					Name:    "trigger with no matching services",
+					Command: "tako",
+					Args:    []string{"exec", "release-api", "--inputs.version=v1.3.0", "--inputs.changed_services=inventory-service"},
+					AssertOutputContains: []string{
+						"Executing workflow 'release-api'",
+						"Success: true",
+					},
+				},
+				{
+					Name:    "verify idempotency - run same event twice",
+					Command: "tako",
+					Args:    []string{"exec", "release-api", "--inputs.version=v1.0.0", "--inputs.changed_services=user-service"},
+					AssertOutputContains: []string{
+						"Success: true",
+					},
+				},
+			},
+			Verify: Verification{
+				Files: []VerifyFileExists{
+					// Positive cases - services that should be triggered
+					{
+						FileName:        "go-user-service_deployed_with_api_v1.0.0",
+						ShouldExist:     true,
+						ExpectedContent: "v1.0.0",
+					},
+					{
+						FileName:        "go-user-service_deployed_with_api_v1.1.0",
+						ShouldExist:     true,
+						ExpectedContent: "v1.1.0",
+					},
+					{
+						FileName:        "go-user-service_deployed_with_api_v1.2.0",
+						ShouldExist:     true,
+						ExpectedContent: "v1.2.0",
+					},
+					{
+						FileName:        "go-user-service_deployed_with_api_v1.2.1",
+						ShouldExist:     true,
+						ExpectedContent: "v1.2.1",
+					},
+					{
+						FileName:        "go-user-service_deployed_with_api_v1.2.2",
+						ShouldExist:     true,
+						ExpectedContent: "v1.2.2",
+					},
+					{
+						FileName:        "nodejs-billing-service_deployed_with_api_v1.1.0",
+						ShouldExist:     true,
+						ExpectedContent: "v1.1.0",
+					},
+					{
+						FileName:        "nodejs-billing-service_deployed_with_api_v1.2.1",
+						ShouldExist:     true,
+						ExpectedContent: "v1.2.1",
+					},
+					{
+						FileName:        "nodejs-billing-service_deployed_with_api_v1.2.2",
+						ShouldExist:     true,
+						ExpectedContent: "v1.2.2",
+					},
+					// Publisher verification
+					{
+						FileName:    "pushed_tag_v1.0.0",
+						ShouldExist: true,
+					},
+					{
+						FileName:    "pushed_tag_v1.1.0",
+						ShouldExist: true,
+					},
+					{
+						FileName:    "pushed_tag_v1.2.0",
+						ShouldExist: true,
+					},
+					{
+						FileName:    "pushed_tag_v1.2.1",
+						ShouldExist: true,
+					},
+					{
+						FileName:    "pushed_tag_v1.2.2",
+						ShouldExist: true,
+					},
+					{
+						FileName:    "pushed_tag_v1.3.0",
+						ShouldExist: true,
+					},
+					// Negative cases - services that should NOT be triggered
+					{
+						FileName:    "nodejs-billing-service_deployed_with_api_v1.0.0",
+						ShouldExist: false,
+					},
+					{
+						FileName:    "nodejs-billing-service_deployed_with_api_v1.2.0",
+						ShouldExist: false,
+					},
+					{
+						FileName:    "nodejs-billing-service_deployed_with_api_v1.3.0",
+						ShouldExist: false,
+					},
+					{
+						FileName:    "go-user-service_deployed_with_api_v1.3.0",
+						ShouldExist: false,
+					},
+					// Legacy service should never be triggered
+					{
+						FileName:    "go-legacy-service_deployed_with_api_v1.0.0",
+						ShouldExist: false,
+					},
+					{
+						FileName:    "go-legacy-service_deployed_with_api_v1.1.0",
+						ShouldExist: false,
+					},
+					{
+						FileName:    "go-legacy-service_deployed_with_api_v1.2.0",
+						ShouldExist: false,
+					},
+					{
+						FileName:    "go-legacy-service_deployed_with_api_v1.2.1",
+						ShouldExist: false,
+					},
+					{
+						FileName:    "go-legacy-service_deployed_with_api_v1.2.2",
+						ShouldExist: false,
+					},
+					{
+						FileName:    "go-legacy-service_deployed_with_api_v1.3.0",
+						ShouldExist: false,
+					},
+				},
+			},
+		},
 	}
 }

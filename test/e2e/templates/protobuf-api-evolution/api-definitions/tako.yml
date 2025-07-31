@@ -1,0 +1,21 @@
+version: v1
+workflows:
+  release-api:
+    inputs:
+      version: { type: string, required: true }
+      changed_services: { type: string, required: true }
+    steps:
+      - id: tag-release
+        run: "git tag {{ .Inputs.version }} && echo 'tagged_{{ .Inputs.version }}' > pushed_tag_{{ .Inputs.version }}"
+      - id: fan-out-event
+        uses: tako/fan-out@v1
+        with:
+          event_type: "api_published"
+          schema_version: "1.0.0"
+          payload:
+            git_tag: "{{ .Inputs.version }}"
+            services_affected: "{{ .Inputs.changed_services }}"
+events:
+  produces:
+    - type: "api_published"
+      schema_version: "1.0.0"

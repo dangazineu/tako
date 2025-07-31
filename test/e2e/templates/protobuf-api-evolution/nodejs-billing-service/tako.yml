@@ -1,0 +1,20 @@
+version: v1
+subscriptions:
+  - artifact: "{{.Owner}}/api-definitions:main"
+    events: ["api_published"]
+    schema_version: "^1.0.0"
+    filters:
+      - "'billing-service' in event.payload.services_affected.split(',').map(s, s.trim().lower())"
+    workflow: "update-and-deploy"
+    inputs:
+      api_version: "{{ .event.payload.git_tag }}"
+      repo_name: "nodejs-billing-service"
+workflows:
+  update-and-deploy:
+    inputs:
+      api_version: { type: string }
+      repo_name: { type: string }
+    steps:
+      - run: "echo 'Updating Node.js service to API {{ .Inputs.api_version }}'"
+      - run: "echo '{{ .Inputs.api_version }}' > {{ .Inputs.repo_name }}_deployed_with_api_{{ .Inputs.api_version }}"
+      - run: "./scripts/deploy.sh {{ .Inputs.api_version }}"
