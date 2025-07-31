@@ -960,3 +960,529 @@ subscriptions:
 		t.Errorf("Expected 0 triggered workflows for duplicate (should be cached), got %d", result2.TriggeredCount)
 	}
 }
+
+// Test diamond dependency resolution functionality.
+func TestFanOutExecutor_DiamondDependencyResolution(t *testing.T) {
+	tempDir := t.TempDir()
+	mockRunner := NewTestMockWorkflowRunner()
+
+	executor, err := NewFanOutExecutor(tempDir, true, mockRunner) // Enable debug for logging
+	if err != nil {
+		t.Fatalf("Failed to create executor: %v", err)
+	}
+
+	// Create test subscriptions with identical filters and inputs (diamond dependency)
+	subscribers := []SubscriptionMatch{
+		{
+			Repository: "org/repo1", // First in alphabetical order - should win
+			Subscription: config.Subscription{
+				Workflow: "build.yml",
+				Filters:  []string{"event.payload.version != null"},
+				Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+			},
+		},
+		{
+			Repository: "org/repo2", // Second in alphabetical order - should be skipped
+			Subscription: config.Subscription{
+				Workflow: "build.yml",
+				Filters:  []string{"event.payload.version != null"},
+				Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+			},
+		},
+		{
+			Repository: "org/repo3", // Different workflow - should NOT be skipped
+			Subscription: config.Subscription{
+				Workflow: "test.yml", // Different workflow
+				Filters:  []string{"event.payload.version != null"},
+				Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+			},
+		},
+	}
+
+	event := Event{
+		Type:          "library_built",
+		SchemaVersion: "1.0.0",
+		Source:        "source/repo",
+		Payload:       map[string]interface{}{"version": "1.2.3"},
+		Timestamp:     time.Now().Unix(),
+	}
+
+	params := &FanOutParams{
+		WaitForChildren:  false,
+		ConcurrencyLimit: 0,
+	}
+
+	// Create state for testing
+	state, err := executor.stateManager.CreateFanOutState("test-fanout", "", "source/repo", "library_built", false, 0)
+	if err != nil {
+		t.Fatalf("Failed to create fan-out state: %v", err)
+	}
+
+	// Test diamond dependency resolution
+	triggeredCount, errors, detailedErrors := executor.triggerSubscribersWithState(subscribers, event, params, state)
+
+	// Should only trigger 2 workflows: org/repo1:build.yml (winner) and org/repo3:test.yml (different workflow)
+	if triggeredCount != 2 {
+		t.Errorf("Expected 2 triggered workflows (1 winner + 1 different), got %d\nErrors: %v\nDetailed: %v",
+			triggeredCount, errors, detailedErrors)
+	}
+
+	// Should have no errors
+	if len(errors) > 0 {
+		t.Errorf("Expected no errors, got: %v", errors)
+	}
+
+	// Verify the winner and skipped repos in state
+	summary := state.GetSummary()
+	if summary.TotalChildren != 2 {
+		t.Errorf("Expected 2 child workflows in state, got %d", summary.TotalChildren)
+	}
+
+	// Verify specific children exist
+	state.mu.RLock()
+	foundRepo1 := false
+	foundRepo3 := false
+	foundRepo2 := false
+	for childID, child := range state.Children {
+		if child.Repository == "org/repo1" && child.Workflow == "build.yml" {
+			foundRepo1 = true
+		} else if child.Repository == "org/repo3" && child.Workflow == "test.yml" {
+			foundRepo3 = true
+		} else if child.Repository == "org/repo2" {
+			foundRepo2 = true
+			t.Errorf("Found unexpected child for skipped repo org/repo2: %s", childID)
+		}
+	}
+	state.mu.RUnlock()
+
+	if !foundRepo1 {
+		t.Error("Expected to find child workflow for winning repository org/repo1")
+	}
+	if !foundRepo3 {
+		t.Error("Expected to find child workflow for different workflow org/repo3:test.yml")
+	}
+	if foundRepo2 {
+		t.Error("Should not find child workflow for skipped repository org/repo2")
+	}
+}
+
+func TestFanOutExecutor_DiamondDependencyWithDifferentInputs(t *testing.T) {
+	tempDir := t.TempDir()
+	mockRunner := NewTestMockWorkflowRunner()
+
+	executor, err := NewFanOutExecutor(tempDir, false, mockRunner)
+	if err != nil {
+		t.Fatalf("Failed to create executor: %v", err)
+	}
+
+	// Create subscriptions with same repository and workflow but different inputs (NOT diamond dependency)
+	subscribers := []SubscriptionMatch{
+		{
+			Repository: "org/repo1",
+			Subscription: config.Subscription{
+				Workflow: "build.yml",
+				Filters:  []string{"event.payload.version != null"},
+				Inputs:   map[string]string{"version": "{{ .payload.version }}"}, // Different input value
+			},
+		},
+		{
+			Repository: "org/repo1",
+			Subscription: config.Subscription{
+				Workflow: "build.yml",
+				Filters:  []string{"event.payload.version != null"},
+				Inputs:   map[string]string{"tag": "{{ .payload.tag }}"}, // Different input key
+			},
+		},
+	}
+
+	event := Event{
+		Type:          "library_built",
+		SchemaVersion: "1.0.0",
+		Source:        "source/repo",
+		Payload:       map[string]interface{}{"version": "1.2.3", "tag": "v1.2.3"},
+		Timestamp:     time.Now().Unix(),
+	}
+
+	params := &FanOutParams{
+		WaitForChildren:  false,
+		ConcurrencyLimit: 0,
+	}
+
+	state, err := executor.stateManager.CreateFanOutState("test-fanout-2", "", "source/repo", "library_built", false, 0)
+	if err != nil {
+		t.Fatalf("Failed to create fan-out state: %v", err)
+	}
+
+	// Test - should trigger both because inputs are different
+	triggeredCount, errors, _ := executor.triggerSubscribersWithState(subscribers, event, params, state)
+
+	// Should trigger both workflows since they have different inputs
+	if triggeredCount != 2 {
+		t.Errorf("Expected 2 triggered workflows (different inputs), got %d\nErrors: %v", triggeredCount, errors)
+	}
+
+	if len(errors) > 0 {
+		t.Errorf("Expected no errors, got: %v", errors)
+	}
+}
+
+func TestFanOutExecutor_DiamondDependencyWhitespaceNormalization(t *testing.T) {
+	tempDir := t.TempDir()
+	mockRunner := NewTestMockWorkflowRunner()
+
+	executor, err := NewFanOutExecutor(tempDir, false, mockRunner)
+	if err != nil {
+		t.Fatalf("Failed to create executor: %v", err)
+	}
+
+	// Create subscriptions with same logic but different whitespace (should be diamond dependency)
+	subscribers := []SubscriptionMatch{
+		{
+			Repository: "org/repo1",
+			Subscription: config.Subscription{
+				Workflow: "build.yml",
+				Filters:  []string{"event.payload.version != null"},
+				Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+			},
+		},
+		{
+			Repository: "org/repo2",
+			Subscription: config.Subscription{
+				Workflow: "build.yml",
+				Filters:  []string{"event.payload.version!=null"},              // Different whitespace
+				Inputs:   map[string]string{"version": "{{.payload.version}}"}, // Different whitespace
+			},
+		},
+	}
+
+	event := Event{
+		Type:      "library_built",
+		Source:    "source/repo",
+		Payload:   map[string]interface{}{"version": "1.2.3"},
+		Timestamp: time.Now().Unix(),
+	}
+
+	params := &FanOutParams{
+		WaitForChildren:  false,
+		ConcurrencyLimit: 0,
+	}
+
+	state, err := executor.stateManager.CreateFanOutState("test-fanout-3", "", "source/repo", "library_built", false, 0)
+	if err != nil {
+		t.Fatalf("Failed to create fan-out state: %v", err)
+	}
+
+	// Test - should only trigger one due to normalization
+	triggeredCount, errors, _ := executor.triggerSubscribersWithState(subscribers, event, params, state)
+
+	// Should only trigger 1 workflow due to whitespace normalization
+	if triggeredCount != 1 {
+		t.Errorf("Expected 1 triggered workflow (normalized whitespace), got %d\nErrors: %v", triggeredCount, errors)
+	}
+}
+
+func TestFanOutExecutor_DiamondDependencyMultipleFilters(t *testing.T) {
+	tempDir := t.TempDir()
+	mockRunner := NewTestMockWorkflowRunner()
+
+	executor, err := NewFanOutExecutor(tempDir, false, mockRunner)
+	if err != nil {
+		t.Fatalf("Failed to create executor: %v", err)
+	}
+
+	// Create subscriptions with same filters but different order (should be diamond dependency)
+	subscribers := []SubscriptionMatch{
+		{
+			Repository: "org/repo1",
+			Subscription: config.Subscription{
+				Workflow: "build.yml",
+				Filters:  []string{"event.payload.version != null", "event.payload.tag >= '1.0.0'"},
+				Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+			},
+		},
+		{
+			Repository: "org/repo2",
+			Subscription: config.Subscription{
+				Workflow: "build.yml",
+				Filters:  []string{"event.payload.tag >= '1.0.0'", "event.payload.version != null"}, // Different order
+				Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+			},
+		},
+		{
+			Repository: "org/repo3",
+			Subscription: config.Subscription{
+				Workflow: "build.yml",
+				Filters:  []string{"event.payload.version != null"}, // Different filters (subset)
+				Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+			},
+		},
+	}
+
+	event := Event{
+		Type:      "library_built",
+		Source:    "source/repo",
+		Payload:   map[string]interface{}{"version": "1.2.3", "tag": "1.2.3"},
+		Timestamp: time.Now().Unix(),
+	}
+
+	params := &FanOutParams{
+		WaitForChildren:  false,
+		ConcurrencyLimit: 0,
+	}
+
+	state, err := executor.stateManager.CreateFanOutState("test-fanout-4", "", "source/repo", "library_built", false, 0)
+	if err != nil {
+		t.Fatalf("Failed to create fan-out state: %v", err)
+	}
+
+	// Test - should trigger 2: first two are diamonds (only trigger repo1), third has different filters
+	triggeredCount, errors, _ := executor.triggerSubscribersWithState(subscribers, event, params, state)
+
+	// Should trigger 2 workflows: repo1 (winner of diamond) + repo3 (different filters)
+	if triggeredCount != 2 {
+		t.Errorf("Expected 2 triggered workflows (1 diamond winner + 1 different), got %d\nErrors: %v", triggeredCount, errors)
+	}
+}
+
+func TestResolveDiamondDependencies(t *testing.T) {
+	tempDir := t.TempDir()
+	mockRunner := NewTestMockWorkflowRunner()
+
+	executor, err := NewFanOutExecutor(tempDir, false, mockRunner)
+	if err != nil {
+		t.Fatalf("Failed to create executor: %v", err)
+	}
+
+	eventFingerprint := "test-event-fingerprint"
+
+	tests := []struct {
+		name                 string
+		subscribers          []SubscriptionMatch
+		expectedUniqueCount  int
+		expectedSkippedCount int
+		expectedWinners      []string // Repository names that should win
+		description          string
+	}{
+		{
+			name: "no diamond dependencies",
+			subscribers: []SubscriptionMatch{
+				{
+					Repository: "org/repo1",
+					Subscription: config.Subscription{
+						Workflow: "build.yml",
+						Filters:  []string{"event.payload.version != null"},
+						Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+					},
+				},
+				{
+					Repository: "org/repo2",
+					Subscription: config.Subscription{
+						Workflow: "test.yml", // Different workflow
+						Filters:  []string{"event.payload.version != null"},
+						Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+					},
+				},
+			},
+			expectedUniqueCount:  2,
+			expectedSkippedCount: 0,
+			expectedWinners:      []string{"org/repo1", "org/repo2"},
+			description:          "Different workflows should not be considered diamonds",
+		},
+		{
+			name: "simple diamond dependency",
+			subscribers: []SubscriptionMatch{
+				{
+					Repository: "org/repo2", // Not first alphabetically
+					Subscription: config.Subscription{
+						Workflow: "build.yml",
+						Filters:  []string{"event.payload.version != null"},
+						Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+					},
+				},
+				{
+					Repository: "org/repo1", // First alphabetically - should win
+					Subscription: config.Subscription{
+						Workflow: "build.yml",
+						Filters:  []string{"event.payload.version != null"},
+						Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+					},
+				},
+			},
+			expectedUniqueCount:  1,
+			expectedSkippedCount: 1,
+			expectedWinners:      []string{"org/repo1"}, // First alphabetically wins
+			description:          "First repository alphabetically should win",
+		},
+		{
+			name: "complex diamond scenario",
+			subscribers: []SubscriptionMatch{
+				{
+					Repository: "org/repo3",
+					Subscription: config.Subscription{
+						Workflow: "build.yml",
+						Filters:  []string{"event.payload.version != null"},
+						Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+					},
+				},
+				{
+					Repository: "org/repo1", // Should win this diamond
+					Subscription: config.Subscription{
+						Workflow: "build.yml",
+						Filters:  []string{"event.payload.version != null"},
+						Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+					},
+				},
+				{
+					Repository: "org/repo2", // Different workflow, should win its own category
+					Subscription: config.Subscription{
+						Workflow: "test.yml",
+						Filters:  []string{"event.payload.version != null"},
+						Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+					},
+				},
+				{
+					Repository: "org/repo4", // Same as repo2 but different repo - should be skipped
+					Subscription: config.Subscription{
+						Workflow: "test.yml",
+						Filters:  []string{"event.payload.version != null"},
+						Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+					},
+				},
+			},
+			expectedUniqueCount:  2,
+			expectedSkippedCount: 2,
+			expectedWinners:      []string{"org/repo1", "org/repo2"}, // Winners of each diamond group
+			description:          "Multiple diamond groups should each have one winner",
+		},
+		{
+			name: "normalized whitespace diamond",
+			subscribers: []SubscriptionMatch{
+				{
+					Repository: "org/repo2",
+					Subscription: config.Subscription{
+						Workflow: "build.yml",
+						Filters:  []string{"event.payload.version!=null"},              // No spaces
+						Inputs:   map[string]string{"version": "{{.payload.version}}"}, // No spaces
+					},
+				},
+				{
+					Repository: "org/repo1", // Should win due to alphabetical order
+					Subscription: config.Subscription{
+						Workflow: "build.yml",
+						Filters:  []string{"event.payload.version != null"},              // With spaces
+						Inputs:   map[string]string{"version": "{{ .payload.version }}"}, // With spaces
+					},
+				},
+			},
+			expectedUniqueCount:  1,
+			expectedSkippedCount: 1,
+			expectedWinners:      []string{"org/repo1"},
+			description:          "Whitespace differences should normalize to same fingerprint",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uniqueSubscribers, skippedCount, errors := executor.resolveDiamondDependencies(tt.subscribers, eventFingerprint)
+
+			// Check counts
+			if len(uniqueSubscribers) != tt.expectedUniqueCount {
+				t.Errorf("Expected %d unique subscribers, got %d", tt.expectedUniqueCount, len(uniqueSubscribers))
+			}
+
+			if skippedCount != tt.expectedSkippedCount {
+				t.Errorf("Expected %d skipped subscribers, got %d", tt.expectedSkippedCount, skippedCount)
+			}
+
+			// Check no errors
+			if len(errors) > 0 {
+				t.Errorf("Expected no errors, got: %v", errors)
+			}
+
+			// Check winners
+			actualWinners := make([]string, len(uniqueSubscribers))
+			for i, sub := range uniqueSubscribers {
+				actualWinners[i] = sub.Repository
+			}
+
+			if len(actualWinners) != len(tt.expectedWinners) {
+				t.Errorf("Expected winners %v, got %v", tt.expectedWinners, actualWinners)
+			} else {
+				// Check each expected winner is present (order may differ due to map iteration)
+				for _, expectedWinner := range tt.expectedWinners {
+					found := false
+					for _, actualWinner := range actualWinners {
+						if actualWinner == expectedWinner {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("Expected winner %s not found in actual winners %v", expectedWinner, actualWinners)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestResolveDiamondDependencies_ErrorHandling(t *testing.T) {
+	tempDir := t.TempDir()
+	mockRunner := NewTestMockWorkflowRunner()
+
+	executor, err := NewFanOutExecutor(tempDir, false, mockRunner)
+	if err != nil {
+		t.Fatalf("Failed to create executor: %v", err)
+	}
+
+	// Test with empty event fingerprint (should skip diamond resolution)
+	subscribers := []SubscriptionMatch{
+		{
+			Repository: "org/repo1",
+			Subscription: config.Subscription{
+				Workflow: "build.yml",
+				Filters:  []string{"event.payload.version != null"},
+				Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+			},
+		},
+		{
+			Repository: "org/repo2",
+			Subscription: config.Subscription{
+				Workflow: "build.yml",
+				Filters:  []string{"event.payload.version != null"},
+				Inputs:   map[string]string{"version": "{{ .payload.version }}"},
+			},
+		},
+	}
+
+	uniqueSubscribers, skippedCount, errors := executor.resolveDiamondDependencies(subscribers, "")
+
+	// Should return all subscribers unchanged when no event fingerprint
+	if len(uniqueSubscribers) != 2 {
+		t.Errorf("Expected 2 unique subscribers when no event fingerprint, got %d", len(uniqueSubscribers))
+	}
+
+	if skippedCount != 0 {
+		t.Errorf("Expected 0 skipped when no event fingerprint, got %d", skippedCount)
+	}
+
+	if len(errors) != 0 {
+		t.Errorf("Expected no errors when no event fingerprint, got: %v", errors)
+	}
+
+	// Test with single subscriber (should skip diamond resolution)
+	singleSubscriber := subscribers[:1]
+	uniqueSubscribers, skippedCount, errors = executor.resolveDiamondDependencies(singleSubscriber, "test-fingerprint")
+
+	if len(uniqueSubscribers) != 1 {
+		t.Errorf("Expected 1 unique subscriber with single input, got %d", len(uniqueSubscribers))
+	}
+
+	if skippedCount != 0 {
+		t.Errorf("Expected 0 skipped with single input, got %d", skippedCount)
+	}
+
+	if len(errors) != 0 {
+		t.Errorf("Expected no errors with single input, got: %v", errors)
+	}
+}

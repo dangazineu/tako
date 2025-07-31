@@ -570,15 +570,31 @@ func (fe *FanOutExecutor) triggerSubscribersWithState(subscribers []Subscription
 	detailedErrors := []ChildExecutionError{}
 	triggeredCount := 0
 
-	// Sort subscribers alphabetically for deterministic execution order
-	sort.Slice(subscribers, func(i, j int) bool {
-		return subscribers[i].Repository < subscribers[j].Repository
+	// Generate event fingerprint for subscription deduplication
+	eventFingerprint, err := GenerateEventFingerprint(&event)
+	if err != nil {
+		errors = append(errors, fmt.Sprintf("failed to generate event fingerprint for diamond resolution: %v", err))
+		eventFingerprint = "" // Continue without diamond resolution
+	}
+
+	// Resolve diamond dependencies using first-wins rule
+	uniqueSubscribers, skippedCount, diamondErrors := fe.resolveDiamondDependencies(subscribers, eventFingerprint)
+	errors = append(errors, diamondErrors...)
+
+	if fe.debug && skippedCount > 0 {
+		fmt.Printf("Diamond dependency resolution: skipped %d duplicate subscriptions, processing %d unique subscriptions\n",
+			skippedCount, len(uniqueSubscribers))
+	}
+
+	// Sort unique subscribers alphabetically for deterministic execution order
+	sort.Slice(uniqueSubscribers, func(i, j int) bool {
+		return uniqueSubscribers[i].Repository < uniqueSubscribers[j].Repository
 	})
 
 	// Determine concurrency limit
 	concurrencyLimit := params.ConcurrencyLimit
 	if concurrencyLimit <= 0 {
-		concurrencyLimit = len(subscribers) // No limit, run all in parallel
+		concurrencyLimit = len(uniqueSubscribers) // No limit, run all in parallel
 	}
 
 	// Use semaphore pattern for concurrency control
@@ -586,7 +602,7 @@ func (fe *FanOutExecutor) triggerSubscribersWithState(subscribers []Subscription
 	var wg sync.WaitGroup
 	var mutex sync.Mutex
 
-	for _, subscriber := range subscribers {
+	for _, subscriber := range uniqueSubscribers {
 		// Add child workflow to state before triggering
 		workflowInputs, err := fe.subscriptionEvaluator.ProcessEventPayload(event.Payload, subscriber.Subscription)
 		if err != nil {
@@ -760,6 +776,94 @@ func (fe *FanOutExecutor) triggerSubscribersWithState(subscribers []Subscription
 
 	wg.Wait()
 	return triggeredCount, errors, detailedErrors
+}
+
+// resolveDiamondDependencies implements the "first-wins" rule for diamond dependency resolution.
+// This prevents duplicate subscriptions from triggering multiple workflows for the same logical event.
+//
+// Algorithm:
+//  1. Generate subscription fingerprints for all subscribers
+//  2. Group subscribers by their fingerprint (identical subscriptions)
+//  3. Apply first-wins rule: keep only the first subscriber for each unique fingerprint
+//  4. Log detailed information about skipped duplicates for observability
+//
+// The first-wins order is determined by:
+//   - Repository path (lexicographic sorting for deterministic behavior)
+//   - Within same repository, by workflow name
+//
+// Returns:
+//   - uniqueSubscribers: deduplicated list with only winning subscribers
+//   - skippedCount: number of duplicate subscriptions that were skipped
+//   - errors: any errors encountered during fingerprint generation
+func (fe *FanOutExecutor) resolveDiamondDependencies(subscribers []SubscriptionMatch, eventFingerprint string) ([]SubscriptionMatch, int, []string) {
+	if eventFingerprint == "" || len(subscribers) <= 1 {
+		// Skip diamond resolution if no event fingerprint or insufficient subscribers
+		return subscribers, 0, nil
+	}
+
+	// Map from subscription fingerprint to the first (winning) subscriber
+	fingerprintToWinner := make(map[string]SubscriptionMatch)
+	// Track all subscribers for each fingerprint for logging
+	fingerprintToAll := make(map[string][]SubscriptionMatch)
+	errors := []string{}
+
+	// Sort subscribers by repository path for deterministic first-wins ordering
+	sortedSubscribers := make([]SubscriptionMatch, len(subscribers))
+	copy(sortedSubscribers, subscribers)
+	sort.Slice(sortedSubscribers, func(i, j int) bool {
+		if sortedSubscribers[i].Repository != sortedSubscribers[j].Repository {
+			return sortedSubscribers[i].Repository < sortedSubscribers[j].Repository
+		}
+		return sortedSubscribers[i].Subscription.Workflow < sortedSubscribers[j].Subscription.Workflow
+	})
+
+	// Process subscribers in sorted order to ensure deterministic first-wins
+	for _, subscriber := range sortedSubscribers {
+		subscriptionFingerprint, err := GenerateSubscriptionFingerprint(subscriber, eventFingerprint)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("failed to generate subscription fingerprint for %s:%s: %v",
+				subscriber.Repository, subscriber.Subscription.Workflow, err))
+			// Include subscriber without deduplication if fingerprint generation fails
+			fingerprintToWinner[fmt.Sprintf("error-%s-%s", subscriber.Repository, subscriber.Subscription.Workflow)] = subscriber
+			continue
+		}
+
+		// Track all subscribers for this fingerprint
+		fingerprintToAll[subscriptionFingerprint] = append(fingerprintToAll[subscriptionFingerprint], subscriber)
+
+		// Apply first-wins rule
+		if _, exists := fingerprintToWinner[subscriptionFingerprint]; !exists {
+			fingerprintToWinner[subscriptionFingerprint] = subscriber
+		}
+	}
+
+	// Build unique subscribers list and log skipped duplicates
+	uniqueSubscribers := make([]SubscriptionMatch, 0, len(fingerprintToWinner))
+	skippedCount := 0
+
+	for fingerprint, winner := range fingerprintToWinner {
+		uniqueSubscribers = append(uniqueSubscribers, winner)
+
+		allForFingerprint := fingerprintToAll[fingerprint]
+		if len(allForFingerprint) > 1 {
+			skippedCount += len(allForFingerprint) - 1 // All except the winner
+
+			// Log detailed information about diamond resolution
+			skippedRepos := make([]string, 0, len(allForFingerprint)-1)
+			for _, sub := range allForFingerprint[1:] { // Skip the first (winner)
+				skippedRepos = append(skippedRepos, fmt.Sprintf("%s:%s", sub.Repository, sub.Subscription.Workflow))
+			}
+
+			fe.logger.Info("Diamond dependency resolved using first-wins rule",
+				"fingerprint", fingerprint[:16]+"...", // Truncated for readability
+				"winner", fmt.Sprintf("%s:%s", winner.Repository, winner.Subscription.Workflow),
+				"skipped", strings.Join(skippedRepos, ", "),
+				"reason", "identical subscription filters and inputs",
+			)
+		}
+	}
+
+	return uniqueSubscribers, skippedCount, errors
 }
 
 // executeChildWorkflow executes a workflow in a child repository using the injected WorkflowRunner.

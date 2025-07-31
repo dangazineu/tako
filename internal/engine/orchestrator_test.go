@@ -395,6 +395,343 @@ func TestOrchestrator_DiscoverSubscriptions_EdgeCases(t *testing.T) {
 	})
 }
 
+func TestNewOrchestratorWithConfig(t *testing.T) {
+	discoverer := &mockSubscriptionDiscoverer{}
+
+	t.Run("valid config", func(t *testing.T) {
+		config := OrchestratorConfig{
+			EnableFiltering:             true,
+			EnablePrioritization:        true,
+			FilterDisabledSubscriptions: true,
+		}
+
+		orchestrator, err := NewOrchestratorWithConfig(discoverer, config)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if orchestrator == nil {
+			t.Fatal("Expected non-nil orchestrator")
+		}
+
+		if orchestrator.config != config {
+			t.Error("Expected config to be set correctly")
+		}
+	})
+
+	t.Run("nil discoverer should return error", func(t *testing.T) {
+		config := OrchestratorConfig{}
+		orchestrator, err := NewOrchestratorWithConfig(nil, config)
+
+		if err == nil {
+			t.Fatal("Expected error for nil discoverer, got nil")
+		}
+
+		if orchestrator != nil {
+			t.Error("Expected nil orchestrator when error occurs")
+		}
+
+		expectedErrorMsg := "discoverer cannot be nil"
+		if err.Error() != expectedErrorMsg {
+			t.Errorf("Expected error message '%s', got '%s'", expectedErrorMsg, err.Error())
+		}
+	})
+}
+
+func TestOrchestrator_PrioritizeSubscriptions(t *testing.T) {
+	// Test data with different repositories and workflows
+	testMatches := []interfaces.SubscriptionMatch{
+		{
+			Repository: "org/repo-z",
+			Subscription: config.Subscription{
+				Workflow: "workflow-b",
+			},
+		},
+		{
+			Repository: "org/repo-a",
+			Subscription: config.Subscription{
+				Workflow: "workflow-z",
+			},
+		},
+		{
+			Repository: "org/repo-a",
+			Subscription: config.Subscription{
+				Workflow: "workflow-a",
+			},
+		},
+		{
+			Repository: "org/repo-m",
+			Subscription: config.Subscription{
+				Workflow: "workflow-m",
+			},
+		},
+	}
+
+	t.Run("prioritization enabled", func(t *testing.T) {
+		config := OrchestratorConfig{
+			EnablePrioritization: true,
+		}
+
+		discoverer := &mockSubscriptionDiscoverer{
+			findSubscribersFunc: func(artifact, eventType string) ([]interfaces.SubscriptionMatch, error) {
+				return testMatches, nil
+			},
+		}
+
+		orchestrator, err := NewOrchestratorWithConfig(discoverer, config)
+		if err != nil {
+			t.Fatalf("Failed to create orchestrator: %v", err)
+		}
+
+		ctx := context.Background()
+		matches, err := orchestrator.DiscoverSubscriptions(ctx, "test/lib:lib", "build_completed")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Should be sorted by repository, then by workflow
+		expectedOrder := []string{
+			"org/repo-a:workflow-a",
+			"org/repo-a:workflow-z",
+			"org/repo-m:workflow-m",
+			"org/repo-z:workflow-b",
+		}
+
+		if len(matches) != len(expectedOrder) {
+			t.Fatalf("Expected %d matches, got %d", len(expectedOrder), len(matches))
+		}
+
+		for i, match := range matches {
+			actual := fmt.Sprintf("%s:%s", match.Repository, match.Subscription.Workflow)
+			if actual != expectedOrder[i] {
+				t.Errorf("Expected match %d to be '%s', got '%s'", i, expectedOrder[i], actual)
+			}
+		}
+	})
+
+	t.Run("prioritization disabled", func(t *testing.T) {
+		config := OrchestratorConfig{
+			EnablePrioritization: false,
+		}
+
+		discoverer := &mockSubscriptionDiscoverer{
+			findSubscribersFunc: func(artifact, eventType string) ([]interfaces.SubscriptionMatch, error) {
+				return testMatches, nil
+			},
+		}
+
+		orchestrator, err := NewOrchestratorWithConfig(discoverer, config)
+		if err != nil {
+			t.Fatalf("Failed to create orchestrator: %v", err)
+		}
+
+		ctx := context.Background()
+		matches, err := orchestrator.DiscoverSubscriptions(ctx, "test/lib:lib", "build_completed")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Should be in original order (no sorting)
+		expectedOrder := []string{
+			"org/repo-z:workflow-b",
+			"org/repo-a:workflow-z",
+			"org/repo-a:workflow-a",
+			"org/repo-m:workflow-m",
+		}
+
+		if len(matches) != len(expectedOrder) {
+			t.Fatalf("Expected %d matches, got %d", len(expectedOrder), len(matches))
+		}
+
+		for i, match := range matches {
+			actual := fmt.Sprintf("%s:%s", match.Repository, match.Subscription.Workflow)
+			if actual != expectedOrder[i] {
+				t.Errorf("Expected match %d to be '%s', got '%s'", i, expectedOrder[i], actual)
+			}
+		}
+	})
+
+	t.Run("empty matches", func(t *testing.T) {
+		config := OrchestratorConfig{
+			EnablePrioritization: true,
+		}
+
+		discoverer := &mockSubscriptionDiscoverer{
+			findSubscribersFunc: func(artifact, eventType string) ([]interfaces.SubscriptionMatch, error) {
+				return []interfaces.SubscriptionMatch{}, nil
+			},
+		}
+
+		orchestrator, err := NewOrchestratorWithConfig(discoverer, config)
+		if err != nil {
+			t.Fatalf("Failed to create orchestrator: %v", err)
+		}
+
+		ctx := context.Background()
+		matches, err := orchestrator.DiscoverSubscriptions(ctx, "test/lib:lib", "build_completed")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if len(matches) != 0 {
+			t.Errorf("Expected 0 matches, got %d", len(matches))
+		}
+	})
+}
+
+func TestOrchestrator_FilterSubscriptions(t *testing.T) {
+	testMatches := []interfaces.SubscriptionMatch{
+		{
+			Repository: "org/repo1",
+			Subscription: config.Subscription{
+				Workflow: "workflow1",
+			},
+		},
+		{
+			Repository: "org/repo2",
+			Subscription: config.Subscription{
+				Workflow: "workflow2",
+			},
+		},
+	}
+
+	t.Run("filtering enabled but no specific filters", func(t *testing.T) {
+		config := OrchestratorConfig{
+			EnableFiltering:             true,
+			FilterDisabledSubscriptions: false,
+		}
+
+		discoverer := &mockSubscriptionDiscoverer{
+			findSubscribersFunc: func(artifact, eventType string) ([]interfaces.SubscriptionMatch, error) {
+				return testMatches, nil
+			},
+		}
+
+		orchestrator, err := NewOrchestratorWithConfig(discoverer, config)
+		if err != nil {
+			t.Fatalf("Failed to create orchestrator: %v", err)
+		}
+
+		ctx := context.Background()
+		matches, err := orchestrator.DiscoverSubscriptions(ctx, "test/lib:lib", "build_completed")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Should return all matches (no filtering applied)
+		if len(matches) != 2 {
+			t.Errorf("Expected 2 matches, got %d", len(matches))
+		}
+	})
+
+	t.Run("filtering disabled", func(t *testing.T) {
+		config := OrchestratorConfig{
+			EnableFiltering: false,
+		}
+
+		discoverer := &mockSubscriptionDiscoverer{
+			findSubscribersFunc: func(artifact, eventType string) ([]interfaces.SubscriptionMatch, error) {
+				return testMatches, nil
+			},
+		}
+
+		orchestrator, err := NewOrchestratorWithConfig(discoverer, config)
+		if err != nil {
+			t.Fatalf("Failed to create orchestrator: %v", err)
+		}
+
+		ctx := context.Background()
+		matches, err := orchestrator.DiscoverSubscriptions(ctx, "test/lib:lib", "build_completed")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Should return all matches (no filtering)
+		if len(matches) != 2 {
+			t.Errorf("Expected 2 matches, got %d", len(matches))
+		}
+	})
+}
+
+func TestOrchestrator_BackwardCompatibility(t *testing.T) {
+	// Test that the default orchestrator behavior is unchanged
+	testMatches := []interfaces.SubscriptionMatch{
+		{
+			Repository: "org/repo-z",
+			Subscription: config.Subscription{
+				Workflow: "workflow-b",
+			},
+		},
+		{
+			Repository: "org/repo-a",
+			Subscription: config.Subscription{
+				Workflow: "workflow-a",
+			},
+		},
+	}
+
+	discoverer := &mockSubscriptionDiscoverer{
+		findSubscribersFunc: func(artifact, eventType string) ([]interfaces.SubscriptionMatch, error) {
+			return testMatches, nil
+		},
+	}
+
+	t.Run("NewOrchestrator uses default config", func(t *testing.T) {
+		orchestrator, err := NewOrchestrator(discoverer)
+		if err != nil {
+			t.Fatalf("Failed to create orchestrator: %v", err)
+		}
+
+		ctx := context.Background()
+		matches, err := orchestrator.DiscoverSubscriptions(ctx, "test/lib:lib", "build_completed")
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		// Should return matches in original order (no prioritization by default)
+		expectedOrder := []string{
+			"org/repo-z:workflow-b",
+			"org/repo-a:workflow-a",
+		}
+
+		if len(matches) != len(expectedOrder) {
+			t.Fatalf("Expected %d matches, got %d", len(expectedOrder), len(matches))
+		}
+
+		for i, match := range matches {
+			actual := fmt.Sprintf("%s:%s", match.Repository, match.Subscription.Workflow)
+			if actual != expectedOrder[i] {
+				t.Errorf("Expected match %d to be '%s', got '%s'", i, expectedOrder[i], actual)
+			}
+		}
+	})
+
+	t.Run("default config has all features disabled", func(t *testing.T) {
+		orchestrator, err := NewOrchestrator(discoverer)
+		if err != nil {
+			t.Fatalf("Failed to create orchestrator: %v", err)
+		}
+
+		config := orchestrator.config
+		if config.EnableFiltering {
+			t.Error("Expected EnableFiltering to be false by default")
+		}
+		if config.EnablePrioritization {
+			t.Error("Expected EnablePrioritization to be false by default")
+		}
+		if config.FilterDisabledSubscriptions {
+			t.Error("Expected FilterDisabledSubscriptions to be false by default")
+		}
+	})
+}
+
 // TestOrchestrator_Integration_WithDiscoveryManager tests that the orchestrator
 // works correctly with the real DiscoveryManager component, demonstrating
 // end-to-end integration without requiring external dependencies.

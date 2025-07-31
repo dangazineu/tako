@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -795,4 +796,141 @@ func normalizeValue(value interface{}) (interface{}, error) {
 			return fmt.Sprintf("%v", v), nil
 		}
 	}
+}
+
+// GenerateSubscriptionFingerprint generates a deterministic fingerprint for a subscription match
+// to enable diamond dependency resolution with "first-wins" rule.
+//
+// This function creates consistent identifiers for subscription matches that include the same
+// filters, inputs, workflow, and target repository. It extends the existing event fingerprinting
+// system to support subscription-level deduplication.
+//
+// Fingerprint Generation Logic:
+//   - Combines subscription details with event fingerprint
+//   - Normalizes inputs by sorting keys and canonicalizing CEL expressions
+//   - Includes: repository, workflow, filters, inputs, event fingerprint
+//   - Produces SHA256 hash for deterministic identification
+//
+// The normalization ensures that semantically identical subscriptions produce the same
+// fingerprint regardless of:
+//   - Order of map keys in inputs
+//   - Whitespace variations in CEL expressions
+//   - Non-significant formatting differences
+//
+// Usage Example:
+//
+//	subscriber := SubscriptionMatch{
+//	    Repository: "myorg/myrepo",
+//	    Subscription: config.Subscription{
+//	        Workflow: "build.yml",
+//	        Filters: []string{"event.payload.version != null"},
+//	        Inputs: map[string]string{"version": "{{ .payload.version }}"},
+//	    },
+//	}
+//	fingerprint, _ := GenerateSubscriptionFingerprint(subscriber, eventFingerprint)
+//
+// Returns the subscription fingerprint string or an error if fingerprint generation fails.
+func GenerateSubscriptionFingerprint(subscriber SubscriptionMatch, eventFingerprint string) (string, error) {
+	// Normalize inputs for consistent hashing
+	normalizedInputs := normalizeInputs(subscriber.Subscription.Inputs)
+
+	// Normalize CEL filters for consistent hashing
+	normalizedFilters := normalizeFilters(subscriber.Subscription.Filters)
+
+	// Create composite subscription descriptor
+	// NOTE: We deliberately exclude repository from the fingerprint to enable
+	// diamond dependency detection. Identical subscriptions from different
+	// repositories should produce the same fingerprint.
+	composite := map[string]interface{}{
+		"workflow":          subscriber.Subscription.Workflow,
+		"filters":           normalizedFilters,
+		"inputs":            normalizedInputs,
+		"event_fingerprint": eventFingerprint,
+	}
+
+	// Convert to canonical JSON for hashing
+	data, err := json.Marshal(composite)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal subscription for hashing: %v", err)
+	}
+
+	// Generate SHA256 hash
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:]), nil
+}
+
+// normalizeInputs normalizes subscription inputs for consistent fingerprinting.
+// This ensures that inputs with the same semantic meaning produce identical hashes.
+func normalizeInputs(inputs map[string]string) map[string]string {
+	if inputs == nil {
+		return nil
+	}
+
+	normalized := make(map[string]string)
+
+	// Get sorted keys for deterministic ordering
+	keys := make([]string, 0, len(inputs))
+	for k := range inputs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// Process each input in sorted order with CEL normalization
+	for _, key := range keys {
+		value := inputs[key]
+		normalizedValue := normalizeCELExpression(value)
+		normalized[key] = normalizedValue
+	}
+
+	return normalized
+}
+
+// normalizeFilters normalizes CEL filter expressions for consistent fingerprinting.
+func normalizeFilters(filters []string) []string {
+	if filters == nil {
+		return nil
+	}
+
+	normalized := make([]string, len(filters))
+	for i, filter := range filters {
+		normalizedFilter := normalizeCELExpression(filter)
+		normalized[i] = normalizedFilter
+	}
+
+	// Sort normalized filters for deterministic ordering
+	sort.Strings(normalized)
+	return normalized
+}
+
+// normalizeCELExpression normalizes a CEL expression by removing insignificant whitespace
+// and ensuring consistent formatting. This prevents semantically identical expressions
+// from producing different fingerprints due to formatting differences.
+func normalizeCELExpression(expr string) string {
+	if expr == "" {
+		return ""
+	}
+
+	// Basic normalization: trim whitespace and normalize spaces
+	normalized := strings.TrimSpace(expr)
+
+	// Replace multiple spaces/tabs with single spaces
+	normalized = regexp.MustCompile(`\s+`).ReplaceAllString(normalized, " ")
+
+	// Remove spaces around template braces {{ }}
+	normalized = regexp.MustCompile(`\{\{\s*`).ReplaceAllString(normalized, "{{")
+	normalized = regexp.MustCompile(`\s*\}\}`).ReplaceAllString(normalized, "}}")
+
+	// Remove spaces around comparison operators for consistency
+	normalized = regexp.MustCompile(`\s*([=!<>]+)\s*`).ReplaceAllString(normalized, "$1")
+
+	// Remove spaces around logical operators
+	normalized = regexp.MustCompile(`\s*(&&|\|\|)\s*`).ReplaceAllString(normalized, "$1")
+
+	// Remove spaces around parentheses and brackets
+	normalized = regexp.MustCompile(`\s*([()[\]])\s*`).ReplaceAllString(normalized, "$1")
+
+	// Remove spaces around dots for property access
+	normalized = regexp.MustCompile(`\s*\.\s*`).ReplaceAllString(normalized, ".")
+
+	return normalized
 }
