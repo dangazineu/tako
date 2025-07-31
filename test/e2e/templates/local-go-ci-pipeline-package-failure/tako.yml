@@ -31,4 +31,5 @@ workflows:
         run: |
           echo "Building Docker image my-app:{{ .Inputs.image_tag }}..."
           docker build . -t my-app:{{ .Inputs.image_tag }}
-          echo "Image built successfully."
+          # Force failure for testing
+          exit 1
