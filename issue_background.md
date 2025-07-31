@@ -1,107 +1,127 @@
-# Issue #133 Background Research
+# Issue #134: Implement Idempotency for Fan-Out State - Background Research
 
-## Issue Summary
-**Goal:** Enable isolated child workflow execution for the `tako/fan-out@v1` step to address the current deadlock issue where child workflows are only simulated.
+## Issue Context
 
-## Current Architecture Analysis
+### Current Issue (#134)
+- **Goal**: Prevent duplicate workflow executions by introducing persistent state management
+- **Parent Issue**: #106 - Implement subscription-based workflow triggering
+- **Depends on**: #133 - Enable isolated child workflow execution (CLOSED)
 
-### Current Flow
-1. `Runner.executeFanOutStep()` receives a fan-out step
-2. Uses `Orchestrator.DiscoverSubscriptions()` to find child repositories
-3. Creates `FanOutExecutor` and calls `ExecuteWithSubscriptions()`
-4. `triggerSubscribersWithState()` currently calls `simulateWorkflowTrigger()` - **THIS IS THE GAP**
-5. `simulateWorkflowTrigger()` only prints simulation messages and sleeps 10ms
+### Key Requirements
+1. A workflow is not triggered twice for the same event
+2. State is persisted and reloaded correctly
+3. Unit and integration tests for idempotency pass
 
-### Key Components
-- **Runner** (`internal/engine/runner.go`): Main workflow executor
-- **FanOutExecutor** (`internal/engine/fanout.go`): Handles fan-out operations  
-- **Orchestrator** (`internal/engine/orchestrator.go`): Coordinates subscription discovery
-- **DiscoveryManager**: Finds repositories with subscriptions
+## Existing Implementation Analysis
 
-### Current Limitations
-- Child workflows are **SIMULATED ONLY** (line 517 in fanout.go)
-- No actual isolated execution environment for children
-- The comment states: "This is a placeholder for Phase 2 - actual workflow triggering will be implemented in later phases"
+### Current State Management (`fanout_state.go`)
+The file already exists with comprehensive state management functionality:
 
-## Parent Issue Context (#106)
-- Implementing subscription-based workflow triggering system
-- Evaluates event filters and maps events to workflows in child repositories
-- Features: lazy evaluation, at-least-once delivery, diamond dependency resolution
-- **Status:** This is the actual execution implementation phase
+1. **Core Components**:
+   - `FanOutState`: Tracks a fan-out operation and its child workflows
+   - `ChildWorkflow`: Represents individual child workflow state
+   - `FanOutStateManager`: Manages persistent state storage
 
-## Dependency Analysis (#132)
-- **CLOSED** - Basic fan-out step execution is wired to discovery mechanism
-- Fan-out step correctly logs discovered subscriptions
-- Current PR #138 successfully wires the discovery mechanism
+2. **State Persistence**:
+   - States are saved to JSON files in `<cacheDir>/fanout-states/`
+   - States are loaded on startup from disk
+   - Each fan-out operation gets a unique ID: `fanout-<timestamp>-<eventType>`
 
-## Related Previous Work
-- PR #127: Implemented `tako/fan-out@v1` semantic step - **MERGED**
-- PR #128: Subscription-based workflow triggering - **CLOSED** 
-- PR #126: Fan-out orchestration implementation - **CLOSED**
-- Design doc #116: Tako Exec Workflow Engine - **MERGED**
+3. **Child Workflow Tracking**:
+   - Children are identified by: `<repository>-<workflow>`
+   - Status transitions: pending → running → completed/failed/timed_out
+   - Tracks inputs, run IDs, and error messages
 
-## Architecture Context
+### Current Fan-Out Execution Flow (`fanout.go`)
 
-### Integration Points
-1. **Runner.executeBuiltinStep()** (line 522) - Entry point for fan-out
-2. **FanOutExecutor.triggerSubscribersWithState()** (line 452) - Where child execution happens
-3. **simulateWorkflowTrigger()** (line 517) - **TARGET FOR REPLACEMENT**
+1. **Fan-Out ID Generation**:
+   ```go
+   fanOutID := fmt.Sprintf("fanout-%d-%s", startTime.Unix(), params.EventType)
+   ```
+   - Based on timestamp and event type
+   - Not truly unique for duplicate events
 
-### Current Testing
-- All tests passing (baseline coverage: 69.5%)
-- E2E tests complete in 155.76s
-- Integration tests verify discovery and simulation
+2. **Workflow Triggering**:
+   - In `triggerSubscribersWithState`, child workflows are added to state before execution
+   - Each child is executed in a goroutine with concurrency control
+   - State is updated after each child completes
 
-### Key Requirements from Issue #133
-1. **ExecuteChildWorkflow** method on `engine.Runner`
-2. Create **new, separate Runner instance** for each child
-3. **Isolated context** for each child workflow
-4. Called by `FanOutExecutor` for each discovered subscription
-5. End-to-end tests to verify functionality
+3. **Missing Idempotency**:
+   - No check for duplicate event processing
+   - Same event can trigger same workflows multiple times
+   - No event deduplication mechanism
 
-## Deadlock Issue Analysis
-The current simulation approach avoids actual execution, preventing:
-- Real isolation testing
-- Actual workflow execution validation  
-- Performance and concurrency issue discovery
-- Integration with real repository states
+## Identified Gaps
 
-## Implementation Strategy
-The gap is clear: replace `simulateWorkflowTrigger()` with actual child workflow execution through a new `ExecuteChildWorkflow` method on the Runner.
+### 1. Event Identification
+- Current fan-out ID is timestamp-based, not event-based
+- Need a deterministic way to identify duplicate events
+- Should consider: event type, source, and payload
 
-## Architectural Decisions (Resolved with Gemini)
+### 2. Duplicate Detection
+- No mechanism to check if an event has been processed before
+- Need to query existing states before creating new ones
+- Should handle concurrent duplicate events
 
-### 1. Isolation Strategy: ✅ DECIDED
-- **Create completely new Runner instances** for each child workflow
-- **Separate workspace roots**: `<parent_workspace>/children/<child_run_id>`
-- **Shared cache directory** to avoid re-downloading repositories
-- **Factory pattern**: Create `ChildRunnerFactory` for clean instantiation
+### 3. State Lookup
+- Current implementation only retrieves states by exact ID
+- Need ability to find states by event characteristics
+- Should support efficient lookups for idempotency checks
 
-### 2. Integration Point: ✅ DECIDED  
-- **Dependency injection approach**: FanOutExecutor receives WorkflowRunner interface
-- **No ExecuteChildWorkflow on Runner**: Keep Runner focused on single workflow execution
-- **Use existing FanOutStepExecutor** in `internal/steps/fanout.go` which already has the right interface
+## Related Code Patterns
 
-### 3. Context Isolation: ✅ DECIDED
-- **Separate workspace directories**: Essential for file-level isolation
-- **Independent state management**: Each child gets own ExecutionState 
-- **Isolated locks**: Each child gets own LockManager directory
-- **Shared template engine & container manager**: Thread-safe, can be shared
+### Event Model (`event_model.go`)
+- Events have an ID field that could be used for deduplication
+- Events include type, source, and payload
+- Could generate deterministic IDs from event content
 
-### 4. Error Handling: ✅ DECIDED
-- **Fail parent on any child failure**: Fan-out step is atomic unit of work
-- **Collect all errors**: Modify FanOutStepResult to include detailed error list
-- **No failure threshold initially**: Start simple, add later if needed
-- **Cleanup with defer blocks**: Ensure child workspaces are cleaned up
+### Existing Tests
+- Good test coverage for basic state operations
+- Tests for child workflow status updates
+- Tests for persistence and retrieval
+- No tests for idempotency or duplicate handling
 
-### 5. Concurrency: ✅ DECIDED
-- **Goroutines with semaphore**: Control concurrency limit via semaphore
-- **Workspace path isolation**: Key to preventing resource conflicts  
-- **Concurrent cache access**: Handled by existing locking mechanisms
+## Previous Work Analysis
 
-## Implementation Plan Summary
-1. Create `ChildRunnerFactory` with workspace isolation
-2. Create `ChildWorkflowExecutor` implementing `interfaces.WorkflowRunner`
-3. Wire dependency injection through existing `FanOutStepExecutor`
-4. Replace `simulateWorkflowTrigger()` with actual child workflow execution
-5. Implement proper error collection and cleanup
+### Issue #133 (Closed)
+- Implemented isolated child workflow execution
+- Added `ExecuteChildWorkflow` method to prevent deadlocks
+- Establishes pattern for child workflow management
+
+### Issue #106 (Parent)
+- Requires at-least-once delivery with idempotency
+- Mentions idempotency checking explicitly
+- Part of larger subscription-based triggering system
+
+## Design Considerations
+
+### 1. Event Fingerprinting
+- Generate deterministic ID from event properties
+- Consider: event type, source repository, key payload fields
+- Handle event variations that should be considered duplicates
+
+### 2. State Querying
+- Add methods to find states by event properties
+- Index states efficiently for lookup
+- Handle state cleanup for old events
+
+### 3. Concurrent Safety
+- Multiple fan-out executors might process same event
+- Need atomic check-and-create operation
+- Consider distributed locking if needed
+
+### 4. Backward Compatibility
+- Existing states without event fingerprints
+- Migration path for existing deployments
+- Maintain current API contracts
+
+## Implementation Approach
+
+Based on the research, the implementation should:
+
+1. Add event fingerprinting to generate deterministic IDs
+2. Implement duplicate detection before creating new states
+3. Add state lookup methods for idempotency checks
+4. Ensure thread-safe operations for concurrent events
+5. Add comprehensive tests for idempotency scenarios
+6. Maintain backward compatibility with existing states
