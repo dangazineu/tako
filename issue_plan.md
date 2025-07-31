@@ -1,262 +1,176 @@
-# Issue #135 Implementation Plan
+# Issue #144 Implementation Plan - Local Go CI Pipeline E2E Test
 
 ## Overview
-Implement advanced subscription features including CEL caching, enhanced schema compatibility, and diamond dependency resolution with "first-wins" rule.
+Implement a comprehensive E2E test scenario demonstrating a real-world Local Go CI Pipeline. This involves creating test templates, adding test cases to the E2E framework, and ensuring proper validation of containerized and native execution steps.
 
-## Phase-by-Phase Implementation Plan
+## Phase 1: Create Test Template Infrastructure
+**Goal**: Set up the basic file structure and content for the test scenario
+**Deliverables**: Template files that match the exact issue specification
 
-**Updated based on Gemini review - Key improvements:**
-- Combined phases 3&4 for better cohesion (fingerprinting + diamond resolution)
-- Added explicit sorting requirement for deterministic first-wins behavior  
-- Added input normalization to prevent fingerprint brittleness
-- Added complexity reduction through refactoring requirements
-- Enhanced testing strategy with "near diamond" and E2E test scenarios
+### Tasks:
+1. Create template directory structure:
+   - `test/e2e/templates/local-go-ci-pipeline/`
+   
+2. Create `main.go` (exact match to issue spec):
+   ```go
+   package main
+   
+   import (
+       "fmt"
+       "net/http"
+   )
+   
+   func handler(w http.ResponseWriter, r *http.Request) {
+       fmt.Fprintf(w, "Hello, Tako\!")
+   }
+   
+   func main() {
+       http.HandleFunc("/", handler)
+       http.ListenAndServe(":8080", nil)
+   }
+   ```
 
-### Phase 1: CEL Expression Caching Infrastructure
-**Goal**: Add in-memory CEL expression caching to SubscriptionEvaluator  
-**Status**: ✅ Completed  
-**Health Check**: All existing tests pass + caching unit tests
+3. Create `Dockerfile` (exact match to issue spec):
+   ```dockerfile
+   FROM alpine:latest
+   WORKDIR /app
+   COPY my-app .
+   CMD ["./my-app"]
+   ```
 
-#### Implementation Details
-- Add `celCache` field to `SubscriptionEvaluator` struct using LRU cache
-- Implement cache key generation based on CEL expression string
-- Add cache hit/miss logic in `evaluateCELFilter` method
-- Add cache statistics and optional debugging
-- Ensure thread safety for concurrent access
+4. Create `tako.yml` (exact match to issue spec with template support):
+   ```yaml
+   version: v1
+   workflows:
+     ci-pipeline:
+       inputs:
+         image_tag:
+           type: string
+           description: "The tag for the final Docker image"
+           default: "latest"
+       steps:
+         - id: lint
+           name: "Run Go Linter"
+           run: "go vet ./..."
+         - id: test
+           name: "Run Unit Tests"
+           run: "go test -v ./..."
+         - id: build
+           name: "Build for Linux"
+           image: "golang:1.22-alpine"
+           script: |
+             echo "Building Go binary for linux/amd64..."
+             GOOS=linux GOARCH=amd64 go build -o my-app main.go
+             echo "Build complete."
+           produces:
+             artifacts:
+               - path: ./my-app
+         - id: package
+           name: "Package Docker Image"
+           run: |
+             echo "Building Docker image my-app:{{ .Inputs.image_tag }}..."
+             docker build . -t my-app:{{ .Inputs.image_tag }}
+             echo "Image built successfully."
+   ```
 
-#### Files to Modify
-- `internal/engine/subscription.go` - Add caching to SubscriptionEvaluator
-- `internal/engine/subscription_test.go` - Add unit tests for caching behavior
+**Test Requirements**: Files created, basic structure validated
 
-#### Testing Requirements
-- Unit tests for cache hit/miss scenarios
-- Performance benchmarks comparing cached vs uncached evaluation
-- Memory usage tests to ensure reasonable cache size limits
-- Thread safety tests for concurrent CEL evaluations
+## Phase 2: Add Primary Success Test Case
+**Goal**: Implement the main positive test case in the E2E framework
+**Deliverables**: Working test case that validates full pipeline execution
 
-#### Success Criteria
-- All existing subscription tests pass unchanged
-- New caching tests demonstrate performance improvement
-- Memory usage remains bounded under normal workloads
+### Tasks:
+1. Add new test case to `test/e2e/get_test_cases.go`:
+   - Name: `local-go-ci-pipeline-success`
+   - Environment: `local-go-ci-pipeline`
+   - Full pipeline execution with verification
 
----
+2. Test steps implementation:
+   - Execute `tako exec ci-pipeline --inputs.image_tag=v1.0.0`
+   - Verify output contains expected workflow steps
+   - Verify Docker image creation with `docker image inspect`
+   - Verify image functionality with `docker run`
+   - Cleanup with `docker rmi`
 
-### Phase 2: Enhanced Schema Compatibility
-**Goal**: Add support for compound version ranges  
-**Status**: ✅ Completed  
-**Health Check**: All existing tests pass + extended range tests
+3. Environment configuration (if needed):
+   - Add to `test/e2e/environments.go` if new environment type required
 
-#### Implementation Details
-- Extend `evaluateVersionRange` function to support compound ranges
-- Add parsing for ranges like ">=1.0.0 <2.0.0", ">=1.0.0 <=2.0.0"
-- Improve error messages for invalid version specifications
-- Maintain backward compatibility with existing single range formats
+**Test Requirements**: Test passes locally, validates all pipeline steps
 
-#### Files to Modify
-- `internal/engine/subscription.go` - Enhance `evaluateVersionRange`
-- `internal/engine/subscription_test.go` - Add compound range test cases
+## Phase 3: Add Negative Test Cases  
+**Goal**: Ensure error handling works correctly across different failure scenarios
+**Deliverables**: Three additional test cases covering different failure modes
 
-#### Testing Requirements
-- Unit tests for all new compound range formats
-- Edge case testing (boundary conditions, invalid ranges)
-- Backward compatibility verification with existing configurations
-- Error message clarity testing
+### Tasks:
+1. Create `local-go-ci-pipeline-lint-failure`:
+   - Modify template to include lint errors
+   - Assert pipeline fails at lint step
+   - Verify appropriate error messages
 
-#### Success Criteria
-- All existing version range tests pass unchanged
-- New compound ranges work correctly according to semver rules
-- Clear, actionable error messages for invalid ranges
+2. Create `local-go-ci-pipeline-build-failure`:
+   - Modify template to include syntax errors  
+   - Assert pipeline fails at build step
+   - Verify containerized build failure handling
 
----
+3. Create `local-go-ci-pipeline-package-failure`:
+   - Create invalid Dockerfile scenario
+   - Assert pipeline fails at package step
+   - Verify Docker build failure handling
 
-### Phase 3: Diamond Dependency Resolution (Combined)
-**Goal**: Implement subscription fingerprinting and "first-wins" logic for duplicate subscriptions  
-**Status**: ⏳ Pending  
-**Health Check**: All existing tests pass + diamond resolution tests
+**Test Requirements**: All negative cases fail appropriately with expected error messages
 
-#### Implementation Details
-**Subscription Fingerprinting:**
-- Create `GenerateSubscriptionFingerprint` function for subscription-specific hashing
-- Include subscription filters, inputs, workflow, and target repository in fingerprint
-- **Normalize inputs**: Canonicalize CEL expressions and input values before hashing
-- Ensure deterministic ordering of subscription components in hash
-- Maintain backward compatibility with existing event fingerprinting
+## Phase 4: Integration Testing
+**Goal**: Ensure all test cases work properly in both local and remote modes
+**Deliverables**: Fully tested implementation ready for production
 
-**Diamond Resolution Logic:**
-- Refactor `triggerSubscribersWithState` into smaller helper functions
-- Create `resolveDiamondDependencies` function for deduplication logic
-- **Add explicit sorting** of subscribers by repository path for deterministic first-wins
-- Use subscription fingerprinting to identify identical subscriptions
-- Add detailed logging for skipped duplicate subscriptions with clear reasoning
-- Integrate with existing idempotency infrastructure
-- Update result reporting to include skipped subscription counts
+### Tasks:
+1. Run local E2E tests:
+   - `go test -v -tags=e2e --local ./...`
+   - Fix any issues found
 
-#### Files to Modify
-- `internal/engine/fanout_state.go` - Add subscription fingerprinting functions
-- `internal/engine/fanout.go` - Enhance and refactor `triggerSubscribersWithState`
-- `internal/engine/fanout_state_test.go` - Add subscription fingerprinting tests
-- `internal/engine/fanout_test.go` - Add diamond dependency test cases
+2. Run remote E2E tests (if applicable):
+   - `go test -v -tags=e2e --remote ./...`
+   - Address remote-specific issues
 
-#### Testing Requirements
-**Fingerprinting Tests:**
-- Unit tests for subscription fingerprint generation with normalization
-- Consistency tests (same subscription = same fingerprint)
-- Uniqueness tests (different subscriptions = different fingerprints)
-- "Near diamond" tests: almost identical subscriptions should NOT deduplicate
-- Fingerprint brittleness tests: whitespace/formatting changes should normalize
+3. Validate test coverage and assertions:
+   - Ensure all specified acceptance criteria are met
+   - Verify test output matches expected patterns
 
-**Diamond Resolution Tests:**
-- Unit tests for duplicate subscription detection
-- Integration tests with multiple repositories subscribing to same event
-- Test various diamond dependency scenarios (2, 3, 4+ duplicates)
-- Verify first-wins ordering is deterministic and stable
-- Test that explicit sorting produces consistent results
-- Test detailed logging content and accuracy
-- Test interaction with existing idempotency features
+**Test Requirements**: All tests pass in both local and remote modes
 
-#### Success Criteria
-- Subscription fingerprints are deterministic, unique, and normalized
-- Duplicate subscriptions are correctly identified and deduplicated
-- First-wins ordering is stable and deterministic (sorted by repository path)
-- Comprehensive, clear logging explains why subscriptions were skipped
-- Existing event fingerprinting and fan-out functionality unchanged
-- Reduced cyclomatic complexity through refactoring
+## Phase 5: Documentation and Cleanup
+**Goal**: Finalize implementation with proper documentation
+**Deliverables**: Clean, documented, production-ready code
 
----
+### Tasks:
+1. Update coverage tracking:
+   - Run coverage tests
+   - Update `issue_coverage.md`
+   - Ensure no significant coverage drops
 
-### Phase 4: Enhanced Orchestrator Prioritization
-**Goal**: Add filtering and prioritization capabilities to Orchestrator  
-**Status**: ⏳ Pending  
-**Health Check**: All existing tests pass + orchestrator enhancement tests
+2. Code quality validation:
+   - Run `go fmt ./...`
+   - Run linters: `go test -v .`  
+   - Fix any issues
 
-#### Implementation Details
-- Add subscription filtering methods to Orchestrator
-- Implement priority-based sorting for subscription matches
-- Add configuration options for orchestrator behavior
-- Maintain backward compatibility with simple pass-through behavior
-- Consider adding debug flag (`--tako-debug-subscriptions`) for detailed diagnostics
+3. Documentation updates:
+   - Update README.md if needed (likely not required for test-only changes)
+   - Ensure code comments are appropriate
 
-#### Files to Modify
-- `internal/engine/orchestrator.go` - Add filtering and prioritization logic
-- `internal/engine/orchestrator_test.go` - Add enhanced orchestrator tests
+**Test Requirements**: All quality checks pass, coverage maintained
 
-#### Testing Requirements
-- Unit tests for subscription filtering logic
-- Priority sorting tests with various subscription configurations
-- Integration tests with FanOutExecutor
-- Performance tests for large subscription sets
-- Backward compatibility verification
-
-#### Success Criteria
-- Orchestrator provides valuable filtering and prioritization
-- Performance remains acceptable for typical workloads
-- No breaking changes to existing Orchestrator interface
-
----
-
-### Phase 5: Integration Testing and Performance Optimization
-**Goal**: End-to-end testing and performance tuning  
-**Status**: ✅ Completed  
-**Health Check**: All tests pass + comprehensive integration tests
-
-#### Implementation Details
-- Create comprehensive integration test scenarios
-- Test complete diamond dependency workflows end-to-end
-- Performance testing with large subscription sets
-- Memory usage optimization and monitoring
-- Cache tuning based on real-world usage patterns
-- Load testing with concurrent subscription processing
-
-#### Files to Modify
-- Create new integration test files
-- Update existing test files with additional scenarios
-- Add performance benchmarking utilities
-
-#### Testing Requirements
-**E2E Integration Tests:**
-- Create dedicated E2E test in `test/e2e/templates/` for multi-repository diamond dependency
-- End-to-end diamond dependency resolution with 3-4 repositories
-- Test recursive fan-out scenarios (subscribers that themselves fan out)
-- Error condition testing: fingerprint generation failures, invalid configurations
-
-**Performance and Load Testing:**
-- Performance benchmarks for CEL caching effectiveness using `go test -bench`
-- Memory usage measurement with `testing.B.ReportAllocs()` to verify <10MB target
-- Memory leak detection and resource cleanup verification
-- Concurrent access testing for thread safety
-- Large-scale subscription processing tests
-
-#### Success Criteria
-- All advanced features work correctly in realistic scenarios
-- Performance improvements are measurable and significant
-- No memory leaks or resource issues under load
-- System remains stable under concurrent access
-
----
+## Success Criteria
+- [ ] Primary test case executes full CI pipeline successfully
+- [ ] Docker image `my-app:v1.0.0` is created and functional
+- [ ] Negative test cases fail appropriately with clear error messages
+- [ ] Tests work in both local and remote E2E modes
+- [ ] No test coverage regression
+- [ ] All linter and formatter checks pass
+- [ ] Code follows existing project patterns and conventions
 
 ## Risk Mitigation
-
-### Technical Risks
-1. **CEL Caching Memory Usage**: Implement LRU eviction and size limits
-2. **Thread Safety**: Use proper synchronization for concurrent access
-3. **Performance Regression**: Maintain benchmarks and performance tests
-4. **Backward Compatibility**: Comprehensive regression testing
-
-### Integration Risks
-1. **State Management Conflicts**: Careful integration with existing idempotency
-2. **Discovery Order Dependencies**: **CRITICAL** - Ensure deterministic first-wins behavior through explicit sorting
-3. **Configuration Validation**: Clear error messages for invalid configurations
-4. **Fingerprint Brittleness**: **NEW** - Normalize CEL expressions and inputs to avoid semantic false-positives
-5. **Complexity Growth**: **NEW** - Refactor `triggerSubscribersWithState` to maintain readability
-
-## Success Metrics
-
-### Functional Metrics
-- ✅ CEL filters are evaluated correctly
-- ✅ Schema versions are validated correctly  
-- ✅ Diamond dependencies are resolved with first-wins rule
-- ✅ All existing functionality remains unchanged
-
-### Performance Metrics
-- 🎯 CEL evaluation performance improvement (target: 50% faster for repeated expressions, measured via `go test -bench`)
-- 🎯 Memory usage remains bounded (target: <10MB for typical workloads, measured via `testing.B.ReportAllocs()`)
-- 🎯 No measurable performance regression in existing functionality
-
-### Quality Metrics
-- 🎯 Test coverage maintained at 76%+ overall
-- 🎯 All linter checks pass
-- 🎯 No functional regressions in existing features
-- 🎯 Comprehensive integration test coverage for diamond scenarios
-
-## Dependencies and Assumptions
-
-### Dependencies
-- Existing idempotency infrastructure from issue #134 ✅
-- SubscriptionEvaluator and Orchestrator foundations ✅
-- Complete configuration schema support ✅
-
-### Assumptions
-- Discovery order is deterministic and consistent
-- CEL expressions in production are reasonable in complexity
-- Memory usage for caching is acceptable for CLI workloads
-- Diamond dependencies are relatively uncommon edge cases
-
-## Implementation Notes
-
-### Development Approach
-- Each phase should leave the codebase in a healthy, compilable state
-- Tests must pass after each phase completion
-- Commit granularly with clear, focused changes
-- Maintain backward compatibility throughout
-
-### Code Quality Standards
-- Follow existing code style and patterns
-- Add comprehensive documentation for new public interfaces
-- Use existing error handling and logging patterns
-- Maintain thread safety where required
-
-### Testing Strategy  
-- Unit tests for all new logic (Phase 1-5)
-- Integration tests for complete scenarios (Phase 6)
-- Performance benchmarks for optimization validation
-- Regression tests to prevent backsliding
+- **Docker availability**: Tests will skip gracefully if Docker is not available
+- **Container pull failures**: Use common, stable base images (golang:1.22-alpine, alpine:latest)
+- **Test isolation**: Each test case cleans up its Docker images
+- **Environment consistency**: Template-based approach ensures reproducible test environments
+EOF < /dev/null
