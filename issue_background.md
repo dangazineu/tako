@@ -125,3 +125,94 @@ Based on the research, the implementation should:
 4. Ensure thread-safe operations for concurrent events
 5. Add comprehensive tests for idempotency scenarios
 6. Maintain backward compatibility with existing states
+
+## Questions and Uncertainties
+
+### 1. Event Fingerprinting Strategy
+- **Question**: What fields should be included in the event fingerprint to ensure uniqueness?
+- **Options**:
+  - Option A: Hash of (event_type + source + full_payload)
+  - Option B: Hash of (event_type + source + event_id)
+  - Option C: Use existing event.ID if available, fallback to hash
+- **Concern**: Different payload representations of same logical event
+
+### 2. State Storage and Lookup
+- **Question**: Should we maintain an index file for efficient lookups?
+- **Current**: States are stored as individual JSON files
+- **Options**:
+  - Option A: Add an index file mapping event fingerprints to state files
+  - Option B: Scan all files on startup and maintain in-memory index
+  - Option C: Use file naming convention with event fingerprint
+- **Concern**: Performance impact of scanning many state files
+
+### 3. Concurrent Event Handling
+- **Question**: How to handle race conditions when multiple processes receive the same event?
+- **Options**:
+  - Option A: File-based locking using lock files
+  - Option B: Atomic file operations with rename
+  - Option C: Accept occasional duplicates and handle at child level
+- **Concern**: Distributed systems may have clock skew
+
+### 4. Idempotency Window
+- **Question**: How long should we remember processed events?
+- **Current**: CleanupCompletedStates can remove old states
+- **Options**:
+  - Option A: Keep all states until explicitly cleaned
+  - Option B: Auto-cleanup after configurable duration (e.g., 24 hours)
+  - Option C: Keep last N events per event type
+- **Concern**: Storage growth vs duplicate protection
+
+### 5. Backward Compatibility
+- **Question**: How to handle existing states without event fingerprints?
+- **Options**:
+  - Option A: Ignore old states for idempotency checks
+  - Option B: Generate fingerprints for existing states on load
+  - Option C: Version the state format and migrate on access
+- **Concern**: Existing deployments should not break
+
+### 6. API Design
+- **Question**: Should idempotency be opt-in or always enabled?
+- **Options**:
+  - Option A: Always check for duplicates (breaking change)
+  - Option B: Add flag to fan-out parameters
+  - Option C: Make it configurable at executor level
+- **Concern**: Some use cases might want to allow duplicates
+
+## Decisions (Based on Gemini's Recommendations)
+
+### 1. Event Fingerprinting Strategy
+**Decision**: Use existing event.ID if available, fallback to hash
+- Primary: Use `event.ID` when present (from EnhancedEvent.Metadata.ID)
+- Fallback: SHA256 hash of (event_type + source + normalized_payload)
+- Rationale: Most reliable and backward compatible approach
+
+### 2. State Storage and Lookup
+**Decision**: Use file naming convention with event fingerprint
+- Format: `fanout-<fingerprint>.json` for idempotent states
+- Keep existing: `fanout-<timestamp>-<eventType>.json` for non-idempotent
+- Rationale: Simple, performant, no separate index needed
+
+### 3. Concurrent Event Handling
+**Decision**: Atomic file operations with rename
+- Write to temp file: `fanout-<fingerprint>.tmp.<random>`
+- Atomic rename to: `fanout-<fingerprint>.json`
+- Rationale: Standard pattern for distributed locking on shared filesystem
+
+### 4. Idempotency Window
+**Decision**: Auto-cleanup after configurable duration
+- Default: 24 hours retention for completed states
+- Configurable via FanOutStateManager
+- Extend existing CleanupCompletedStates method
+- Rationale: Balances storage growth with duplicate protection
+
+### 5. Backward Compatibility
+**Decision**: Ignore old states for idempotency checks
+- New idempotency only applies to new events
+- Old states remain functional but not checked
+- Rationale: Safest approach with zero migration risk
+
+### 6. API Design
+**Decision**: Make it configurable at executor level
+- Add `EnableIdempotency` field to FanOutExecutor (default: false)
+- Can be enabled via configuration on initialization
+- Rationale: Non-breaking change with opt-in adoption
