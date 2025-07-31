@@ -3,9 +3,10 @@ package e2e
 import (
 	"embed"
 	"fmt"
-	"github.com/google/go-github/v63/github"
 	"os"
 	"path/filepath"
+
+	"github.com/google/go-github/v63/github"
 )
 
 //go:embed all:templates

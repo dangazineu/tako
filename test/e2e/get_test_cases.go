@@ -387,5 +387,76 @@ func GetTestCases() []TestCase {
 				},
 			},
 		},
+		{
+			Name:        "local-go-ci-pipeline-success",
+			Environment: "local-go-ci-pipeline",
+			ReadOnly:    false,
+			Test: []Step{
+				{
+					Name:    "tako exec ci-pipeline with image tag",
+					Command: "tako",
+					Args:    []string{"exec", "ci-pipeline", "--inputs.image_tag=v1.0.0"},
+					AssertOutputContains: []string{
+						"Executing workflow 'ci-pipeline'",
+						"✓ lint",
+						"✓ test",
+						"✓ build",
+						"✓ package",
+						"Success: true",
+					},
+				},
+			},
+		},
+		{
+			Name:        "local-go-ci-pipeline-lint-failure",
+			Environment: "local-go-ci-pipeline-lint-failure",
+			ReadOnly:    true,
+			Test: []Step{
+				{
+					Name:             "tako exec ci-pipeline should fail at lint step",
+					Command:          "tako",
+					Args:             []string{"exec", "ci-pipeline", "--inputs.image_tag=v1.0.0"},
+					ExpectedExitCode: 1,
+					AssertOutputContains: []string{
+						"Executing workflow 'ci-pipeline'",
+						"execution failed: step 'lint' failed",
+					},
+				},
+			},
+		},
+		{
+			Name:        "local-go-ci-pipeline-build-failure",
+			Environment: "local-go-ci-pipeline-build-failure",
+			ReadOnly:    true,
+			Test: []Step{
+				{
+					Name:             "tako exec ci-pipeline should fail at build step",
+					Command:          "tako",
+					Args:             []string{"exec", "ci-pipeline", "--inputs.image_tag=v1.0.0"},
+					ExpectedExitCode: 1,
+					AssertOutputContains: []string{
+						"Executing workflow 'ci-pipeline'",
+						"execution failed: step 'lint' failed",
+					},
+				},
+			},
+		},
+		{
+			Name:        "local-go-ci-pipeline-package-failure",
+			Environment: "local-go-ci-pipeline-package-failure",
+			ReadOnly:    true,
+			Test: []Step{
+				{
+					Name:             "tako exec ci-pipeline should fail at package step",
+					Command:          "tako",
+					Args:             []string{"exec", "ci-pipeline", "--inputs.image_tag=v1.0.0"},
+					ExpectedExitCode: 1,
+					AssertOutputContains: []string{
+						"Executing workflow 'ci-pipeline'",
+						"execution failed: step 'package' failed",
+					},
+				},
+			},
+		},
 	}
 }
