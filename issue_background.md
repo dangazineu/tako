@@ -166,6 +166,45 @@ Need to enhance the subscription processing to:
 3. **Schema Compatibility Edge Cases**: Version range boundary conditions
 4. **Concurrent Access**: Multiple subscriptions processing simultaneously
 
+## Technical Decisions (Gemini Consultation)
+
+After consulting with Gemini on key design questions, the following decisions were made:
+
+### Diamond Dependency Resolution
+**Decision: Subscription-level first-wins**
+- Target duplicate subscriptions (same filters, inputs) rather than blocking repositories
+- Maintains subscription model flexibility while preventing true duplicates
+- More robust and architecturally sound than repository-level blocking
+
+### CEL Expression Caching  
+**Decision: In-memory cache with LRU eviction**
+- Optimal for CLI tool's short execution lifecycle
+- Avoids complexity of persistent cache management
+- Provides needed performance boost for current session
+
+### Schema Compatibility Enhancement
+**Decision: Extended ranges only**
+- Add compound ranges like ">=1.0.0 <2.0.0"  
+- Pragmatic balance between functionality and complexity
+- Covers vast majority of real-world use cases
+
+### Integration with Existing Idempotency
+**Decision: Extend existing fingerprinting system**
+- Enhance fingerprinting to include subscription details
+- Single unified deduplication system
+- Leverages existing infrastructure for consistency
+
+### Testing Priority
+1. **Unit Tests** (highest) - All new complex logic
+2. **Integration Tests** (high) - End-to-end diamond dependency scenarios  
+3. **Performance Tests** (lower) - Caching behavior verification
+
+### Backward Compatibility
+- Changes are corrective improvements, not breaking changes
+- Diamond resolution fixes undesirable duplicate behavior
+- Schema validation improvements with clear error messages
+- Document behavioral changes clearly
+
 ## Conclusion
 
 This issue represents the culmination of the subscription-based triggering system. The foundation is solid with:
@@ -175,9 +214,10 @@ This issue represents the culmination of the subscription-based triggering syste
 - Clean architecture and interfaces ✅
 
 The core work involves:
-1. **Enhancing performance** through caching and optimization
-2. **Implementing diamond dependency resolution** with first-wins logic
-3. **Adding advanced orchestrator features** for filtering and prioritization
-4. **Comprehensive testing** of all advanced scenarios
+1. **Enhancing performance** through in-memory CEL caching
+2. **Implementing subscription-level diamond dependency resolution** 
+3. **Extending existing fingerprinting** for unified deduplication
+4. **Adding extended schema compatibility** ranges
+5. **Comprehensive testing** prioritizing unit and integration tests
 
 The implementation should focus on extending existing components rather than replacing them, maintaining backward compatibility and leveraging the strong foundation already in place.
