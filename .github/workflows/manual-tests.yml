@@ -33,33 +33,16 @@ jobs:
           git config --global user.email "test@example.com"
           git config --global user.name "GitHub Actions"
 
+      - name: Install yq
+        run: |
+          sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
+          sudo chmod +x /usr/bin/yq
+        
       - name: Make scripts executable
-        run: chmod +x test/scripts/*.sh
+        run: chmod +x test/run_all_verification.sh test/scripts/*.sh
 
-      - name: Run foundational components verification
-        run: |
-          echo "=== Running foundational components verification ==="
-          ./test/scripts/verify-foundational-components.sh
-
-      - name: Run orchestrator verification
-        run: |
-          echo "=== Running orchestrator verification ==="
-          ./test/scripts/verify-orchestrator.sh
-
-      - name: Run fan-out verification
-        run: |
-          echo "=== Running fan-out verification ==="
-          ./test/scripts/verify-fanout.sh
-
-      - name: Run fan-out orchestrator integration verification
-        run: |
-          echo "=== Running fan-out orchestrator integration verification ==="
-          ./test/scripts/verify-fanout-orchestrator-integration.sh
-
-      - name: Run fan-out idempotency verification
-        run: |
-          echo "=== Running fan-out idempotency verification ==="
-          ./test/scripts/verify-fanout-idempotency.sh --local
+      - name: Run all verification scripts
+        run: ./test/run_all_verification.sh
 
       - name: Upload test artifacts on failure
         if: failure()

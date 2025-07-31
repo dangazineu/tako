@@ -1,0 +1,24 @@
+# test/scripts/manifest.yml
+# This file defines the verification scripts to be run in CI.
+# It allows for a scalable way to add new tests without modifying the workflow scripts.
+
+scripts:
+  - name: verify-foundational-components.sh
+    description: "Verifies the core components of the system."
+    ci_flags: ["--test-env", "foundational-test"]
+
+  - name: verify-orchestrator.sh
+    description: "Tests the orchestration logic."
+    ci_flags: ["--test-env", "orchestrator-test"]
+
+  - name: verify-fanout.sh
+    description: "Tests the fan-out mechanism."
+    ci_flags: [] # This script requires no special flags for local execution.
+
+  - name: verify-fanout-orchestrator-integration.sh
+    description: "Tests the integration between the fan-out and orchestrator."
+    ci_flags: ["--test-env", "fanout-orchestrator-test"]
+
+  - name: verify-fanout-idempotency.sh
+    description: "Tests the idempotency of fan-out operations."
+    ci_flags: ["--local", "--test-env", "fan-out-test"]
