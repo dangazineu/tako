@@ -72,17 +72,19 @@ subscriptions:
     events: ["api_published"]
     schema_version: "^1.0.0"
     filters:
-      - "'user-service' in event.payload.services_affected.split(',').map(s, s.trim())"
+      - "'user-service' in event.payload.services_affected.split(',').map(s, s.trim().lower())"
     workflow: "update-and-deploy"
     inputs:
       api_version: "{{ .event.payload.git_tag }}"
+      repo_name: "go-user-service"
 workflows:
   update-and-deploy:
     inputs:
       api_version: { type: string }
+      repo_name: { type: string }
     steps:
       - run: "echo 'Updating Go service to API {{ .Inputs.api_version }}'"
-      - run: "echo '{{ .Inputs.api_version }}' > go_user_service_deployed_with_api_{{ .Inputs.api_version }}"
+      - run: "echo '{{ .Inputs.api_version }}' > {{ .Inputs.repo_name }}_deployed_with_api_{{ .Inputs.api_version }}"
       - run: "./scripts/deploy.sh {{ .Inputs.api_version }}"
 ```
 
@@ -98,8 +100,11 @@ Create deployment scripts that output verifiable files:
 ```bash
 #!/bin/bash
 # deploy.sh for each service
+mkdir -p $(dirname $0)
 echo "Deployed with API version: $1" > "deployment_log_$1.txt"
 echo "$1" > "last_deployed_version.txt"
+# Append to log for idempotency testing
+echo "$(date '+%Y-%m-%d %H:%M:%S'): Deployed version $1" >> "deployment_history.log"
 ```
 
 ## Phase 2: Add Test Environment Configuration (Integration)
@@ -213,6 +218,24 @@ Add comprehensive test steps covering:
         "Success: true",
     },
 },
+{
+    Name:    "trigger with case-insensitive service names",
+    Command: "tako",
+    Args:    []string{"exec", "release-api", "--inputs.version=v1.2.1", "--inputs.changed_services=User-Service,BILLING-SERVICE"},
+    AssertOutputContains: []string{
+        "Executing workflow 'release-api'",
+        "Success: true",
+    },
+},
+{
+    Name:    "trigger with duplicate services in list",
+    Command: "tako",
+    Args:    []string{"exec", "release-api", "--inputs.version=v1.2.2", "--inputs.changed_services=user-service,user-service,billing-service"},
+    AssertOutputContains: []string{
+        "Executing workflow 'release-api'",
+        "Success: true",
+    },
+},
 ```
 
 **Scenario 4: No Matching Services**
@@ -279,7 +302,7 @@ Add test step to verify idempotency:
 },
 ```
 
-Add verification that deployment happens only once.
+Add verification that deployment happens only once by checking deployment_history.log contains only one entry for v1.0.0.
 
 ### 4.2 Add Error Handling Tests
 **Duration**: 30 minutes  
