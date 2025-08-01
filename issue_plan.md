@@ -1,66 +1,95 @@
 # Implementation Plan: Java BOM E2E Test (Issue #147)
 
 ## Overview
-Implement a fully automated E2E test demonstrating Java BOM release orchestration with multi-level fan-out and fan-in patterns. The test simulates a real-world scenario where updating a core library triggers cascading dependency updates culminating in an automated BOM release.
+Implement a fully automated E2E test demonstrating Java BOM release orchestration with **autonomous PR lifecycle management**. The test simulates a real-world scenario where updating a core library triggers cascading dependency updates through complete GitHub PR workflows (create → wait for CI → merge → release), culminating in an automated BOM release.
+
+## Key Complexity: Autonomous PR Lifecycle
+Each library performs a complete 3-step autonomous workflow:
+1. **`create-pr`**: Creates PR, captures PR number via `produces.outputs`
+2. **`wait-and-merge`**: Blocks on `gh pr checks --watch`, then auto-merges
+3. **`trigger-release`**: Chains to `release` workflow via `tako exec`
+
+This tests step output passing, blocking commands, workflow chaining, and complex GitHub API integration.
 
 ## Phase-Based Implementation Strategy
 
-### Phase 1: Test Infrastructure Setup
-**Goal**: Create test case definition and repository templates  
+### Phase 1: Mock GitHub API Server Setup
+**Goal**: Create HTTP server to mock GitHub API and test infrastructure  
 **Duration**: Foundation phase  
-**Deliverables**: Test case structure, repository templates, mock scripts
+**Deliverables**: Mock GitHub API server, test case structure, repository templates
 
 #### Tasks:
-1. **Add Test Case Definition** (`test/e2e/get_test_cases.go`)
-   - Add `java-bom-fanout` test case entry
+1. **Mock GitHub API Server** (`test/e2e/mock_github_server.go`)
+   - HTTP server implementing GitHub API endpoints:
+     - `POST /repos/{owner}/{repo}/pulls` (create PR, return PR number)
+     - `GET /repos/{owner}/{repo}/pulls/{pr}/checks` (CI check status)
+     - `PUT /repos/{owner}/{repo}/pulls/{pr}/merge` (merge PR)
+   - State management for PR lifecycle simulation
+   - Test orchestration endpoints for controlling CI status
+
+2. **Mock GitHub CLI** (`test/e2e/templates/java-bom-fanout/mock-gh.sh`)
+   - Shell script that makes HTTP calls to mock server
+   - Implements `gh pr create`, `gh pr checks --watch`, `gh pr merge` 
+   - Handles step output capture (PR number to stdout)
+   - Blocking behavior for `--watch` commands
+
+3. **Add Test Case Definition** (`test/e2e/get_test_cases.go`)
+   - Add `java-bom-fanout` test case entry with mock server setup
    - Configure environment definition with 4 repositories
    - Define test steps for triggering and verification
 
-2. **Create Repository Templates** (`test/e2e/templates/java-bom-fanout/`)
+4. **Create Repository Templates** (`test/e2e/templates/java-bom-fanout/`)
    - `core-lib/`: Basic Java library with tako.yml for release workflow
-   - `lib-a/`: Java library depending on core-lib with fan-out subscription
-   - `lib-b/`: Java library depending on core-lib with fan-out subscription  
-   - `java-bom/`: BOM project with fan-in coordination logic
-
-3. **Create Mock Scripts** (within each repository template)
-   - `mock-gh.sh`: Simulates GitHub CLI operations
-   - `mock-semver.sh`: Simulates semantic versioning tool
-   - Mock scripts create verification files for testing
+   - `lib-a/`: Java library with 3-step autonomous PR workflow
+   - `lib-b/`: Java library with 3-step autonomous PR workflow  
+   - `java-bom/`: BOM project with autonomous PR lifecycle and fan-in coordination
 
 #### Success Criteria:
+- Mock GitHub API server starts and responds to requests
+- Mock `gh` CLI successfully communicates with server
 - Test case loads without errors
-- All repository templates are created
-- Maven dependencies are correctly configured
-- Mock scripts are executable and functional
+- All repository templates are created with correct dependencies
+- Mock server can simulate complete PR lifecycle
 
-### Phase 2: Core Workflow Implementation  
-**Goal**: Implement tako.yml workflows for all repositories  
+### Phase 2: Autonomous PR Workflow Implementation  
+**Goal**: Implement complex 3-step autonomous PR workflows for all repositories  
 **Duration**: Core logic phase  
-**Deliverables**: Working workflows with event routing
+**Deliverables**: Working workflows with step output passing and workflow chaining
 
 #### Tasks:
 1. **Core-Lib Release Workflow**
    - Implement `release` workflow with fan-out step
    - Configure `core_library_released` event emission
-   - Add mock Maven deployment step
+   - Add mock Maven deployment step with version capture
 
-2. **Library Update Workflows** (lib-a, lib-b)
-   - Implement `propose-and-release-update` workflow
+2. **Library Autonomous PR Workflows** (lib-a, lib-b)
+   - Implement `propose-and-release-update` workflow with 3 steps:
+     - **`create-pr`**: Branch creation, pom.xml update, PR creation with output capture
+     - **`wait-and-merge`**: Blocking `gh pr checks --watch`, auto-merge
+     - **`trigger-release`**: Workflow chaining via `tako exec release`
+   - Implement separate `release` workflow (triggered by previous step)
    - Add subscription to `core_library_released` event
-   - Implement PR creation, waiting, merging, and release sequence
-   - Add `library_released` event emission
+   - Configure step output passing: `{{ .steps.create-pr.outputs.pr_number }}`
+   - Add `library_released` event emission from release workflow
 
-3. **BOM Coordination Workflow** (java-bom)
-   - Implement `aggregate-and-release-bom` workflow 
+3. **BOM Autonomous PR Workflow** (java-bom)
+   - Implement `aggregate-and-release-bom` workflow with state file coordination
    - Add subscriptions to `library_released` events from lib-a and lib-b
-   - Implement state file coordination logic
-   - Add conditional BOM release workflow
+   - Implement `create-bom-pr` workflow with same 3-step autonomous pattern
+   - Add separate `release-bom` workflow for final BOM release
+
+4. **Mock Tool Integration**
+   - Integrate mock `semver` tool for version calculation
+   - Ensure mock `gh` CLI PATH override works correctly
+   - Configure GITHUB_API_URL environment variable for mock server
 
 #### Success Criteria:
 - All workflows compile and validate successfully
+- Step output passing works correctly (PR numbers flow between steps)
+- Blocking commands (`gh pr checks --watch`) function properly
+- Workflow chaining (`tako exec`) works from within workflows
 - Event subscriptions are correctly configured
-- Fan-out and fan-in logic is implemented
-- Step output passing works correctly
+- Mock tools integrate seamlessly with workflows
 
 ### Phase 3: State Management and Coordination
 **Goal**: Implement fan-in coordination using state files  
@@ -80,16 +109,18 @@ Implement a fully automated E2E test demonstrating Java BOM release orchestratio
    - Add final BOM release workflow invocation
    - Include cleanup logic with trap handlers for failure scenarios
 
-3. **Mock External Tool Integration**
-   - Integrate mock scripts with specific sub-command handling
-   - Ensure PATH override works correctly in test environment
-   - Verify mock outputs are captured for verification
-   - Add mock script validation and consistency checks
+3. **Mock Server CI Simulation**
+   - Implement test orchestration endpoints in mock server:
+     - `POST /test/ci/{owner}/{repo}/{pr}/complete` (mark CI as complete)
+     - `POST /test/ci/{owner}/{repo}/{pr}/fail` (mark CI as failed)
+   - Add test logic to simulate CI completion after PR creation
+   - Implement proper timing and state transitions for realistic simulation
 
 #### Success Criteria:
 - State file is correctly maintained across events using atomic operations
 - BOM only triggers when both libraries are ready
-- Mock tools produce expected verification artifacts
+- Mock GitHub API server handles concurrent PR operations correctly
+- CI simulation works reliably with proper state transitions
 - Fan-in coordination works reliably under concurrent access
 - Proper cleanup occurs even on workflow failures
 
@@ -176,9 +207,11 @@ core-lib (release)
 - Conditional execution based on state completeness
 
 ### Mock Strategy
-- PATH-based script override for external tools
-- Scripts create verification files for testing
-- Maintain actual Maven workflow for build authenticity
+- **HTTP Mock Server**: Realistic GitHub API simulation with proper state management
+- **Mock GitHub CLI**: Shell script that communicates with mock server via HTTP
+- **PATH Override**: Mock tools prepended to PATH during test execution
+- **CI Simulation**: Test orchestrates CI completion via mock server endpoints
+- **Maintain Maven Authenticity**: Use real Maven with isolated test repositories
 
 ### Verification Approach
 - Multi-layered verification (execution order, content, state)

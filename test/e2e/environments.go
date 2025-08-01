@@ -245,5 +245,51 @@ func GetEnvironments(owner string) map[string]TestEnvironmentDef {
 				},
 			},
 		},
+		"java-bom-fanout": {
+			Name: "java-bom-fanout",
+			Repositories: []RepositoryDef{
+				{
+					Name:   "java-bom-fanout-core-lib",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "pom.xml", Template: "java-bom-fanout/core-lib/pom.xml"},
+						{Path: "tako.yml", Template: "java-bom-fanout/core-lib/tako.yml"},
+						{Path: "src/main/java/com/example/tako/CoreLib.java", Template: "java-bom-fanout/core-lib/src/main/java/com/example/tako/CoreLib.java"},
+						{Path: "src/test/java/com/example/tako/CoreLibTest.java", Template: "java-bom-fanout/core-lib/src/test/java/com/example/tako/CoreLibTest.java"},
+					},
+				},
+				{
+					Name:   "java-bom-fanout-lib-a",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "pom.xml", Template: "java-bom-fanout/lib-a/pom.xml"},
+						{Path: "tako.yml", Template: "java-bom-fanout/lib-a/tako.yml"},
+						{Path: "src/main/java/com/example/tako/LibA.java", Template: "java-bom-fanout/lib-a/src/main/java/com/example/tako/LibA.java"},
+						{Path: "src/test/java/com/example/tako/LibATest.java", Template: "java-bom-fanout/lib-a/src/test/java/com/example/tako/LibATest.java"},
+					},
+					Dependencies: []string{"java-bom-fanout-core-lib"},
+				},
+				{
+					Name:   "java-bom-fanout-lib-b",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "pom.xml", Template: "java-bom-fanout/lib-b/pom.xml"},
+						{Path: "tako.yml", Template: "java-bom-fanout/lib-b/tako.yml"},
+						{Path: "src/main/java/com/example/tako/LibB.java", Template: "java-bom-fanout/lib-b/src/main/java/com/example/tako/LibB.java"},
+						{Path: "src/test/java/com/example/tako/LibBTest.java", Template: "java-bom-fanout/lib-b/src/test/java/com/example/tako/LibBTest.java"},
+					},
+					Dependencies: []string{"java-bom-fanout-core-lib"},
+				},
+				{
+					Name:   "java-bom-fanout-java-bom",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "pom.xml", Template: "java-bom-fanout/java-bom/pom.xml"},
+						{Path: "tako.yml", Template: "java-bom-fanout/java-bom/tako.yml"},
+					},
+					Dependencies: []string{"java-bom-fanout-lib-a", "java-bom-fanout-lib-b"},
+				},
+			},
+		},
 	}
 }

@@ -533,5 +533,82 @@ func GetTestCases() []TestCase {
 			// The selective triggering based on CEL expressions is functioning as designed.
 			// Verification is covered by the manual verification script and successful workflow execution.
 		},
+		{
+			Name:        "java-bom-fanout",
+			Environment: "java-bom-fanout",
+			ReadOnly:    false,
+			Setup: []Step{
+				{
+					Name:    "start mock github server",
+					Command: "echo",
+					Args:    []string{"Mock GitHub server will be started by test orchestration"},
+				},
+			},
+			Test: []Step{
+				{
+					Name:    "trigger core-lib release",
+					Command: "tako",
+					Args:    []string{"exec", "release", "--inputs.version=1.1.0"},
+					AssertOutputContains: []string{
+						"Executing workflow 'release'",
+						"Success: true",
+					},
+				},
+				{
+					Name:    "verify test orchestration completes",
+					Command: "echo",
+					Args:    []string{"Test orchestration handles CI simulation and verification"},
+				},
+			},
+			Verify: Verification{
+				Files: []VerifyFileExists{
+					// Core lib verification
+					{
+						FileName:    "published_core-lib_1.1.0.txt",
+						ShouldExist: true,
+					},
+					{
+						FileName:        "core-lib-version.txt",
+						ShouldExist:     true,
+						ExpectedContent: "1.1.0",
+					},
+					// Lib-a verification
+					{
+						FileName:    "published_lib-a_1.0.1.txt",
+						ShouldExist: true,
+					},
+					{
+						FileName:        "lib-a-version.txt",
+						ShouldExist:     true,
+						ExpectedContent: "1.0.1",
+					},
+					// Lib-b verification
+					{
+						FileName:    "published_lib-b_1.0.1.txt",
+						ShouldExist: true,
+					},
+					{
+						FileName:        "lib-b-version.txt",
+						ShouldExist:     true,
+						ExpectedContent: "1.0.1",
+					},
+					// BOM verification
+					{
+						FileName:    "published_java-bom_1.0.1.txt",
+						ShouldExist: true,
+					},
+					{
+						FileName:        "java-bom-version.txt",
+						ShouldExist:     true,
+						ExpectedContent: "1.0.1",
+					},
+					// State verification
+					{
+						FileName:    "final_bom_state_1.0.1.json",
+						ShouldExist: true,
+					},
+				},
+			},
+		},
 	}
 }

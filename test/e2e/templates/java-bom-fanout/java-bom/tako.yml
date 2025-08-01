@@ -1,0 +1,155 @@
+version: v1
+
+subscriptions:
+  - artifact: "{{.Owner}}/java-bom-fanout-lib-a:main"
+    events: ["library_released"]
+    workflow: "aggregate-and-release-bom"
+    inputs:
+      library_name: "{{ .event.payload.library_name }}"
+      new_version: "{{ .event.payload.new_version }}"
+  - artifact: "{{.Owner}}/java-bom-fanout-lib-b:main"
+    events: ["library_released"]
+    workflow: "aggregate-and-release-bom" 
+    inputs:
+      library_name: "{{ .event.payload.library_name }}"
+      new_version: "{{ .event.payload.new_version }}"
+
+workflows:
+  aggregate-and-release-bom:
+    inputs:
+      library_name:
+        type: string
+        required: true
+        description: "Name of the library that was released"
+      new_version:
+        type: string
+        required: true
+        description: "New version of the library"
+    steps:
+      - id: update-state
+        name: "Update release state"
+        run: |
+          echo "Received release event: {{ .Inputs.library_name }} version {{ .Inputs.new_version }}"
+          
+          # Initialize state file if it doesn't exist
+          if [ ! -f tako.state.json ]; then
+            echo '{}' > tako.state.json
+          fi
+          
+          # Atomic state update using write-then-rename
+          jq '. * {"{{ .Inputs.library_name }}": "{{ .Inputs.new_version }}"}' tako.state.json > tako.state.json.tmp
+          mv tako.state.json.tmp tako.state.json
+          
+          echo "Updated state file:"
+          cat tako.state.json
+          
+      - id: check-and-trigger
+        name: "Check readiness and trigger BOM creation"
+        run: |
+          echo "Checking if all required libraries are ready..."
+          
+          # Check if both lib-a and lib-b have reported
+          HAS_LIB_A=$(jq -r 'has("lib-a")' tako.state.json)
+          HAS_LIB_B=$(jq -r 'has("lib-b")' tako.state.json)
+          
+          echo "lib-a ready: $HAS_LIB_A"
+          echo "lib-b ready: $HAS_LIB_B"
+          
+          if [ "$HAS_LIB_A" = "true" ] && [ "$HAS_LIB_B" = "true" ]; then
+            echo "All libraries ready! Triggering BOM creation..."
+            tako exec create-bom-pr
+          else
+            echo "Not all libraries ready yet. Waiting for more releases."
+          fi
+
+  create-bom-pr:
+    steps:
+      - id: create-pr
+        name: "Create PR for BOM update"
+        run: |
+          echo "Creating BOM update PR based on current state..."
+          
+          # Read versions from state file
+          LIB_A_VERSION=$(jq -r '."lib-a"' tako.state.json)
+          LIB_B_VERSION=$(jq -r '."lib-b"' tako.state.json)
+          
+          echo "lib-a version: $LIB_A_VERSION"
+          echo "lib-b version: $LIB_B_VERSION"
+          
+          # Create branch for BOM update
+          BRANCH_NAME="chore/update-bom-versions"
+          git checkout -b "$BRANCH_NAME"
+          
+          # Update pom.xml with new versions
+          # Update lib-a version
+          sed -i.bak "s/<artifactId>lib-a<\/artifactId>[[:space:]]*<version>[^<]*<\/version>/<artifactId>lib-a<\/artifactId>\n                <version>$LIB_A_VERSION<\/version>/g" pom.xml
+          # Update lib-b version  
+          sed -i.bak2 "s/<artifactId>lib-b<\/artifactId>[[:space:]]*<version>[^<]*<\/version>/<artifactId>lib-b<\/artifactId>\n                <version>$LIB_B_VERSION<\/version>/g" pom.xml
+          rm pom.xml.bak pom.xml.bak2
+          
+          # Commit changes
+          git add pom.xml
+          git commit -m "chore: Update BOM with lib-a $LIB_A_VERSION and lib-b $LIB_B_VERSION"
+          
+          # Create PR
+          export PATH="../mock-tools:$PATH"
+          PR_URL=$(gh pr create --title "chore: Update BOM versions" --body "Automated BOM update with lib-a $LIB_A_VERSION and lib-b $LIB_B_VERSION")
+          
+          # Extract PR number from URL (last line of output)
+          echo "$PR_URL" | tail -1
+        produces:
+          outputs:
+            pr_number: from_stdout
+            
+      - id: wait-and-merge
+        name: "Wait for CI and merge PR"
+        run: |
+          export PATH="../mock-tools:$PATH"
+          PR_NUMBER="{{ .steps.create-pr.outputs.pr_number }}"
+          
+          echo "Waiting for CI checks to pass for BOM PR #$PR_NUMBER"
+          gh pr checks "$PR_NUMBER" --watch
+          
+          echo "CI checks passed, merging BOM PR #$PR_NUMBER"
+          gh pr merge "$PR_NUMBER" --squash --delete-branch
+          
+          echo "BOM PR #$PR_NUMBER merged successfully"
+          
+      - id: trigger-release
+        name: "Trigger BOM release"
+        run: |
+          # Calculate next BOM version
+          export PATH="../mock-tools:$PATH"
+          CURRENT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "1.0.0")
+          NEW_VERSION=$(semver -i patch "$CURRENT_VERSION")
+          
+          echo "Triggering BOM release version $NEW_VERSION"
+          tako exec release-bom --inputs.version="$NEW_VERSION"
+
+  release-bom:
+    inputs:
+      version:
+        type: string
+        required: true
+        description: "BOM version to release"
+    steps:
+      - id: publish-bom
+        name: "Build and publish BOM"
+        run: |
+          echo "Publishing BOM version {{ .Inputs.version }}"
+          mvn clean install -Dmaven.repo.local=${MAVEN_REPO_DIR}
+          
+          # Create release tag
+          git tag "{{ .Inputs.version }}"
+          
+          # Create verification files
+          echo "Published java-bom-{{ .Inputs.version }}" > "published_java-bom_{{ .Inputs.version }}.txt"
+          echo "{{ .Inputs.version }}" > java-bom-version.txt
+          
+          # Record final BOM state for verification
+          cp tako.state.json "final_bom_state_{{ .Inputs.version }}.json"
+          
+          echo "BOM {{ .Inputs.version }} published successfully!"
+          
+          # Reset state file for next iteration
+          echo '{}' > tako.state.json

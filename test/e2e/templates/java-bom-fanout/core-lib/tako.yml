@@ -1,0 +1,28 @@
+version: v1
+
+workflows:
+  release:
+    inputs:
+      version:
+        type: string
+        required: true
+        description: "Version to release"
+    steps:
+      - id: publish-jar
+        name: "Build and publish JAR"
+        run: |
+          echo "Building core-lib version {{ .Inputs.version }}"
+          mvn clean install -Dmaven.repo.local=${MAVEN_REPO_DIR}
+          echo "Published core-lib-{{ .Inputs.version }}" > "published_core-lib_{{ .Inputs.version }}.txt"
+          echo "{{ .Inputs.version }}" > core-lib-version.txt
+        
+      - id: fan-out-core-release
+        name: "Trigger downstream library updates"
+        uses: tako/fan-out@v1
+        with:
+          event_type: "core_library_released"
+          payload:
+            version: "{{ .Inputs.version }}"
+            library_name: "core-lib"
+          wait_for_children: false
+          timeout: "10m"

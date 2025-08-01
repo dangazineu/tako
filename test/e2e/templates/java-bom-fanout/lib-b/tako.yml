@@ -1,0 +1,99 @@
+version: v1
+
+subscriptions:
+  - artifact: "{{.Owner}}/java-bom-fanout-core-lib:main"
+    events: ["core_library_released"]
+    workflow: "propose-and-release-update"
+    inputs:
+      core_version: "{{ .event.payload.version }}"
+
+workflows:
+  propose-and-release-update:
+    inputs:
+      core_version:
+        type: string
+        required: true
+        description: "New version of core-lib to update to"
+    steps:
+      - id: create-pr
+        name: "Create PR for dependency update"
+        run: |
+          # Create branch for update
+          BRANCH_NAME="chore/update-core-lib-v{{ .Inputs.core_version }}"
+          git checkout -b "$BRANCH_NAME"
+          
+          # Update pom.xml with new core-lib version
+          sed -i.bak "s/<version>1\.0\.0<\/version>/<version>{{ .Inputs.core_version }}<\/version>/g" pom.xml
+          rm pom.xml.bak
+          
+          # Run local verification
+          echo "Running local verification for lib-b with core-lib {{ .Inputs.core_version }}"
+          mvn clean install -Dmaven.repo.local=${MAVEN_REPO_DIR}
+          
+          # Commit changes
+          git add pom.xml
+          git commit -m "chore: Update core-lib to {{ .Inputs.core_version }}"
+          
+          # Create PR using mock GitHub CLI
+          export PATH="../mock-tools:$PATH"
+          PR_URL=$(gh pr create --title "chore: Update core-lib to {{ .Inputs.core_version }}" --body "Automated dependency update for core-lib to version {{ .Inputs.core_version }}")
+          
+          # Extract PR number from URL (last line of output)
+          echo "$PR_URL" | tail -1
+        produces:
+          outputs:
+            pr_number: from_stdout
+            
+      - id: wait-and-merge
+        name: "Wait for CI and merge PR"
+        run: |
+          export PATH="../mock-tools:$PATH"
+          PR_NUMBER="{{ .steps.create-pr.outputs.pr_number }}"
+          
+          echo "Waiting for CI checks to pass for PR #$PR_NUMBER"
+          gh pr checks "$PR_NUMBER" --watch
+          
+          echo "CI checks passed, merging PR #$PR_NUMBER"
+          gh pr merge "$PR_NUMBER" --squash --delete-branch
+          
+          echo "PR #$PR_NUMBER merged successfully"
+          
+      - id: trigger-release
+        name: "Trigger release workflow"
+        run: |
+          # Calculate next version
+          export PATH="../mock-tools:$PATH"
+          CURRENT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "1.0.0")
+          NEW_VERSION=$(semver -i patch "$CURRENT_VERSION")
+          
+          echo "Triggering release of lib-b version $NEW_VERSION"
+          tako exec release --inputs.version="$NEW_VERSION"
+
+  release:
+    inputs:
+      version:
+        type: string
+        required: true
+        description: "Version to release"
+    steps:
+      - id: publish-library
+        name: "Build and publish library"
+        run: |
+          echo "Building lib-b version {{ .Inputs.version }}"
+          mvn clean install -Dmaven.repo.local=${MAVEN_REPO_DIR}
+          
+          # Create release tag
+          git tag "{{ .Inputs.version }}"
+          
+          # Create verification file
+          echo "Published lib-b-{{ .Inputs.version }}" > "published_lib-b_{{ .Inputs.version }}.txt"
+          echo "{{ .Inputs.version }}" > lib-b-version.txt
+          
+      - id: emit-release-event
+        name: "Emit library released event"
+        uses: tako/fan-out@v1
+        with:
+          event_type: "library_released"
+          payload:
+            library_name: "lib-b"
+            new_version: "{{ .Inputs.version }}"
