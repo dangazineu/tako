@@ -92,7 +92,7 @@ workflows:
           git commit -m "chore: Update BOM with lib-a $LIB_A_VERSION and lib-b $LIB_B_VERSION"
           
           # Create PR
-          export PATH="../mock-tools:$PATH"
+          export PATH="./mock-tools:$PATH"
           PR_URL=$(gh pr create --title "chore: Update BOM versions" --body "Automated BOM update with lib-a $LIB_A_VERSION and lib-b $LIB_B_VERSION")
           
           # Extract PR number from URL (last line of output)
@@ -104,7 +104,7 @@ workflows:
       - id: wait-and-merge
         name: "Wait for CI and merge PR"
         run: |
-          export PATH="../mock-tools:$PATH"
+          export PATH="./mock-tools:$PATH"
           PR_NUMBER="{{ .steps.create-pr.outputs.pr_number }}"
           
           echo "Waiting for CI checks to pass for BOM PR #$PR_NUMBER"
@@ -119,7 +119,7 @@ workflows:
         name: "Trigger BOM release"
         run: |
           # Calculate next BOM version
-          export PATH="../mock-tools:$PATH"
+          export PATH="./mock-tools:$PATH"
           CURRENT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "1.0.0")
           NEW_VERSION=$(semver -i patch "$CURRENT_VERSION")
           

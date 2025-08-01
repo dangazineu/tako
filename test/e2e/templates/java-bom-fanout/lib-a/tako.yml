@@ -35,7 +35,7 @@ workflows:
           git commit -m "chore: Update core-lib to {{ .Inputs.core_version }}"
           
           # Create PR using mock GitHub CLI
-          export PATH="../mock-tools:$PATH"
+          export PATH="./mock-tools:$PATH"
           PR_URL=$(gh pr create --title "chore: Update core-lib to {{ .Inputs.core_version }}" --body "Automated dependency update for core-lib to version {{ .Inputs.core_version }}")
           
           # Extract PR number from URL (last line of output)
@@ -47,7 +47,7 @@ workflows:
       - id: wait-and-merge
         name: "Wait for CI and merge PR"
         run: |
-          export PATH="../mock-tools:$PATH"
+          export PATH="./mock-tools:$PATH"
           PR_NUMBER="{{ .steps.create-pr.outputs.pr_number }}"
           
           echo "Waiting for CI checks to pass for PR #$PR_NUMBER"
@@ -62,7 +62,7 @@ workflows:
         name: "Trigger release workflow"
         run: |
           # Calculate next version
-          export PATH="../mock-tools:$PATH"
+          export PATH="./mock-tools:$PATH"
           CURRENT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "1.0.0")
           NEW_VERSION=$(semver -i patch "$CURRENT_VERSION")
           
