@@ -52,9 +52,9 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  e2e-test:
+  e2e-test-path:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -74,6 +74,26 @@ jobs:
 
       - name: Run e2e local tests with path entrypoint
         run: go test -v -tags=e2e --local --entrypoint=path .
+
+  e2e-test-repo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Set up Java and Maven
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
+      - name: Install Maven
+        run: sudo apt-get update && sudo apt-get install -y maven
 
       - name: Run e2e local tests with repo entrypoint
         run: go test -v -tags=e2e --local --entrypoint=repo .
