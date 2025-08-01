@@ -7,12 +7,11 @@ set -e
 
 # Parse command line arguments
 flag="$1"
-version="$2"
+increment_type="$2"
+base_version="$3"
 
 case "$flag" in
     "-i")
-        increment_type="$1"
-        base_version="$2"
         
         # Extract version parts
         if [[ "$base_version" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
