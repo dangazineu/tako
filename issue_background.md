@@ -134,3 +134,41 @@ The implementation will primarily involve:
 4. Leveraging existing fan-out and state management systems
 
 **Confidence Level**: High - All architectural components are in place
+
+## Technical Questions and Gemini Review
+
+### Key Technical Decisions (Validated by Gemini):
+
+1. **Fan-In Coordination Strategy**: Use a single workflow in java-bom repository with a state file (`tako.state.json`) to track library releases. This approach is self-contained, idempotent, and avoids complex inter-workflow coordination.
+
+2. **Mock External Tools Strategy**: Create executable mock scripts that override PATH in the test environment. This provides clean simulation of `gh`, `semver`, and `mvn` commands while testing actual workflow configurations.
+
+3. **Event Payload Design**: Keep payload minimal and focused:
+   ```yaml
+   payload:
+     library_name: "lib-a"  # For BOM to identify which dependency
+     new_version: "1.0.1"   # For BOM version updates
+   ```
+
+4. **State File Format**: Simple JSON structure in java-bom workspace:
+   ```json
+   {
+     "lib-a": "1.0.1",
+     "lib-b": "1.0.2"
+   }
+   ```
+
+5. **Verification Strategy**: Multi-faceted approach:
+   - Execution artifacts (files created by each step)
+   - Timestamp verification (ensure proper execution order)
+   - Content verification (final BOM contains correct versions)
+
+### Gemini Feedback Summary:
+- Implementation approach is "excellent and well-researched"
+- Technical decisions are sound and leverage existing architecture appropriately
+- Fan-in coordination using state files is more robust than complex workflow coordination
+- PATH-based mocking is the clean, standard approach
+- Simple payload design reduces coupling and complexity
+- Verification strategy should combine execution order and content validation
+
+**Decision**: Proceed with implementation using validated technical approach
