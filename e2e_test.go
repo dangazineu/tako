@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,7 +119,16 @@ func runTest(t *testing.T, tc *e2e.TestCase, env e2e.TestEnvironmentDef, mode st
 	workDir := setupData.WorkDir
 	cacheDir := setupData.CacheDir
 
+	// Start mock GitHub server if test case requires it
+	var mockServer *e2e.MockGitHubServer
+	if requiresMockServer(tc) {
+		mockServer = startMockGitHubServer(t)
+	}
+
 	t.Cleanup(func() {
+		if mockServer != nil {
+			mockServer.Stop()
+		}
 		cleanupEnvironment(t, takotestPath, tc.Environment, mode, workDir, cacheDir)
 	})
 
@@ -135,38 +145,35 @@ func runTest(t *testing.T, tc *e2e.TestCase, env e2e.TestEnvironmentDef, mode st
 func verify(t *testing.T, tc *e2e.TestCase, workDir, cacheDir string, withRepoEntryPoint bool, env e2e.TestEnvironmentDef) {
 	// Use the data-driven verification from the test case
 	for _, fileCheck := range tc.Verify.Files {
-		for _, repo := range env.Repositories {
-			repoName := fmt.Sprintf("%s-%s", env.Name, repo.Name)
-			var filePath string
-			if withRepoEntryPoint {
-				filePath = filepath.Join(cacheDir, "repos", testOrg, repoName, repo.Branch, fileCheck.FileName)
-			} else {
-				if repo.Name == env.Repositories[0].Name {
-					filePath = filepath.Join(workDir, repoName, fileCheck.FileName)
-				} else {
-					filePath = filepath.Join(cacheDir, "repos", testOrg, repoName, repo.Branch, fileCheck.FileName)
+		// Only check the primary repository (first repository in the environment)
+		// This is where the workflow is triggered and files are created
+		repo := env.Repositories[0]
+		repoName := fmt.Sprintf("%s-%s", env.Name, repo.Name)
+		var filePath string
+		if withRepoEntryPoint {
+			filePath = filepath.Join(cacheDir, "repos", testOrg, repoName, repo.Branch, fileCheck.FileName)
+		} else {
+			filePath = filepath.Join(workDir, repoName, fileCheck.FileName)
+		}
+
+		if fileCheck.ShouldExist {
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				t.Errorf("expected file %s to exist but got error: %v", filePath, err)
+				continue
+			}
+			if fileCheck.ExpectedContent != "" {
+				actualContent := strings.TrimSpace(string(content))
+				if actualContent != fileCheck.ExpectedContent {
+					t.Errorf("file %s: expected content %q, got %q", filePath, fileCheck.ExpectedContent, actualContent)
 				}
 			}
-
-			if fileCheck.ShouldExist {
-				content, err := os.ReadFile(filePath)
-				if err != nil {
-					t.Errorf("expected file %s to exist but got error: %v", filePath, err)
-					continue
-				}
-				if fileCheck.ExpectedContent != "" {
-					actualContent := strings.TrimSpace(string(content))
-					if actualContent != fileCheck.ExpectedContent {
-						t.Errorf("file %s: expected content %q, got %q", filePath, fileCheck.ExpectedContent, actualContent)
-					}
-				}
-			} else {
-				// Verify the file does NOT exist
-				if _, err := os.Stat(filePath); err == nil {
-					t.Errorf("file %s should not exist", filePath)
-				} else if !os.IsNotExist(err) {
-					t.Errorf("unexpected error checking file %s: %v", filePath, err)
-				}
+		} else {
+			// Verify the file does NOT exist
+			if _, err := os.Stat(filePath); err == nil {
+				t.Errorf("file %s should not exist", filePath)
+			} else if !os.IsNotExist(err) {
+				t.Errorf("unexpected error checking file %s: %v", filePath, err)
 			}
 		}
 	}
@@ -493,4 +500,107 @@ func replacePathPlaceholders(s string, env e2e.TestEnvironmentDef, workDir, cach
 	}
 	s = strings.ReplaceAll(s, "{{.Owner}}", testOrg)
 	return s
+}
+
+// requiresMockServer checks if a test case requires the mock GitHub server
+func requiresMockServer(tc *e2e.TestCase) bool {
+	// Check if any setup step mentions starting a mock server
+	for _, step := range tc.Setup {
+		if strings.Contains(step.Name, "mock github server") {
+			return true
+		}
+	}
+
+	// Check if test case name suggests it needs mock server
+	return strings.Contains(tc.Name, "java-bom-fanout")
+}
+
+// startMockGitHubServer starts the mock GitHub server and sets up environment variables
+func startMockGitHubServer(t *testing.T) *e2e.MockGitHubServer {
+	mockServer := e2e.NewMockGitHubServer()
+
+	// Start server in background
+	go func() {
+		if err := mockServer.Start(8080); err != nil && err != http.ErrServerClosed {
+			t.Logf("Mock GitHub server error: %v", err)
+		}
+	}()
+
+	// Wait for server to start
+	time.Sleep(200 * time.Millisecond)
+
+	// Health check
+	resp, err := http.Get("http://localhost:8080/health")
+	if err != nil {
+		t.Fatalf("Mock GitHub server health check failed: %v", err)
+	}
+	resp.Body.Close()
+
+	// Set environment variables for mock CLI tools
+	originalAPIURL := os.Getenv("GITHUB_API_URL")
+	originalOwner := os.Getenv("REPO_OWNER")
+
+	os.Setenv("GITHUB_API_URL", "http://localhost:8080")
+	os.Setenv("REPO_OWNER", testOrg)
+
+	// Restore environment on cleanup
+	t.Cleanup(func() {
+		if originalAPIURL != "" {
+			os.Setenv("GITHUB_API_URL", originalAPIURL)
+		} else {
+			os.Unsetenv("GITHUB_API_URL")
+		}
+		if originalOwner != "" {
+			os.Setenv("REPO_OWNER", originalOwner)
+		} else {
+			os.Unsetenv("REPO_OWNER")
+		}
+	})
+
+	t.Logf("Mock GitHub server started on http://localhost:8080")
+
+	// Start CI simulation in background
+	go simulateCI(t, mockServer)
+
+	return mockServer
+}
+
+// simulateCI simulates CI completion for PRs created during the test
+func simulateCI(t *testing.T, mockServer *e2e.MockGitHubServer) {
+	// Poll for new PRs and complete their CI checks
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	processedPRs := make(map[string]bool)
+
+	for {
+		select {
+		case <-ticker.C:
+			// Find all PRs across all repos and mark CI as complete
+			for _, repo := range []string{"java-bom-fanout-core-lib", "java-bom-fanout-lib-a", "java-bom-fanout-lib-b", "java-bom-fanout-java-bom"} {
+				prs := mockServer.ListPRs(testOrg, repo)
+				for _, pr := range prs {
+					prKey := fmt.Sprintf("%s/%s/%d", testOrg, repo, pr.Number)
+					if pr.State == "open" && pr.CheckStatus == "pending" && !processedPRs[prKey] {
+						// Simulate CI taking some time (1-3 seconds)
+						time.Sleep(time.Duration(1+pr.Number%3) * time.Second)
+
+						// Mark CI as complete
+						completeURL := fmt.Sprintf("http://localhost:8080/test/ci/%s/%s/%d/complete", testOrg, repo, pr.Number)
+						resp, err := http.Post(completeURL, "application/json", nil)
+						if err == nil {
+							resp.Body.Close()
+							processedPRs[prKey] = true
+							t.Logf("Simulated CI completion for PR #%d in %s/%s", pr.Number, testOrg, repo)
+						} else {
+							t.Logf("Failed to complete CI for PR #%d in %s/%s: %v", pr.Number, testOrg, repo, err)
+						}
+					}
+				}
+			}
+		case <-time.After(5 * time.Minute):
+			// Stop after 5 minutes (test timeout)
+			return
+		}
+	}
 }

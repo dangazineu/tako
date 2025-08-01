@@ -567,7 +567,17 @@ func GetTestCases() []TestCase {
 			},
 			Verify: Verification{
 				Files: []VerifyFileExists{
-					// Temporarily disable verification - need to implement repository-specific verification
+					// Core verification: These files should be created by the core-lib workflow
+					// Only checking files that should exist in the first repository (core-lib)
+					{
+						FileName:    "published_core-lib_1.1.0.txt",
+						ShouldExist: true,
+					},
+					{
+						FileName:        "core-lib-version.txt",
+						ShouldExist:     true,
+						ExpectedContent: "1.1.0",
+					},
 				},
 			},
 		},
