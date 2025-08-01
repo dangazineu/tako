@@ -68,26 +68,30 @@ Implement a fully automated E2E test demonstrating Java BOM release orchestratio
 **Deliverables**: Working state management for BOM aggregation
 
 #### Tasks:
-1. **State File Management** 
-   - Implement `tako.state.json` handling in java-bom
-   - Add state update logic on library release events
+1. **Atomic State File Management** 
+   - Implement `tako.state.json` handling with write-then-rename strategy
+   - Add state update logic: write to `tako.state.json.tmp`, then rename to `tako.state.json`
    - Implement readiness checking (all libraries present)
+   - Add proper error handling for state file operations
 
 2. **Fan-In Logic Implementation**
    - Add conditional execution based on state completeness
    - Implement BOM update from state file versions
    - Add final BOM release workflow invocation
+   - Include cleanup logic with trap handlers for failure scenarios
 
 3. **Mock External Tool Integration**
-   - Integrate mock scripts into workflow steps
+   - Integrate mock scripts with specific sub-command handling
    - Ensure PATH override works correctly in test environment
    - Verify mock outputs are captured for verification
+   - Add mock script validation and consistency checks
 
 #### Success Criteria:
-- State file is correctly maintained across events
+- State file is correctly maintained across events using atomic operations
 - BOM only triggers when both libraries are ready
 - Mock tools produce expected verification artifacts
-- Fan-in coordination works reliably
+- Fan-in coordination works reliably under concurrent access
+- Proper cleanup occurs even on workflow failures
 
 ### Phase 4: Verification and Testing
 **Goal**: Implement comprehensive test verification  
@@ -106,19 +110,23 @@ Implement a fully automated E2E test demonstrating Java BOM release orchestratio
    - Add state file content verification
 
 3. **Test Robustness**
-   - Add error scenario testing (partial failures)
-   - Implement idempotency verification
-   - Add timeout and cleanup verification
+   - Add error scenario testing (partial failures, one library fails)
+   - Implement idempotency verification: trigger core-lib release twice, verify downstream workflows run only once
+   - Add timeout and cleanup verification with trap handlers
+   - Test graceful failure: BOM not released if library workflows fail
 
 4. **Integration Testing**
    - Test with both local and remote modes
    - Verify test runs reliably in CI environment
    - Performance and resource usage validation
+   - Add negative path testing (verify BOM doesn't release on partial failures)
 
 #### Success Criteria:
 - Test passes consistently in local environment
 - All verification steps validate correct orchestration
-- Test handles error scenarios gracefully
+- Test handles error scenarios gracefully with proper cleanup
+- Idempotency is verified through duplicate event testing
+- Negative path scenarios are validated (graceful failure)
 - Performance is acceptable for CI execution
 
 ### Phase 5: Documentation and Refinement
@@ -134,8 +142,10 @@ Implement a fully automated E2E test demonstrating Java BOM release orchestratio
 
 2. **Test Coverage Analysis**
    - Update `issue_coverage.md` with final coverage numbers
-   - Document any coverage improvements from implementation
+   - Use targeted coverage analysis: profile specific code paths exercised by E2E test
+   - Document new coverage areas: multi-repo fan-in coordination, cascading Maven updates, idempotency of subscriptions
    - Verify no regressions in existing functionality
+   - Document critical paths covered: fan-out state manager, event subscription router, nested workflow execution
 
 3. **Final Verification**
    - Run complete test suite to ensure no regressions
@@ -182,12 +192,16 @@ core-lib (release)
 2. **State Corruption**: Concurrent state file access
 3. **Mock Reliability**: External tool simulation accuracy
 4. **Test Flakiness**: Non-deterministic behavior in complex orchestration
+5. **Configuration Drift**: Inconsistencies between tako.yml files across repositories
+6. **Diamond Dependencies**: Complex dependency scenarios in future extensions
 
 ### Mitigation Strategies:
-1. Use atomic file operations for state management
-2. Implement proper locking mechanisms where needed
-3. Extensive verification and error handling
+1. Use atomic file operations (write-then-rename) for state management
+2. Implement proper cleanup with trap handlers for failure scenarios
+3. Use specific sub-command mocking rather than generic tool mocking
 4. Multiple test runs during development to catch flakiness
+5. Create consistency checks or shared templates for common workflow patterns
+6. Explicitly test idempotency by triggering duplicate events
 
 ## Success Metrics
 
@@ -197,6 +211,8 @@ core-lib (release)
 - [ ] BOM only releases after all dependencies are ready
 - [ ] All external tool interactions are properly mocked
 - [ ] Verification confirms correct execution order and content
+- [ ] Idempotency verified: duplicate events don't cause duplicate workflows
+- [ ] Graceful failure: BOM not released if library workflows fail
 
 ### Quality Requirements:
 - [ ] Test runs reliably in CI environment
