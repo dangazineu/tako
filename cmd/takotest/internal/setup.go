@@ -158,15 +158,15 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 			_, _, _, err = client.Repositories.GetContents(context.Background(), owner, repoName, "tako.yml", nil)
 			if err == nil {
 				// Repository already has tako.yml, reuse it
-				fmt.Printf("Repository %s already exists and is properly configured, reusing it\n", repoName)
+				fmt.Fprintf(os.Stderr, "Repository %s already exists and is properly configured, reusing it\n", repoName)
 				continue
 			}
 
 			// Repository exists but doesn't have proper structure, we need to recreate files
-			fmt.Printf("Repository %s exists but needs file updates\n", repoName)
+			fmt.Fprintf(os.Stderr, "Repository %s exists but needs file updates\n", repoName)
 		} else {
 			// Repository doesn't exist, we need to create it
-			fmt.Printf("Creating repository %s\n", repoName)
+			fmt.Fprintf(os.Stderr, "Creating repository %s\n", repoName)
 
 			// Add exponential backoff for rate limiting
 			retryDelay := 30 * time.Second // Start with longer delay for secondary rate limits
@@ -180,7 +180,7 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 				if err != nil {
 					if errResp, ok := err.(*github.ErrorResponse); ok && errResp.Response.StatusCode == 403 && strings.Contains(errResp.Message, "rate limit") {
 						waitTime := retryDelay * time.Duration(attempt+1)
-						fmt.Printf("Rate limit hit during repo creation, waiting %v before retry (attempt %d/%d)\n", waitTime, attempt+1, maxRetries)
+						fmt.Fprintf(os.Stderr, "Rate limit hit during repo creation, waiting %v before retry (attempt %d/%d)\n", waitTime, attempt+1, maxRetries)
 						time.Sleep(waitTime)
 						continue
 					}
@@ -225,7 +225,7 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 						if err != nil {
 							if errResp, ok := err.(*github.ErrorResponse); ok && errResp.Response.StatusCode == 403 && strings.Contains(errResp.Message, "rate limit") {
 								waitTime := time.Duration(attempt+1) * 5 * time.Second
-								fmt.Printf("Rate limit hit during file update (%s), waiting %v before retry (attempt %d/%d)\n", path, waitTime, attempt+1, maxFileRetries)
+								fmt.Fprintf(os.Stderr, "Rate limit hit during file update (%s), waiting %v before retry (attempt %d/%d)\n", path, waitTime, attempt+1, maxFileRetries)
 								time.Sleep(waitTime)
 								continue
 							}
@@ -233,7 +233,7 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 						}
 					} else if errResp, ok := err.(*github.ErrorResponse); ok && errResp.Response.StatusCode == 403 && strings.Contains(errResp.Message, "rate limit") {
 						waitTime := time.Duration(attempt+1) * 5 * time.Second
-						fmt.Printf("Rate limit hit during file creation (%s), waiting %v before retry (attempt %d/%d)\n", path, waitTime, attempt+1, maxFileRetries)
+						fmt.Fprintf(os.Stderr, "Rate limit hit during file creation (%s), waiting %v before retry (attempt %d/%d)\n", path, waitTime, attempt+1, maxFileRetries)
 						time.Sleep(waitTime)
 						continue
 					} else {

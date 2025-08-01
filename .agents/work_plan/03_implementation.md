@@ -8,19 +8,20 @@ This phase executes the planned development work with continuous testing and qua
   - Implement the planned changes
   - Repeat the following steps till no issues are found:
     - Format the code: `go fmt ./...`
-    - Run linters: `go test -v .`
-    - Run unit tests:
-      1. `go test -v -race ./internal/...`
-      2. `go test -v -race ./cmd/tako/...`
-    - Run e2e tests: `go test -v -tags=e2e --local ./...`
-    - Fix any failing tests
+    - Run all tests (add `-v` flag to understand failures, if any)
+      - Run linters: `go test .`
+      - Run unit tests:
+        1. `go test -race ./internal/...`
+        2. `go test -race ./cmd/tako/...`
+      - Run e2e tests: `go test -tags=e2e --local ./...`
+      - Fix any failing tests
   - Verify test coverage:
-    - Generate new coverage profile: `go test -coverprofile=coverage.out ./...`
-    - Overall coverage drop ≤ 1% (compare to baseline in `issue_coverage.md`)
-    - Individual function coverage drop ≤ 10% (use `go tool cover -func=coverage.out` to analyze)
+    - After you've run the linters, `coverage.out` will be updated, compare the current coverage with the baseline you recorded
+    - Overall coverage cannot drop more than 1%
+    - Individual function coverage cannot drop more than 10%
     - Add tests if needed to maintain coverage
   - Update dependencies if needed: `go mod tidy`
-  - Update `issue_coverage.md` with current coverage
+  - If current overall coverage went up from baseline, update `issue_coverage.md` with current coverage numbers
   - Mark phase complete in `issue_plan.md`
   - Commit phase completion
 
@@ -28,13 +29,15 @@ This phase executes the planned development work with continuous testing and qua
 
 - Once all implementation phases are completed, run comprehensive test suite:
   - Format the code: `go fmt ./...`
-  - Run linters: `go test -v .`
-  - Run unit tests:
-    - `go test -v -race ./internal/...`
-    - `go test -v -race ./cmd/tako/...`
-  - Run e2e tests: `go test -v -tags=e2e --local ./...`
-  - `go test -v -tags=e2e --remote ./...` # Remote E2E tests
-  - `act --container-architecture linux/amd64 -P ubuntu-latest=catthehacker/ubuntu:act-latest` # CI simulation
+  - Run all tests (add `-v` flag to understand failures, if any)
+    - Run linters: `go test .`
+    - Run unit tests:
+      - `go test -race ./internal/...`
+      - `go test -race ./cmd/tako/...`
+    - Run e2e tests: 
+      - `go test -tags=e2e --local ./...` # Local E2E tests
+      - `go test -tags=e2e --remote ./...` # Remote E2E tests (require GH API Token)
+      - `act --container-architecture linux/amd64 -P ubuntu-latest=catthehacker/ubuntu:act-latest` # CI simulation
 - Fix any issues and run again until no issues are found
 - Commit fixes
 

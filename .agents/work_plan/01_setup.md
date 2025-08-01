@@ -15,9 +15,7 @@ This phase prepares the development environment and establishes a clean baseline
     - `go test -race ./internal/...`
     - `go test -race ./cmd/tako/...`
   - Run e2e tests: `go test -tags=e2e --local ./...`
-- Generate and record test coverage baseline:
-  - Generate coverage profile: `go test -coverprofile=coverage.out ./...`
-  - Record coverage numbers in `issue_coverage.md` (read from the generated `coverage.out` file). This will be the baseline we will compare to as we continue changing the project.
+- Record coverage numbers in `issue_coverage.md` (read from the `coverage.out` file, which is generated when you run the linters). This will be the baseline we will compare to as we continue changing the project. Record per function coverage, as that will be needed later.
 - Commit baseline coverage
 
 ## Key Requirements

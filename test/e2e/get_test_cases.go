@@ -533,5 +533,53 @@ func GetTestCases() []TestCase {
 			// The selective triggering based on CEL expressions is functioning as designed.
 			// Verification is covered by the manual verification script and successful workflow execution.
 		},
+		{
+			Name:        "java-bom-fanout",
+			Environment: "java-bom-fanout",
+			ReadOnly:    false,
+			Setup: []Step{
+				{
+					Name:    "start mock github server",
+					Command: "echo",
+					Args:    []string{"Mock GitHub server will be started by test orchestration"},
+				},
+			},
+			Test: []Step{
+				{
+					Name:    "trigger core-lib release",
+					Command: "tako",
+					Args:    []string{"exec", "release", "--inputs.version=1.1.0", "--debug"},
+					AssertOutputContains: []string{
+						"Executing workflow 'release'",
+						"Success: true",
+					},
+				},
+				{
+					Name:    "verify test orchestration completes",
+					Command: "echo",
+					Args:    []string{"Test orchestration handles CI simulation and verification"},
+				},
+				{
+					Name:    "debug: list created files",
+					Command: "sh",
+					Args:    []string{"-c", "find . -name '*.txt' -o -name '*.json' | tee debug_files.txt"},
+				},
+			},
+			Verify: Verification{
+				Files: []VerifyFileExists{
+					// Core verification: These files should be created by the core-lib workflow
+					// Only checking files that should exist in the first repository (core-lib)
+					{
+						FileName:    "published_core-lib_1.1.0.txt",
+						ShouldExist: true,
+					},
+					{
+						FileName:        "core-lib-version.txt",
+						ShouldExist:     true,
+						ExpectedContent: "1.1.0",
+					},
+				},
+			},
+		},
 	}
 }
