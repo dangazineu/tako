@@ -239,6 +239,41 @@ To clean up the remote test environment, run:
 takotest cleanup <testcase-name> --owner <owner> --force
 ```
 
+## 9. AI-Assisted Development Workflow
+
+This project includes a phase-based development workflow system designed to provide structured guidance for AI assistants working on feature development.
+
+### Custom Slash Command
+
+The `/work_on <issue_number>` command provides a complete development workflow for any issue. This command uses a phase-based approach to ensure consistent, high-quality development practices.
+
+### Workflow Phases
+
+The workflow is divided into five modular phases, each with its own detailed instructions:
+
+1. **Setup Phase** (`.agents/work_plan/01_setup.md`): Create feature branch and establish baseline
+2. **Analysis & Planning Phase** (`.agents/work_plan/02_analysis.md`): Research, question formulation, and implementation planning
+3. **Implementation Phase** (`.agents/work_plan/03_implementation.md`): Phase-by-phase development with continuous testing
+4. **Finalization Phase** (`.agents/work_plan/04_finalization.md`): Cleanup and manual verification
+5. **Pull Request Phase** (`.agents/work_plan/05_pull_request.md`): PR creation and CI monitoring
+
+### Usage
+
+To use the AI-assisted workflow:
+
+```
+/work_on 123
+```
+
+This will automatically generate a comprehensive TODO list and begin executing the structured development process for issue #123.
+
+### Key Benefits
+
+- **Consistent Process**: Every feature follows the same proven development workflow
+- **Quality Assurance**: Built-in testing and verification at each phase
+- **Maintainability**: Modular approach allows easy updates to specific workflow steps
+- **Traceability**: Clear documentation and planning artifacts throughout development
+
 ## 7. Future Features
 *   Watch mode for automatic rebuilds on file changes.
 *   A plugin system for custom command types and integrations.
