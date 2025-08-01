@@ -109,7 +109,7 @@ type setupOutput struct {
 }
 
 func runTest(t *testing.T, tc *e2e.TestCase, env e2e.TestEnvironmentDef, mode string, withRepoEntryPoint bool) {
-	t.Logf("Running test case: %s", tc.Name)
+	t.Logf("Running test case %s in %s mode with entry point %s", tc.Name, mode, map[bool]string{true: "repo", false: "path"}[withRepoEntryPoint])
 
 	// Build binaries
 	takoPath, takotestPath := buildBinaries(t)
@@ -119,9 +119,9 @@ func runTest(t *testing.T, tc *e2e.TestCase, env e2e.TestEnvironmentDef, mode st
 	workDir := setupData.WorkDir
 	cacheDir := setupData.CacheDir
 
-	// Start mock GitHub server if test case requires it
+	// Start mock GitHub server if test case requires it (only for local mode)
 	var mockServer *e2e.MockGitHubServer
-	if requiresMockServer(tc) {
+	if requiresMockServer(tc, mode) {
 		mockServer = startMockGitHubServer(t)
 	}
 
@@ -222,7 +222,7 @@ func setupEnvironment(t *testing.T, takotestPath, envName, mode string, withRepo
 	setupCmd := exec.Command(takotestPath, append([]string{"setup"}, setupArgs...)...)
 	var setupOut bytes.Buffer
 	setupCmd.Stdout = &setupOut
-	setupCmd.Stderr = &setupOut
+	// Let stderr go to test output, don't capture it with JSON
 
 	// Use longer timeout for setup in remote mode (especially for Maven builds and GitHub API delays)
 	timeout := 5 * time.Minute
@@ -240,7 +240,7 @@ func setupEnvironment(t *testing.T, takotestPath, envName, mode string, withRepo
 
 	setupCmd = exec.CommandContext(ctx, setupCmd.Path, setupCmd.Args[1:]...)
 	setupCmd.Stdout = &setupOut
-	setupCmd.Stderr = &setupOut
+	// Let stderr go to test output, don't capture it with JSON
 
 	// Add retry logic for remote setup failures
 	maxRetries := 2 // Reduce retries since we'll use longer wait times
@@ -251,25 +251,24 @@ func setupEnvironment(t *testing.T, takotestPath, envName, mode string, withRepo
 			break
 		}
 
-		// Check if it's a rate limit error
-		if mode == "remote" && strings.Contains(setupOut.String(), "rate limit") {
+		// Only retry on context timeout in remote mode (likely rate limit)
+		if mode == "remote" && ctx.Err() == context.DeadlineExceeded {
 			if attempt < maxRetries {
-				// For secondary rate limits, GitHub typically blocks for 1-5 minutes
-				// Use progressively longer wait times
+				// For rate limits, use progressively longer wait times
 				waitTime := time.Duration(attempt*2) * time.Minute
-				t.Logf("Setup failed due to GitHub secondary rate limit (attempt %d/%d), waiting %v for rate limit to reset", attempt, maxRetries, waitTime)
+				t.Logf("Setup timed out (attempt %d/%d), waiting %v before retry", attempt, maxRetries, waitTime)
 				time.Sleep(waitTime)
 
 				// Reset the command and output buffer for retry
 				setupOut.Reset()
 				setupCmd = exec.CommandContext(ctx, takotestPath, append([]string{"setup"}, setupArgs...)...)
 				setupCmd.Stdout = &setupOut
-				setupCmd.Stderr = &setupOut
+				// Let stderr go to test output, don't capture it with JSON
 				continue
 			} else {
 				// On final attempt, provide helpful information
-				t.Logf("Remote tests are currently blocked by GitHub's secondary rate limit. This is expected when running multiple remote tests in succession.")
-				t.Logf("Consider running tests with longer intervals or focus on local tests which don't have this limitation.")
+				t.Logf("Remote setup consistently timing out. This may be due to GitHub rate limits.")
+				t.Logf("Consider running tests with longer intervals or focus on local tests.")
 			}
 		}
 		break
@@ -503,7 +502,13 @@ func replacePathPlaceholders(s string, env e2e.TestEnvironmentDef, workDir, cach
 }
 
 // requiresMockServer checks if a test case requires the mock GitHub server
-func requiresMockServer(tc *e2e.TestCase) bool {
+// The mock server should only be used in local mode, not remote mode
+func requiresMockServer(tc *e2e.TestCase, mode string) bool {
+	// Never use mock server in remote mode
+	if mode == "remote" {
+		return false
+	}
+
 	// Check if any setup step mentions starting a mock server
 	for _, step := range tc.Setup {
 		if strings.Contains(step.Name, "mock github server") {
@@ -511,7 +516,7 @@ func requiresMockServer(tc *e2e.TestCase) bool {
 		}
 	}
 
-	// Check if test case name suggests it needs mock server
+	// Check if test case name suggests it needs mock server (only for local mode)
 	return strings.Contains(tc.Name, "java-bom-fanout")
 }
 
