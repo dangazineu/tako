@@ -10,6 +10,7 @@ PRESERVE_TEST_DIR=false
 TEST_ENVIRONMENT="java-bom-fanout"
 LOCAL_MODE=true
 REMOTE_MODE=false
+OWNER="test-owner"
 while [[ $# -gt 0 ]]; do
     case $1 in
         --preserve-test-dir)
@@ -18,6 +19,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --test-env)
             TEST_ENVIRONMENT="$2"
+            shift 2
+            ;;
+        --owner)
+            OWNER="$2"
             shift 2
             ;;
         --remote)
@@ -35,6 +40,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --preserve-test-dir    Do not delete test directories when script completes"
             echo "  --test-env ENV         Use specific test environment (default: java-bom-fanout)"
+            echo "  --owner OWNER          GitHub organization or user (default: test-owner)"
             echo "  --local                Use local mode (default)"
             echo "  --remote               Use remote mode (requires GitHub token)"
             echo "  --help, -h             Show this help message"
@@ -87,6 +93,7 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." &> /dev/null && pwd )"
 
 echo "Project root: $PROJECT_ROOT"
 echo "Using test environment: $TEST_ENVIRONMENT"
+echo "Owner: $OWNER"
 if [ "$LOCAL_MODE" = "true" ]; then
     echo "Mode: Local"
 else
@@ -123,12 +130,12 @@ mkdir -p "$TEST_DIR" "$CACHE_DIR"
 # Set up test environment using takotest
 echo "Setting up test environment using takotest..."
 if [ "$LOCAL_MODE" = "true" ]; then
-    if ! "$PROJECT_ROOT/takotest" setup --local --work-dir "$TEST_DIR" --cache-dir "$CACHE_DIR" --owner "test-owner" "$TEST_ENVIRONMENT"; then
+    if ! "$PROJECT_ROOT/takotest" setup --local --work-dir "$TEST_DIR" --cache-dir "$CACHE_DIR" --owner "$OWNER" "$TEST_ENVIRONMENT"; then
         echo -e "${RED}Error: Failed to set up test environment with takotest${NC}"
         exit 1
     fi
 else
-    if ! "$PROJECT_ROOT/takotest" setup --work-dir "$TEST_DIR" --cache-dir "$CACHE_DIR" --owner "test-owner" "$TEST_ENVIRONMENT"; then
+    if ! "$PROJECT_ROOT/takotest" setup --work-dir "$TEST_DIR" --cache-dir "$CACHE_DIR" --owner "$OWNER" "$TEST_ENVIRONMENT"; then
         echo -e "${RED}Error: Failed to set up test environment with takotest${NC}"
         exit 1
     fi
@@ -185,7 +192,7 @@ if [ "$LOCAL_MODE" = "true" ]; then
     fi
 else
     # In remote mode, orchestrator should be accessible via --repo flag
-    ORCHESTRATOR_REPO="test-owner/java-bom-fanout-java-bom-fanout-orchestrator"
+    ORCHESTRATOR_REPO="$OWNER/java-bom-fanout-java-bom-fanout-orchestrator"
 fi
 print_status "PASS" "Found orchestrator repository: $ORCHESTRATOR_REPO"
 
