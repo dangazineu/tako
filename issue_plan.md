@@ -88,6 +88,8 @@ Complete the Java BOM E2E test orchestration by adding orchestrator control, ful
 - Enhance logging in BOM aggregation workflow
 - Add timestamp logging for timing analysis
 - Ensure E2E test captures and displays relevant logs
+- Add explicit error propagation from child workflows to orchestrator
+- Implement error reporting for CI failures in lib-a/lib-b
 
 **Acceptance Criteria**:
 - [ ] Orchestrator workflow logs clear progress indicators
@@ -95,6 +97,7 @@ Complete the Java BOM E2E test orchestration by adding orchestrator control, ful
 - [ ] All workflows log timing information
 - [ ] E2E test displays relevant logs for debugging
 - [ ] Debug output helps identify failure points
+- [ ] Child workflow errors propagate to orchestrator with clear messages
 - [ ] Codebase compiles and existing tests pass
 
 **Testing**:
@@ -107,6 +110,8 @@ Complete the Java BOM E2E test orchestration by adding orchestrator control, ful
 - Add verification that test cleanup is effective
 - Enhance error handling in E2E test framework
 - Add timeouts and retry logic where appropriate
+- Ensure idempotency of mock operations (restart safety)
+- Add negative test cases (e.g., CI failure scenarios)
 
 **Acceptance Criteria**:
 - [ ] Test cleanup removes all temporary files and directories
@@ -114,6 +119,8 @@ Complete the Java BOM E2E test orchestration by adding orchestrator control, ful
 - [ ] E2E test handles timeouts gracefully
 - [ ] Test framework provides clear error messages
 - [ ] Multiple test runs don't interfere with each other
+- [ ] Mock operations are idempotent (restart-safe)
+- [ ] Negative test cases validate error handling
 - [ ] Codebase compiles and existing tests pass
 
 **Testing**:
@@ -146,15 +153,19 @@ Complete the Java BOM E2E test orchestration by adding orchestrator control, ful
 
 ### Phase 4.2: Documentation and Polish
 - Update existing documentation to reflect orchestrator changes
+- Add dedicated section explaining java-bom-fanout orchestrator workflow
 - Add comments to complex workflows for maintainability
 - Clean up any temporary debug files or unused code
 - Ensure code follows project conventions
+- Plan CI integration for new orchestrator-driven E2E test
 
 **Acceptance Criteria**:
 - [ ] Workflows are well-commented and maintainable
+- [ ] Documentation includes dedicated orchestrator workflow explanation
 - [ ] Any new files follow project naming conventions
 - [ ] No temporary or debug files remain in codebase
 - [ ] Implementation aligns with project architecture
+- [ ] CI integration plan documented
 - [ ] Codebase compiles and all tests pass
 
 **Testing**:
