@@ -244,7 +244,7 @@ workflows:
     steps:
       - run: echo "update triggered"
 subscriptions:
-  - artifact: "source-org/library:default"
+  - artifact: "source-org/library"
     events: ["library_built"]
     workflow: "update"
 `
@@ -255,7 +255,7 @@ workflows:
     steps:
       - run: echo "build triggered"
 subscriptions:
-  - artifact: "source-org/library:default"
+  - artifact: "source-org/library"
     events: ["library_built", "library_updated"]
     workflow: "build"
 `
@@ -570,7 +570,7 @@ workflows:
     steps:
       - run: echo "update triggered"
 subscriptions:
-  - artifact: "source-org/library:default"
+  - artifact: "source-org/library"
     events: ["library_built"]
     workflow: "update"
 `
@@ -674,7 +674,7 @@ workflows:
     steps:
       - run: echo "update triggered"
 subscriptions:
-  - artifact: "source-org/library:default"
+  - artifact: "source-org/library"
     events: ["library_built"]
     workflow: "update"
 `
@@ -746,7 +746,7 @@ workflows:
     steps:
       - run: echo "update triggered"
 subscriptions:
-  - artifact: "source-org/library:default"
+  - artifact: "source-org/library"
     events: ["library_built"]
     workflow: "update"
 `
@@ -817,7 +817,7 @@ workflows:
     steps:
       - run: echo "update triggered"
 subscriptions:
-  - artifact: "source-org/library:default"
+  - artifact: "source-org/library"
     events: ["library_built"]
     workflow: "update"
 `
@@ -896,7 +896,7 @@ workflows:
     steps:
       - run: echo "update triggered"
 subscriptions:
-  - artifact: "source-org/library:default"
+  - artifact: "source-org/library"
     events: ["library_built"]
     workflow: "update"
 `

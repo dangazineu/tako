@@ -43,6 +43,9 @@ type Runner struct {
 	state *ExecutionState
 	locks *LockManager
 
+	// Repository context
+	currentRepoSpec string // Format: "owner/repo:branch"
+
 	// Template processing
 	templateEngine *TemplateEngine
 
@@ -229,6 +232,11 @@ func (r *Runner) ExecuteWorkflow(ctx context.Context, workflowName string, input
 		}, err
 	}
 
+	// Set repository context from path if not already set
+	if r.currentRepoSpec == "" {
+		r.currentRepoSpec = r.extractRepoSpecFromPath(repoPath)
+	}
+
 	// Execute workflow steps
 	stepResults, err := r.executeSteps(ctx, workflow.Steps, repoPath, inputs)
 
@@ -269,6 +277,9 @@ func (r *Runner) ExecuteMultiRepoWorkflow(ctx context.Context, workflowName stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve repository path: %v", err)
 	}
+
+	// Store the repository specification for use in fan-out steps
+	r.currentRepoSpec = parentRepo
 
 	// Delegate to single-repository execution for now
 	return r.ExecuteWorkflow(ctx, workflowName, inputs, repoPath)
@@ -572,7 +583,7 @@ func (r *Runner) executeFanOutStep(ctx context.Context, step config.WorkflowStep
 
 	// Get source repository for artifact discovery
 	sourceRepo := r.getSourceRepository()
-	artifact := fmt.Sprintf("%s:default", sourceRepo)
+	artifact := sourceRepo // sourceRepo already includes branch in "owner/repo:branch" format
 
 	// Use Orchestrator to discover subscriptions
 	subscriptions, err := r.orchestrator.DiscoverSubscriptions(ctx, artifact, eventType)
@@ -676,10 +687,40 @@ func (r *Runner) isDebugMode() bool {
 // getSourceRepository returns the source repository identifier for fan-out events.
 // This identifies which repository is emitting the event.
 func (r *Runner) getSourceRepository() string {
-	// For now, return a placeholder
-	// In production, this should be derived from the workflow context
-	// TODO: Enhance to get actual repository from workflow context
-	return "current-repo"
+	// Return the current repository specification in "owner/repo:branch" format
+	if r.currentRepoSpec != "" {
+		return r.currentRepoSpec
+	}
+	// Fallback for cases where repository context is not available
+	return "unknown/repo:main"
+}
+
+// extractRepoSpecFromPath extracts repository specification from a cache path.
+// Converts paths like "/cache/repos/owner/repo/branch" to "owner/repo:branch".
+func (r *Runner) extractRepoSpecFromPath(repoPath string) string {
+	// Extract repository info from path like /cache/repos/owner/repo/branch
+	parts := strings.Split(filepath.Clean(repoPath), string(filepath.Separator))
+
+	// Look for the pattern .../repos/owner/repo/branch/...
+	for i, part := range parts {
+		if part == "repos" && i+3 < len(parts) {
+			owner := parts[i+1]
+			repo := parts[i+2]
+			branch := parts[i+3]
+			return fmt.Sprintf("%s/%s:%s", owner, repo, branch)
+		}
+	}
+
+	// Fallback: attempt to extract from directory structure
+	if len(parts) >= 3 {
+		// Take last 3 parts as owner/repo/branch
+		owner := parts[len(parts)-3]
+		repo := parts[len(parts)-2]
+		branch := parts[len(parts)-1]
+		return fmt.Sprintf("%s/%s:%s", owner, repo, branch)
+	}
+
+	return "unknown/repo:main"
 }
 
 // executeContainerStep executes a step in a container.

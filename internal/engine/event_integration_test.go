@@ -30,7 +30,7 @@ workflows:
     steps:
       - run: echo "update triggered"
 subscriptions:
-  - artifact: "source-org/library:default"
+  - artifact: "source-org/library"
     events: ["build_completed"]
     workflow: "update"
     schema_version: "^1.0.0"
@@ -45,7 +45,7 @@ workflows:
     steps:
       - run: echo "deploy triggered"
 subscriptions:
-  - artifact: "source-org/library:default"
+  - artifact: "source-org/library"
     events: ["build_completed"]
     workflow: "deploy"
     schema_version: "~1.0.0"

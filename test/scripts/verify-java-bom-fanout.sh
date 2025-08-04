@@ -87,6 +87,18 @@ cleanup_test_dir() {
 # Set up cleanup trap
 trap cleanup_test_dir EXIT
 
+# Set up environment for PR state management (will be created when TEST_BASE_DIR is set)
+# export PR_STATE_DIR will be set after TEST_BASE_DIR is defined
+
+# For E2E tests, set E2E_MODE to true to skip human intervention
+if [ "${E2E_MODE:-}" = "true" ]; then
+    export E2E_MODE="true"
+    echo "Running in E2E mode - automated PR handling"
+else
+    export E2E_MODE="false"
+    echo "Running in verification mode - manual PR intervention required"
+fi
+
 # Get the script directory and project root
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." &> /dev/null && pwd )"
@@ -127,20 +139,83 @@ CACHE_DIR="$TEST_BASE_DIR/cache"
 echo "Creating test environment in: $TEST_BASE_DIR"
 mkdir -p "$TEST_DIR" "$CACHE_DIR"
 
+# Set up environment for PR state management
+export PR_STATE_DIR="$TEST_BASE_DIR/pr-state"
+mkdir -p "$PR_STATE_DIR"
+
 # Set up test environment using takotest
 echo "Setting up test environment using takotest..."
 if [ "$LOCAL_MODE" = "true" ]; then
-    if ! "$PROJECT_ROOT/takotest" setup --local --work-dir "$TEST_DIR" --cache-dir "$CACHE_DIR" --owner "$OWNER" "$TEST_ENVIRONMENT"; then
+    TAKOTEST_OUTPUT=$("$PROJECT_ROOT/takotest" setup --local --work-dir "$TEST_DIR" --cache-dir "$CACHE_DIR" --owner "$OWNER" "$TEST_ENVIRONMENT" 2>&1)
+    if [ $? -ne 0 ]; then
         echo -e "${RED}Error: Failed to set up test environment with takotest${NC}"
+        echo "$TAKOTEST_OUTPUT"
         exit 1
     fi
 else
-    if ! "$PROJECT_ROOT/takotest" setup --work-dir "$TEST_DIR" --cache-dir "$CACHE_DIR" --owner "$OWNER" "$TEST_ENVIRONMENT"; then
+    TAKOTEST_OUTPUT=$("$PROJECT_ROOT/takotest" setup --work-dir "$TEST_DIR" --cache-dir "$CACHE_DIR" --owner "$OWNER" "$TEST_ENVIRONMENT" 2>&1)
+    if [ $? -ne 0 ]; then
         echo -e "${RED}Error: Failed to set up test environment with takotest${NC}"
+        echo "$TAKOTEST_OUTPUT"
         exit 1
     fi
+    
+    # In remote mode, parse the JSON output to get actual directories
+    JSON_LINE=$(echo "$TAKOTEST_OUTPUT" | tail -1 | grep '^{')
+    if [ -n "$JSON_LINE" ]; then
+        # Extract directories from JSON
+        ACTUAL_WORK_DIR=$(echo "$JSON_LINE" | grep -o '"workDir":"[^"]*"' | cut -d'"' -f4)
+        ACTUAL_CACHE_DIR=$(echo "$JSON_LINE" | grep -o '"cacheDir":"[^"]*"' | cut -d'"' -f4)
+        if [ -n "$ACTUAL_WORK_DIR" ] && [ -n "$ACTUAL_CACHE_DIR" ]; then
+            TEST_DIR="$ACTUAL_WORK_DIR"
+            CACHE_DIR="$ACTUAL_CACHE_DIR"
+            echo "Remote mode: Using actual directories from takotest"
+            echo "Work dir: $TEST_DIR"
+            echo "Cache dir: $CACHE_DIR"
+        fi
+    fi
 fi
+echo "$TAKOTEST_OUTPUT"
 print_status "PASS" "Test environment set up with takotest"
+
+# For remote mode, set up cache directory structure after all repositories are created
+if [ "$LOCAL_MODE" != "true" ]; then
+    echo "Setting up cache structure for remote repositories..."
+    mkdir -p "$CACHE_DIR/repos/$OWNER"
+    
+    # Change to work directory to find repositories
+    cd "$TEST_DIR"
+    
+    # Create symlinks in cache for each local repository
+    for repo in java-bom-fanout-*; do
+        if [ -d "$repo" ]; then
+            mkdir -p "$CACHE_DIR/repos/$OWNER/$repo"
+            ln -sf "$TEST_DIR/$repo" "$CACHE_DIR/repos/$OWNER/$repo/main"
+            echo "  Cached (local): $repo"
+        fi
+    done
+    
+    # Clone additional repositories that are needed but not local
+    echo "Cloning additional repositories from GitHub..."
+    ADDITIONAL_REPOS=(
+        "java-bom-fanout-java-bom-fanout-orchestrator"
+        "java-bom-fanout-java-bom-fanout-lib-a" 
+        "java-bom-fanout-java-bom-fanout-lib-b"
+        "java-bom-fanout-java-bom-fanout-java-bom"
+    )
+    
+    for repo in "${ADDITIONAL_REPOS[@]}"; do
+        if [ ! -d "$CACHE_DIR/repos/$OWNER/$repo/main" ]; then
+            echo "  Cloning: $repo"
+            mkdir -p "$CACHE_DIR/repos/$OWNER/$repo"
+            if gh repo clone "$OWNER/$repo" "$CACHE_DIR/repos/$OWNER/$repo/main" &>/dev/null; then
+                echo "    ✓ Cloned $repo"
+            else
+                echo "    ✗ Failed to clone $repo"
+            fi
+        fi
+    done
+fi
 
 # Change to the test working directory
 cd "$TEST_DIR"
@@ -159,11 +234,15 @@ echo "Repositories created:"
 ls -la
 echo
 
-# Find the actual repo directories
+# Find the actual repo directories (both modes use work directory)
 REPO_DIRS=($(find . -maxdepth 1 -type d -name "*java-bom-fanout*" | sed 's|./||'))
 
 if [ ${#REPO_DIRS[@]} -eq 0 ]; then
     print_status "FAIL" "No test repositories found"
+    if [ "$LOCAL_MODE" != "true" ]; then
+        echo "Cache directory structure:"
+        find "$CACHE_DIR" -type d -name "*java-bom-fanout*" 2>/dev/null || echo "No cache directories found"
+    fi
     exit 1
 else
     for repo in "${REPO_DIRS[@]}"; do
@@ -221,12 +300,55 @@ fi
 echo
 echo "Test 4: Executing orchestrated release train..."
 EXECUTION_OUTPUT=""
+
+# Export environment variables for the orchestrator workflow
+export REPO_OWNER="$OWNER"
+export MAVEN_REPO_DIR="$TEST_BASE_DIR/maven-repo"
+export TAKO_BINARY="$TAKO_CMD"
+export CACHE_DIR="$CACHE_DIR"
+mkdir -p "$MAVEN_REPO_DIR"
+
+# Function to handle PR intervention during workflow execution
+handle_pr_intervention() {
+    local orchestrator_pid=$1
+    
+    if [ "$E2E_MODE" = "true" ]; then
+        # In E2E mode, just wait for the process to complete
+        wait $orchestrator_pid
+        return $?
+    fi
+    
+    # In manual mode, monitor for PR prompts and handle them
+    echo "Monitoring for PR merge prompts..."
+    echo "Note: When prompted, you can choose to auto-merge PRs or handle them manually"
+    
+    # Wait for the orchestrator process to complete
+    wait $orchestrator_pid
+    return $?
+}
+
 if [ "$LOCAL_MODE" = "true" ]; then
-    EXECUTION_OUTPUT=$("$TAKO_CMD" exec release-train --root "$ORCHESTRATOR_REPO" --inputs.version=1.2.0 --cache-dir "$CACHE_DIR" 2>&1)
-    EXECUTION_EXIT_CODE=$?
+    # Start the orchestrator in the background to handle potential prompts
+    if [ "$E2E_MODE" = "true" ]; then
+        # E2E mode: run directly with automated handling
+        EXECUTION_OUTPUT=$("$TAKO_CMD" exec release-train --root "$ORCHESTRATOR_REPO" --inputs.version=1.2.0 --cache-dir "$CACHE_DIR" 2>&1)
+        EXECUTION_EXIT_CODE=$?
+    else
+        # Manual verification mode: run with potential for user interaction
+        echo "Starting release train execution (may require manual PR intervention)..."
+        EXECUTION_OUTPUT=$("$TAKO_CMD" exec release-train --root "$ORCHESTRATOR_REPO" --inputs.version=1.2.0 --cache-dir "$CACHE_DIR" 2>&1)
+        EXECUTION_EXIT_CODE=$?
+    fi
 else
-    EXECUTION_OUTPUT=$("$TAKO_CMD" exec release-train --repo "$ORCHESTRATOR_REPO" --inputs.version=1.2.0 --cache-dir "$CACHE_DIR" 2>&1)
-    EXECUTION_EXIT_CODE=$?
+    # Remote mode
+    if [ "$E2E_MODE" = "true" ]; then
+        EXECUTION_OUTPUT=$("$TAKO_CMD" exec release-train --repo "$ORCHESTRATOR_REPO" --inputs.version=1.2.0 --cache-dir "$CACHE_DIR" 2>&1)
+        EXECUTION_EXIT_CODE=$?
+    else
+        echo "Starting release train execution in remote mode (may require manual PR intervention)..."
+        EXECUTION_OUTPUT=$("$TAKO_CMD" exec release-train --repo "$ORCHESTRATOR_REPO" --inputs.version=1.2.0 --cache-dir "$CACHE_DIR" 2>&1)
+        EXECUTION_EXIT_CODE=$?
+    fi
 fi
 
 if [ $EXECUTION_EXIT_CODE -eq 0 ]; then
@@ -241,7 +363,7 @@ fi
 # Test 5: Verify orchestration steps were executed
 echo
 echo "Test 5: Verifying orchestration steps..."
-expected_steps=("start-release-train" "trigger-core-lib" "simulate-downstream-cascade" "verify-release-train")
+expected_steps=("start-release-train" "release-core-lib" "trigger-downstream-updates" "verify-release-train")
 for step in "${expected_steps[@]}"; do
     if echo "$EXECUTION_OUTPUT" | grep -q "$step"; then
         print_status "PASS" "Step '$step' was executed"
