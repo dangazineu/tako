@@ -10,7 +10,7 @@ PRESERVE_TEST_DIR=false
 TEST_ENVIRONMENT="java-bom-fanout"
 LOCAL_MODE=true
 REMOTE_MODE=false
-OWNER="test-owner"
+OWNER="tako-test"
 while [[ $# -gt 0 ]]; do
     case $1 in
         --preserve-test-dir)
@@ -40,7 +40,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --preserve-test-dir    Do not delete test directories when script completes"
             echo "  --test-env ENV         Use specific test environment (default: java-bom-fanout)"
-            echo "  --owner OWNER          GitHub organization or user (default: test-owner)"
+            echo "  --owner OWNER          GitHub organization or user (default: tako-test)"
             echo "  --local                Use local mode (default)"
             echo "  --remote               Use remote mode (requires GitHub token)"
             echo "  --help, -h             Show this help message"
