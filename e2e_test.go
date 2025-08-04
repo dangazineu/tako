@@ -327,16 +327,26 @@ func runSteps(t *testing.T, steps []e2e.Step, workDir, cacheDir, mode string, wi
 				mavenRepoDir := filepath.Join(filepath.Dir(workDir), "maven-repo")
 
 				args := make([]string, len(step.Args))
-				copy(args, step.Args)
-
-				// Replace Maven repository variable in tako command arguments
-				for i, arg := range args {
-					args[i] = strings.ReplaceAll(arg, "${MAVEN_REPO_DIR}", mavenRepoDir)
+				for i, arg := range step.Args {
+					// Apply path placeholder replacements first
+					args[i] = replacePathPlaceholders(arg, env, workDir, cacheDir, withRepoEntryPoint)
+					// Then replace Maven repository variable
+					args[i] = strings.ReplaceAll(args[i], "${MAVEN_REPO_DIR}", mavenRepoDir)
 				}
 
 				if withRepoEntryPoint {
-					repoName := fmt.Sprintf("%s-%s", env.Name, env.Repositories[0].Name)
-					args = append(args, "--repo", fmt.Sprintf("%s/%s:main", testOrg, repoName))
+					// Only add default --repo if not already specified in test case
+					hasRepoArg := false
+					for _, arg := range args {
+						if strings.HasPrefix(arg, "--repo=") || arg == "--repo" {
+							hasRepoArg = true
+							break
+						}
+					}
+					if !hasRepoArg {
+						repoName := fmt.Sprintf("%s-%s", env.Name, env.Repositories[0].Name)
+						args = append(args, "--repo", fmt.Sprintf("%s/%s:main", testOrg, repoName))
+					}
 				} else {
 					repoName := fmt.Sprintf("%s-%s", env.Name, env.Repositories[0].Name)
 					args = append(args, "--root", filepath.Join(workDir, repoName))

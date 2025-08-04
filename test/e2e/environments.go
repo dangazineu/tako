@@ -295,6 +295,14 @@ func GetEnvironments(owner string) map[string]TestEnvironmentDef {
 					},
 					Dependencies: []string{"java-bom-fanout-lib-a", "java-bom-fanout-lib-b"},
 				},
+				{
+					Name:   "java-bom-fanout-orchestrator",
+					Branch: "main",
+					Files: []FileDef{
+						{Path: "tako.yml", Template: "java-bom-fanout/orchestrator/tako.yml"},
+					},
+					Dependencies: []string{"java-bom-fanout-core-lib", "java-bom-fanout-lib-a", "java-bom-fanout-lib-b", "java-bom-fanout-java-bom"},
+				},
 			},
 		},
 	}
