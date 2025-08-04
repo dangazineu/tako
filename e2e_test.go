@@ -383,7 +383,13 @@ func runSteps(t *testing.T, steps []e2e.Step, workDir, cacheDir, mode string, wi
 			}
 			// Set Maven repo to a location within the test environment for isolation
 			mavenRepoDir := filepath.Join(filepath.Dir(workDir), "maven-repo")
-			cmd.Env = append(os.Environ(), fmt.Sprintf("PATH=%s", newPath), fmt.Sprintf("MAVEN_REPO_DIR=%s", mavenRepoDir))
+			prStateDir := filepath.Join(filepath.Dir(workDir), "pr-state")
+			cmd.Env = append(os.Environ(),
+				fmt.Sprintf("PATH=%s", newPath),
+				fmt.Sprintf("MAVEN_REPO_DIR=%s", mavenRepoDir),
+				"E2E_MODE=true",
+				fmt.Sprintf("PR_STATE_DIR=%s", prStateDir),
+				fmt.Sprintf("REPO_OWNER=%s", testOrg))
 
 			// Determine timeout based on command type
 			timeout := 5 * time.Minute

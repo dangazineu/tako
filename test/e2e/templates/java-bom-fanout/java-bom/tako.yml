@@ -1,13 +1,13 @@
 version: v1
 
 subscriptions:
-  - artifact: "{{.Owner}}/java-bom-fanout-lib-a:main"
+  - artifact: "{{.Owner}}/java-bom-fanout-java-bom-fanout-lib-a:main"
     events: ["library_released"]
     workflow: "aggregate-and-release-bom"
     inputs:
       library_name: "{{ .event.payload.library_name }}"
       new_version: "{{ .event.payload.new_version }}"
-  - artifact: "{{.Owner}}/java-bom-fanout-lib-b:main"
+  - artifact: "{{.Owner}}/java-bom-fanout-java-bom-fanout-lib-b:main"
     events: ["library_released"]
     workflow: "aggregate-and-release-bom" 
     inputs:
@@ -105,7 +105,7 @@ workflows:
         name: "Wait for CI and merge PR"
         run: |
           export PATH="./mock-tools:$PATH"
-          PR_NUMBER="{{ .steps.create-pr.outputs.pr_number }}"
+          PR_NUMBER="{{ .Steps.create_pr.pr_number }}"
           
           echo "Waiting for CI checks to pass for BOM PR #$PR_NUMBER"
           gh pr checks "$PR_NUMBER" --watch
@@ -124,7 +124,7 @@ workflows:
           NEW_VERSION=$(semver -i patch "$CURRENT_VERSION")
           
           echo "Triggering BOM release version $NEW_VERSION"
-          tako exec release-bom --inputs.version="$NEW_VERSION"
+          ${TAKO_BINARY:-tako} exec release-bom --inputs.version="$NEW_VERSION" --local --cache-dir "$CACHE_DIR"
 
   release-bom:
     inputs:
@@ -139,9 +139,6 @@ workflows:
           echo "Publishing BOM version {{ .Inputs.version }}"
           mvn clean install -Dmaven.repo.local=${MAVEN_REPO_DIR}
           
-          # Create release tag
-          git tag "{{ .Inputs.version }}"
-          
           # Create verification files
           echo "Published java-bom-{{ .Inputs.version }}" > "published_java-bom_{{ .Inputs.version }}.txt"
           echo "{{ .Inputs.version }}" > java-bom-version.txt
@@ -150,6 +147,33 @@ workflows:
           cp tako.state.json "final_bom_state_{{ .Inputs.version }}.json"
           
           echo "BOM {{ .Inputs.version }} published successfully!"
+          
+      - id: create-github-release
+        name: "Create GitHub release for BOM"
+        run: |
+          echo "Creating GitHub release for BOM version {{ .Inputs.version }}"
+          
+          # Use mock gh CLI to create release
+          export PATH="./mock-tools:$PATH"
+          
+          # Create git tag
+          git tag -a "v{{ .Inputs.version }}" -m "BOM Release v{{ .Inputs.version }}"
+          
+          # Read library versions from state file
+          LIB_A_VERSION=$(jq -r '."lib-a"' tako.state.json)
+          LIB_B_VERSION=$(jq -r '."lib-b"' tako.state.json)
+          
+          # Create GitHub release with library versions in notes
+          gh release create "v{{ .Inputs.version }}" \
+            --title "BOM v{{ .Inputs.version }}" \
+            --notes "BOM release v{{ .Inputs.version }}
+          
+          Included library versions:
+          - lib-a: $LIB_A_VERSION
+          - lib-b: $LIB_B_VERSION" \
+            --target main
+          
+          echo "✓ GitHub release created for BOM v{{ .Inputs.version }}"
           
           # Reset state file for next iteration
           echo '{}' > tako.state.json

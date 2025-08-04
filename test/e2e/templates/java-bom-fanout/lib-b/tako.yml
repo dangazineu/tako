@@ -48,7 +48,7 @@ workflows:
         name: "Wait for CI and merge PR"
         run: |
           export PATH="./mock-tools:$PATH"
-          PR_NUMBER="{{ .steps.create-pr.outputs.pr_number }}"
+          PR_NUMBER="{{ .Steps.create_pr.pr_number }}"
           
           echo "Waiting for CI checks to pass for PR #$PR_NUMBER"
           gh pr checks "$PR_NUMBER" --watch
@@ -67,7 +67,7 @@ workflows:
           NEW_VERSION=$(semver -i patch "$CURRENT_VERSION")
           
           echo "Triggering release of lib-b version $NEW_VERSION"
-          tako exec release --inputs.version="$NEW_VERSION"
+          ${TAKO_BINARY:-tako} exec release --inputs.version="$NEW_VERSION" --local --cache-dir "$CACHE_DIR"
 
   release:
     inputs:
@@ -82,12 +82,28 @@ workflows:
           echo "Building lib-b version {{ .Inputs.version }}"
           mvn clean install -Dmaven.repo.local=${MAVEN_REPO_DIR}
           
-          # Create release tag
-          git tag "{{ .Inputs.version }}"
-          
           # Create verification file
           echo "Published lib-b-{{ .Inputs.version }}" > "published_lib-b_{{ .Inputs.version }}.txt"
           echo "{{ .Inputs.version }}" > lib-b-version.txt
+          
+      - id: create-github-release
+        name: "Create GitHub release"
+        run: |
+          echo "Creating GitHub release for lib-b version {{ .Inputs.version }}"
+          
+          # Use mock gh CLI to create release
+          export PATH="./mock-tools:$PATH"
+          
+          # Create git tag
+          git tag -a "v{{ .Inputs.version }}" -m "Release v{{ .Inputs.version }}"
+          
+          # Create GitHub release
+          gh release create "v{{ .Inputs.version }}" \
+            --title "lib-b v{{ .Inputs.version }}" \
+            --notes "Library B release v{{ .Inputs.version }} with updated core-lib dependency" \
+            --target main
+          
+          echo "✓ GitHub release created for lib-b v{{ .Inputs.version }}"
           
       - id: emit-release-event
         name: "Emit library released event"

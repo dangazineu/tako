@@ -16,81 +16,172 @@ workflows:
           echo "Target version: {{ .Inputs.version }}"
           echo "Orchestrator: Coordinating full dependency graph release"
           
-      - id: trigger-core-lib
-        name: "Trigger core-lib release"
+      - id: release-core-lib
+        name: "Release core library"
         run: |
-          echo "=== Phase 1: Triggering Core Library Release ==="
+          echo "=== Phase 1: Releasing Core Library ==="
           echo "Triggering core-lib release with version {{ .Inputs.version }}"
           
-          # Simulate core-lib release by creating expected output files
-          echo "{{ .Inputs.version }}" > core-lib-version.txt
-          echo "Core library {{ .Inputs.version }} released at $(date)" > published_core-lib_{{ .Inputs.version }}.txt
+          # Trigger the release workflow in core-lib repository
+          # Try to find core-lib in various locations (work dir or cache)
+          if [ -d "../java-bom-fanout-core-lib" ]; then
+            cd ../java-bom-fanout-core-lib
+          elif [ -d "../../repos/*/java-bom-fanout-java-bom-fanout-core-lib/main" ]; then
+            cd ../../repos/*/java-bom-fanout-java-bom-fanout-core-lib/main
+          else
+            # Try the work directory path (need to go up to the test base directory)
+            TEST_BASE_DIR=$(dirname $(dirname $(dirname $(dirname $(dirname $(pwd))))))
+            if [ -d "$TEST_BASE_DIR/work/java-bom-fanout-java-bom-fanout-core-lib" ]; then
+              cd "$TEST_BASE_DIR/work/java-bom-fanout-java-bom-fanout-core-lib"
+            else
+              echo "Error: Could not find core-lib repository"
+              echo "Tried: $TEST_BASE_DIR/work/java-bom-fanout-java-bom-fanout-core-lib"
+              echo "Current dir: $(pwd)"
+              exit 1
+            fi
+          fi
           
-          echo "Core-lib release completed successfully"
+          # Execute the release workflow
+          export PATH="./mock-tools:$PATH"
+          ${TAKO_BINARY:-tako} exec release --inputs.version="{{ .Inputs.version }}" --local --cache-dir "$CACHE_DIR"
           
-      - id: simulate-downstream-cascade
-        name: "Simulate downstream cascade completion"
+          echo "Core-lib release triggered successfully"
+          
+      - id: trigger-downstream-updates
+        name: "Trigger downstream dependency updates"
         run: |
-          echo "=== Phase 2: Simulating Downstream Cascade ==="
-          echo "Simulating lib-a, lib-b, and java-bom releases triggered by core-lib..."
+          echo "=== Phase 2: Triggering Downstream Updates ==="
+          echo "Core-lib {{ .Inputs.version }} released, now triggering dependency updates in lib-a and lib-b"
           
-          # Simulate lib-a release (triggered by core-lib dependency update)
-          echo "lib-a updated with core-lib {{ .Inputs.version }} at $(date)" > published_lib-a_$(date +%s).txt
+          # Trigger dependency updates in parallel
+          ORCHESTRATOR_DIR=$(pwd)
           
-          # Simulate lib-b release (triggered by core-lib dependency update)  
-          echo "lib-b updated with core-lib {{ .Inputs.version }} at $(date)" > published_lib-b_$(date +%s).txt
+          echo "Triggering lib-a dependency update..."
+          # Find lib-a repository
+          if [ -d "../../repos/*/java-bom-fanout-java-bom-fanout-lib-a/main" ]; then
+            cd ../../repos/*/java-bom-fanout-java-bom-fanout-lib-a/main
+          elif [ -d "../java-bom-fanout-lib-a" ]; then
+            cd ../java-bom-fanout-lib-a
+          else
+            # lib-a is in the cache
+            cd ../../java-bom-fanout-java-bom-fanout-lib-a/main
+          fi
+          export PATH="./mock-tools:$PATH"
+          ${TAKO_BINARY:-tako} exec propose-and-release-update --inputs.core_version="{{ .Inputs.version }}" --local --cache-dir "$CACHE_DIR" &
+          LIB_A_PID=$!
           
-          # Wait a moment to simulate processing time
-          sleep 2
+          echo "Triggering lib-b dependency update..."
+          # Find lib-b repository
+          cd "$ORCHESTRATOR_DIR"
+          if [ -d "../../repos/*/java-bom-fanout-java-bom-fanout-lib-b/main" ]; then
+            cd ../../repos/*/java-bom-fanout-java-bom-fanout-lib-b/main
+          elif [ -d "../java-bom-fanout-lib-b" ]; then
+            cd ../java-bom-fanout-lib-b
+          else
+            # lib-b is in the cache
+            cd ../../java-bom-fanout-java-bom-fanout-lib-b/main
+          fi
+          export PATH="./mock-tools:$PATH"
+          ${TAKO_BINARY:-tako} exec propose-and-release-update --inputs.core_version="{{ .Inputs.version }}" --local --cache-dir "$CACHE_DIR" &
+          LIB_B_PID=$!
           
-          # Simulate java-bom release (triggered by lib-a and lib-b updates)
-          echo "java-bom aggregated lib-a and lib-b at $(date)" > published_java-bom_$(date +%s).txt
-          echo "{\"timestamp\":\"$(date)\",\"version\":\"{{ .Inputs.version }}\",\"components\":[\"lib-a\",\"lib-b\"]}" > final_bom_state_$(date +%s).json
+          # Return to orchestrator directory
+          cd "$ORCHESTRATOR_DIR"
           
-          echo "✓ Downstream cascade simulation completed successfully!"
+          echo "Waiting for lib-a and lib-b dependency updates to complete..."
+          
+          # Wait for both processes to complete
+          if wait $LIB_A_PID; then
+            echo "✓ lib-a dependency update completed successfully"
+          else
+            echo "✗ lib-a dependency update failed"
+            exit 1
+          fi
+          
+          if wait $LIB_B_PID; then
+            echo "✓ lib-b dependency update completed successfully"
+          else
+            echo "✗ lib-b dependency update failed"
+            exit 1
+          fi
+          
+          echo "✓ All downstream dependency updates completed"
+          
+      - id: wait-for-bom-update
+        name: "Wait for BOM aggregation update"
+        run: |
+          echo "=== Phase 3: Waiting for BOM Update ==="
+          echo "Now that lib-a and lib-b are updated, java-bom should react to library_released events..."
+          
+          # The java-bom repository subscribes to library_released events from lib-a and lib-b
+          # Once both libraries have published their events, java-bom will create and merge a PR
+          
+          echo "Waiting for java-bom to aggregate both library releases..."
+          
+          # Wait for java-bom update to complete
+          MAX_WAIT=300
+          WAIT_TIME=0
+          while [ $WAIT_TIME -lt $MAX_WAIT ]; do
+            if [ -f "../../repos/*/java-bom-fanout-java-bom-fanout-java-bom/main/java-bom-version.txt" ] || \
+               [ -f "../java-bom-fanout-java-bom/java-bom-version.txt" ]; then
+              echo "✓ Java-BOM has been updated and released"
+              break
+            fi
+            
+            echo "Still waiting for java-bom aggregation... ($WAIT_TIME/$MAX_WAIT seconds)"
+            sleep 5
+            WAIT_TIME=$((WAIT_TIME + 5))
+          done
+          
+          if [ $WAIT_TIME -ge $MAX_WAIT ]; then
+            echo "✗ Timeout waiting for java-bom update"
+            echo "Check if lib-a and lib-b have emitted library_released events"
+            exit 1
+          fi
           
       - id: verify-release-train
         name: "Verify complete release train success"
         run: |
-          echo "=== Phase 3: Verification ==="
+          echo "=== Phase 4: Verification ==="
           echo "Verifying all components completed successfully..."
           
-          # Verify core-lib completion
-          if test -f published_core-lib_{{ .Inputs.version }}.txt; then
-            echo "✓ Core-lib verification passed"
-          else
-            echo "✗ Core-lib verification failed"
-            exit 1
-          fi
+          # Read actual versions from version files
+          CORE_VERSION="{{ .Inputs.version }}"
           
-          # Verify lib-a completion  
-          if ls published_lib-a_*.txt >/dev/null 2>&1; then
-            echo "✓ Lib-a verification passed"
-          else
-            echo "✗ Lib-a verification failed"
-            exit 1
-          fi
+          # Check version files exist
+          VERSION_FILES_FOUND=true
+          for repo in core-lib lib-a lib-b java-bom; do
+            VERSION_FILE="../java-bom-fanout-${repo}/${repo}-version.txt"
+            CACHE_VERSION_FILE="../../repos/*/java-bom-fanout-java-bom-fanout-${repo}/main/${repo}-version.txt"
+            WORK_VERSION_FILE=$(dirname $(dirname $(pwd)))/work/java-bom-fanout-java-bom-fanout-${repo}/${repo}-version.txt
+            
+            if [ -f "$VERSION_FILE" ]; then
+              echo "✓ Found $repo version file"
+              VERSION=$(cat "$VERSION_FILE")
+              echo "  Version: $VERSION"
+            elif ls $CACHE_VERSION_FILE 2>/dev/null | head -1; then
+              FOUND_FILE=$(ls $CACHE_VERSION_FILE 2>/dev/null | head -1)
+              echo "✓ Found $repo version file (cache)"
+              VERSION=$(cat "$FOUND_FILE")
+              echo "  Version: $VERSION"
+            elif [ -f "$WORK_VERSION_FILE" ]; then
+              echo "✓ Found $repo version file (work dir)"
+              VERSION=$(cat "$WORK_VERSION_FILE")
+              echo "  Version: $VERSION"
+            else
+              echo "✗ Missing $repo version file"
+              echo "  Tried: $VERSION_FILE"
+              echo "  Tried: $CACHE_VERSION_FILE"
+              echo "  Tried: $WORK_VERSION_FILE"
+              VERSION_FILES_FOUND=false
+            fi
+          done
           
-          # Verify lib-b completion
-          if ls published_lib-b_*.txt >/dev/null 2>&1; then
-            echo "✓ Lib-b verification passed"
-          else
-            echo "✗ Lib-b verification failed"
-            exit 1
-          fi
-          
-          # Verify java-bom completion and final state
-          if ls published_java-bom_*.txt >/dev/null 2>&1 && ls final_bom_state_*.json >/dev/null 2>&1; then
-            echo "✓ Java-BOM verification passed"
-          else
-            echo "✗ Java-BOM verification failed"
+          if [ "$VERSION_FILES_FOUND" = "false" ]; then
+            echo "✗ Release train verification failed - missing version files"
             exit 1
           fi
           
           echo "=== Release Train v{{ .Inputs.version }} COMPLETED SUCCESSFULLY ==="
-          echo "All components released and verified:"
-          echo "  - core-lib: {{ .Inputs.version }}"
-          echo "  - lib-a: updated with core-lib {{ .Inputs.version }}"
-          echo "  - lib-b: updated with core-lib {{ .Inputs.version }}"
-          echo "  - java-bom: aggregated lib-a and lib-b versions"
+          echo "All components released and verified"
           echo "Timestamp: $(date)"

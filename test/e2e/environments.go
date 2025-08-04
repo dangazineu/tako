@@ -256,6 +256,8 @@ func GetEnvironments(owner string) map[string]TestEnvironmentDef {
 						{Path: "tako.yml", Template: "java-bom-fanout/core-lib/tako.yml"},
 						{Path: "src/main/java/com/example/tako/CoreLib.java", Template: "java-bom-fanout/core-lib/src/main/java/com/example/tako/CoreLib.java"},
 						{Path: "src/test/java/com/example/tako/CoreLibTest.java", Template: "java-bom-fanout/core-lib/src/test/java/com/example/tako/CoreLibTest.java"},
+						{Path: "mock-tools/gh", Template: "java-bom-fanout/mock-gh.sh"},
+						{Path: "mock-tools/semver", Template: "java-bom-fanout/mock-semver.sh"},
 					},
 				},
 				{

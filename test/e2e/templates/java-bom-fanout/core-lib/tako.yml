@@ -15,6 +15,25 @@ workflows:
           mvn clean install -Dmaven.repo.local=${MAVEN_REPO_DIR}
           echo "Published core-lib-{{ .Inputs.version }}" > "published_core-lib_{{ .Inputs.version }}.txt"
           echo "{{ .Inputs.version }}" > core-lib-version.txt
+          
+      - id: create-github-release
+        name: "Create GitHub release"
+        run: |
+          echo "Creating GitHub release for version {{ .Inputs.version }}"
+          
+          # Use mock gh CLI to create release
+          export PATH="./mock-tools:$PATH"
+          
+          # Create git tag
+          git tag -a "v{{ .Inputs.version }}" -m "Release v{{ .Inputs.version }}"
+          
+          # Create GitHub release
+          gh release create "v{{ .Inputs.version }}" \
+            --title "Release v{{ .Inputs.version }}" \
+            --notes "Core library release v{{ .Inputs.version }}" \
+            --target main
+          
+          echo "✓ GitHub release created for v{{ .Inputs.version }}"
         
       - id: fan-out-core-release
         name: "Trigger downstream library updates"
