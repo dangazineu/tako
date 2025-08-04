@@ -136,6 +136,8 @@ This eliminates the need for complex fan-in primitives while maintaining proper 
 - Full chain integration may reveal timing or sequencing issues
 - Mock tools PATH and environment setup needs validation
 - E2E test verification logic needs enhancement
+- Mock server concurrent operations handling (lib-a and lib-b simultaneous PRs)
+- E2E test cleanup robustness and state reset between runs
 
 ### High Risk
 None identified - the implementation is very close to completion.
@@ -154,12 +156,32 @@ None identified - the implementation is very close to completion.
 2. Maintain clean separation between core demo and enhancements
 3. Preserve incremental development path
 
+## Additional Investigation Points (Per Gemini Review)
+
+### Technical Concerns to Address
+1. **Mock Server Robustness**: Verify concurrent PR creation handling between lib-a and lib-b
+2. **Test State Management**: Ensure reliable mock server state reset between test runs
+3. **Output Verification**: Confirm E2E framework can handle timing variations and verify all repositories
+4. **Observability**: Ensure sufficient logging for debugging failed E2E tests
+5. **Test Cleanup**: Verify thorough cleanup of temporary artifacts
+
+### Orchestrator Implementation Strategy
+Based on Gemini's analysis, the recommended approach is:
+- **Dedicated top-level orchestrator workflow** that initiates core-lib release
+- **Explicit waiting mechanism** for java-bom completion (polling state or waiting for bom_released event)
+- **Centralized control** aligning with "Explicit Invocation → Control releases" principle
+- **Clear entry point** for E2E test execution
+
 ## Conclusion
 
-Issue 147 is approximately 90% complete. The core orchestration patterns, event-driven coordination, and realistic CI simulation are all implemented. The remaining work focuses on:
+Issue 147 is approximately 90% complete with well-architected foundations. The core orchestration patterns, event-driven coordination, and realistic CI simulation are all implemented. 
 
+**Remaining work focuses on**:
 1. Adding orchestrator pattern for centralized control
-2. Completing end-to-end verification
-3. Ensuring robust integration across all components
+2. Completing end-to-end verification with robust state checking
+3. Ensuring mock infrastructure handles concurrent operations gracefully
+4. Adding comprehensive observability for debugging
 
-The implementation validates that tako's architecture is sound and capable of complex orchestration scenarios. The identified "missing features" are valuable production enhancements but not blockers for the core demonstration.
+**Key insight confirmed by Gemini**: The hybrid approach (reactive updates via events + explicit coordination via state) is architecturally sound and well-suited for the BOM orchestration problem.
+
+The implementation validates that tako's architecture is capable of complex orchestration scenarios. The identified "missing features" are valuable production enhancements but not blockers for the core demonstration.
