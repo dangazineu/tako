@@ -26,7 +26,7 @@ workflows:
           if [ -n "$TAKO_CURRENT_REPO" ]; then
             # We're in repository mode - use --repo flag
             echo "Running in repository mode"
-            ${TAKO_BINARY:-tako} exec release --repo "${REPO_OWNER}/java-bom-fanout-java-bom-fanout-core-lib" --inputs.version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR"
+            ${TAKO_BINARY:-tako} exec release --repo "${REPO_OWNER:-tako-test}/java-bom-fanout-java-bom-fanout-core-lib" --inputs.version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR"
           else
             # We're in local mode - navigate to directory
             echo "Running in local mode"
@@ -65,11 +65,11 @@ workflows:
             # Repository mode - use --repo flags
             echo "Running in repository mode"
             echo "Triggering lib-a dependency update..."
-            ${TAKO_BINARY:-tako} exec propose-and-release-update --repo "${REPO_OWNER}/java-bom-fanout-java-bom-fanout-lib-a" --inputs.core_version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR" &
+            ${TAKO_BINARY:-tako} exec propose-and-release-update --repo "${REPO_OWNER:-tako-test}/java-bom-fanout-java-bom-fanout-lib-a" --inputs.core_version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR" &
             LIB_A_PID=$!
             
             echo "Triggering lib-b dependency update..."
-            ${TAKO_BINARY:-tako} exec propose-and-release-update --repo "${REPO_OWNER}/java-bom-fanout-java-bom-fanout-lib-b" --inputs.core_version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR" &
+            ${TAKO_BINARY:-tako} exec propose-and-release-update --repo "${REPO_OWNER:-tako-test}/java-bom-fanout-java-bom-fanout-lib-b" --inputs.core_version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR" &
             LIB_B_PID=$!
           else
             # Local mode - navigate to directories
