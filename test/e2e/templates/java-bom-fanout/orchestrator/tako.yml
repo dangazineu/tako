@@ -61,22 +61,50 @@ workflows:
           echo "=== Phase 2: Triggering Downstream Updates ==="
           echo "Core-lib {{ .Inputs.version }} released, now triggering dependency updates in lib-a and lib-b"
           
+          # Debug environment
+          echo "Environment debug:"
+          echo "TAKO_CURRENT_REPO: '${TAKO_CURRENT_REPO:-not set}'"
+          echo "REPO_OWNER: '${REPO_OWNER:-not set}'"
+          echo "CACHE_DIR: '${CACHE_DIR:-not set}'"
+          echo "PWD: $(pwd)"
+          echo "TAKO_BINARY: ${TAKO_BINARY:-tako}"
+          
+          # Test if tako command is available
+          echo "Testing tako command availability..."
+          if command -v ${TAKO_BINARY:-tako} >/dev/null 2>&1; then
+            echo "✓ tako command found: $(which ${TAKO_BINARY:-tako})"
+            ${TAKO_BINARY:-tako} --version || echo "tako --version failed"
+          else
+            echo "✗ tako command not found in PATH"
+            echo "PATH: $PATH"
+            exit 1
+          fi
+          
           if [ -n "$TAKO_CURRENT_REPO" ]; then
             # Repository mode - use --repo flags
             echo "Running in repository mode"
-            echo "TAKO_CURRENT_REPO: $TAKO_CURRENT_REPO"
-            echo "REPO_OWNER: ${REPO_OWNER:-tako-test}"
-            echo "CACHE_DIR: $CACHE_DIR"
             
-            echo "Triggering lib-a dependency update..."
-            echo "Command: ${TAKO_BINARY:-tako} exec propose-and-release-update --repo \"${REPO_OWNER:-tako-test}/java-bom-fanout-java-bom-fanout-lib-a\" --inputs.core_version=\"{{ .Inputs.version }}\" --cache-dir \"$CACHE_DIR\""
-            ${TAKO_BINARY:-tako} exec propose-and-release-update --repo "${REPO_OWNER:-tako-test}/java-bom-fanout-java-bom-fanout-lib-a" --inputs.core_version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR" &
+            echo "Testing repository resolution..."
+            LIB_A_REPO="${REPO_OWNER:-tako-test}/java-bom-fanout-java-bom-fanout-lib-a"
+            LIB_B_REPO="${REPO_OWNER:-tako-test}/java-bom-fanout-java-bom-fanout-lib-b"
+            echo "LIB_A_REPO: $LIB_A_REPO"
+            echo "LIB_B_REPO: $LIB_B_REPO"
+            
+            # Try simple exec command first
+            echo "Testing simple tako exec call..."
+            echo "Command: ${TAKO_BINARY:-tako} exec --help"
+            ${TAKO_BINARY:-tako} exec --help | head -5 || {
+              echo "✗ Basic tako exec command failed"
+              exit 1
+            }
+            
+            echo "Proceeding with lib-a dependency update..."
+            ${TAKO_BINARY:-tako} exec propose-and-release-update --repo "$LIB_A_REPO" --inputs.core_version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR" &
             LIB_A_PID=$!
             echo "Started lib-a update with PID: $LIB_A_PID"
             
             echo "Triggering lib-b dependency update..."
-            echo "Command: ${TAKO_BINARY:-tako} exec propose-and-release-update --repo \"${REPO_OWNER:-tako-test}/java-bom-fanout-java-bom-fanout-lib-b\" --inputs.core_version=\"{{ .Inputs.version }}\" --cache-dir \"$CACHE_DIR\""
-            ${TAKO_BINARY:-tako} exec propose-and-release-update --repo "${REPO_OWNER:-tako-test}/java-bom-fanout-java-bom-fanout-lib-b" --inputs.core_version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR" &
+            ${TAKO_BINARY:-tako} exec propose-and-release-update --repo "$LIB_B_REPO" --inputs.core_version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR" &
             LIB_B_PID=$!
             echo "Started lib-b update with PID: $LIB_B_PID"
           else
