@@ -472,6 +472,7 @@ func (r *Runner) executeShellStep(ctx context.Context, step config.WorkflowStep,
 		fmt.Sprintf("TAKO_RUN_ID=%s", r.runID),
 		fmt.Sprintf("TAKO_STEP_ID=%s", stepID),
 		fmt.Sprintf("TAKO_WORKSPACE=%s", r.workspaceRoot),
+		fmt.Sprintf("TAKO_CURRENT_REPO=%s", r.currentRepoSpec),
 	)
 
 	// Add inputs as environment variables

@@ -22,28 +22,36 @@ workflows:
           echo "=== Phase 1: Releasing Core Library ==="
           echo "Triggering core-lib release with version {{ .Inputs.version }}"
           
-          # Trigger the release workflow in core-lib repository
-          # Try to find core-lib in various locations (work dir or cache)
-          if [ -d "../java-bom-fanout-core-lib" ]; then
-            cd ../java-bom-fanout-core-lib
-          elif [ -d "../../repos/*/java-bom-fanout-java-bom-fanout-core-lib/main" ]; then
-            cd ../../repos/*/java-bom-fanout-java-bom-fanout-core-lib/main
+          # Determine if we're in local mode or repository mode
+          if [ -n "$TAKO_CURRENT_REPO" ]; then
+            # We're in repository mode - use --repo flag
+            echo "Running in repository mode"
+            ${TAKO_BINARY:-tako} exec release --repo "${REPO_OWNER}/java-bom-fanout-java-bom-fanout-core-lib" --inputs.version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR"
           else
-            # Try the work directory path (need to go up to the test base directory)
-            TEST_BASE_DIR=$(dirname $(dirname $(dirname $(dirname $(dirname $(pwd))))))
-            if [ -d "$TEST_BASE_DIR/work/java-bom-fanout-java-bom-fanout-core-lib" ]; then
-              cd "$TEST_BASE_DIR/work/java-bom-fanout-java-bom-fanout-core-lib"
+            # We're in local mode - navigate to directory
+            echo "Running in local mode"
+            # Try to find core-lib in various locations (work dir or cache)
+            if [ -d "../java-bom-fanout-core-lib" ]; then
+              cd ../java-bom-fanout-core-lib
+            elif [ -d "../../repos/*/java-bom-fanout-java-bom-fanout-core-lib/main" ]; then
+              cd ../../repos/*/java-bom-fanout-java-bom-fanout-core-lib/main
             else
-              echo "Error: Could not find core-lib repository"
-              echo "Tried: $TEST_BASE_DIR/work/java-bom-fanout-java-bom-fanout-core-lib"
-              echo "Current dir: $(pwd)"
-              exit 1
+              # Try the work directory path (need to go up to the test base directory)
+              TEST_BASE_DIR=$(dirname $(dirname $(dirname $(dirname $(dirname $(pwd))))))
+              if [ -d "$TEST_BASE_DIR/work/java-bom-fanout-java-bom-fanout-core-lib" ]; then
+                cd "$TEST_BASE_DIR/work/java-bom-fanout-java-bom-fanout-core-lib"
+              else
+                echo "Error: Could not find core-lib repository"
+                echo "Tried: $TEST_BASE_DIR/work/java-bom-fanout-java-bom-fanout-core-lib"
+                echo "Current dir: $(pwd)"
+                exit 1
+              fi
             fi
+            
+            # Execute the release workflow
+            export PATH="./mock-tools:$PATH"
+            ${TAKO_BINARY:-tako} exec release --inputs.version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR"
           fi
-          
-          # Execute the release workflow
-          export PATH="./mock-tools:$PATH"
-          ${TAKO_BINARY:-tako} exec release --inputs.version="{{ .Inputs.version }}" --local --cache-dir "$CACHE_DIR"
           
           echo "Core-lib release triggered successfully"
           
@@ -53,40 +61,54 @@ workflows:
           echo "=== Phase 2: Triggering Downstream Updates ==="
           echo "Core-lib {{ .Inputs.version }} released, now triggering dependency updates in lib-a and lib-b"
           
-          # Trigger dependency updates in parallel
-          ORCHESTRATOR_DIR=$(pwd)
-          
-          echo "Triggering lib-a dependency update..."
-          # Find lib-a repository
-          if [ -d "../../repos/*/java-bom-fanout-java-bom-fanout-lib-a/main" ]; then
-            cd ../../repos/*/java-bom-fanout-java-bom-fanout-lib-a/main
-          elif [ -d "../java-bom-fanout-lib-a" ]; then
-            cd ../java-bom-fanout-lib-a
+          if [ -n "$TAKO_CURRENT_REPO" ]; then
+            # Repository mode - use --repo flags
+            echo "Running in repository mode"
+            echo "Triggering lib-a dependency update..."
+            ${TAKO_BINARY:-tako} exec propose-and-release-update --repo "${REPO_OWNER}/java-bom-fanout-java-bom-fanout-lib-a" --inputs.core_version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR" &
+            LIB_A_PID=$!
+            
+            echo "Triggering lib-b dependency update..."
+            ${TAKO_BINARY:-tako} exec propose-and-release-update --repo "${REPO_OWNER}/java-bom-fanout-java-bom-fanout-lib-b" --inputs.core_version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR" &
+            LIB_B_PID=$!
           else
-            # lib-a is in the cache
-            cd ../../java-bom-fanout-java-bom-fanout-lib-a/main
+            # Local mode - navigate to directories
+            echo "Running in local mode"
+            # Trigger dependency updates in parallel
+            ORCHESTRATOR_DIR=$(pwd)
+            
+            echo "Triggering lib-a dependency update..."
+            # Find lib-a repository
+            if [ -d "../../repos/*/java-bom-fanout-java-bom-fanout-lib-a/main" ]; then
+              cd ../../repos/*/java-bom-fanout-java-bom-fanout-lib-a/main
+            elif [ -d "../java-bom-fanout-lib-a" ]; then
+              cd ../java-bom-fanout-lib-a
+            else
+              # lib-a is in the cache
+              cd ../../java-bom-fanout-java-bom-fanout-lib-a/main
+            fi
+            export PATH="./mock-tools:$PATH"
+            ${TAKO_BINARY:-tako} exec propose-and-release-update --inputs.core_version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR" &
+            LIB_A_PID=$!
+            
+            echo "Triggering lib-b dependency update..."
+            # Find lib-b repository
+            cd "$ORCHESTRATOR_DIR"
+            if [ -d "../../repos/*/java-bom-fanout-java-bom-fanout-lib-b/main" ]; then
+              cd ../../repos/*/java-bom-fanout-java-bom-fanout-lib-b/main
+            elif [ -d "../java-bom-fanout-lib-b" ]; then
+              cd ../java-bom-fanout-lib-b
+            else
+              # lib-b is in the cache
+              cd ../../java-bom-fanout-java-bom-fanout-lib-b/main
+            fi
+            export PATH="./mock-tools:$PATH"
+            ${TAKO_BINARY:-tako} exec propose-and-release-update --inputs.core_version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR" &
+            LIB_B_PID=$!
+            
+            # Return to orchestrator directory
+            cd "$ORCHESTRATOR_DIR"
           fi
-          export PATH="./mock-tools:$PATH"
-          ${TAKO_BINARY:-tako} exec propose-and-release-update --inputs.core_version="{{ .Inputs.version }}" --local --cache-dir "$CACHE_DIR" &
-          LIB_A_PID=$!
-          
-          echo "Triggering lib-b dependency update..."
-          # Find lib-b repository
-          cd "$ORCHESTRATOR_DIR"
-          if [ -d "../../repos/*/java-bom-fanout-java-bom-fanout-lib-b/main" ]; then
-            cd ../../repos/*/java-bom-fanout-java-bom-fanout-lib-b/main
-          elif [ -d "../java-bom-fanout-lib-b" ]; then
-            cd ../java-bom-fanout-lib-b
-          else
-            # lib-b is in the cache
-            cd ../../java-bom-fanout-java-bom-fanout-lib-b/main
-          fi
-          export PATH="./mock-tools:$PATH"
-          ${TAKO_BINARY:-tako} exec propose-and-release-update --inputs.core_version="{{ .Inputs.version }}" --local --cache-dir "$CACHE_DIR" &
-          LIB_B_PID=$!
-          
-          # Return to orchestrator directory
-          cd "$ORCHESTRATOR_DIR"
           
           echo "Waiting for lib-a and lib-b dependency updates to complete..."
           
