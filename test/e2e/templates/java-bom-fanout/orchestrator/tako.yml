@@ -67,9 +67,17 @@ workflows:
           sleep 1
           echo "✓ lib-a dependency update completed successfully"
           
+          # Create simulation artifacts for lib-a (as if it was actually released)
+          echo "Published lib-a-1.0.1" > "published_lib-a_1.0.1.txt"
+          echo "1.0.1" > lib-a-version.txt
+          
           echo "Simulating lib-b dependency update..."  
           sleep 1
           echo "✓ lib-b dependency update completed successfully"
+          
+          # Create simulation artifacts for lib-b (as if it was actually released)
+          echo "Published lib-b-1.0.1" > "published_lib-b_1.0.1.txt"
+          echo "1.0.1" > lib-b-version.txt
           
           echo "✓ All downstream dependency updates completed"
           
@@ -82,6 +90,23 @@ workflows:
           
           sleep 2
           echo "✓ Java-BOM aggregation completed successfully"
+          
+          # Create simulation artifacts for java-bom (as if it was actually updated)
+          TIMESTAMP=$(date +%s)
+          echo "Published java-bom-1.2.0" > "published_java-bom_1.2.0.txt"
+          echo "1.2.0" > java-bom-version.txt
+          
+          # Create final BOM state file
+          cat > "final_bom_state_${TIMESTAMP}.json" << EOF
+{
+  "bom_version": "1.2.0",
+  "timestamp": "$(date -Iseconds)",
+  "core_lib_version": "{{ .Inputs.version }}",
+  "lib_a_version": "1.0.1",
+  "lib_b_version": "1.0.1",
+  "status": "completed"
+}
+EOF
           
       - id: verify-release-train
         name: "Verify complete release train success"
