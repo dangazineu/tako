@@ -64,13 +64,21 @@ workflows:
           if [ -n "$TAKO_CURRENT_REPO" ]; then
             # Repository mode - use --repo flags
             echo "Running in repository mode"
+            echo "TAKO_CURRENT_REPO: $TAKO_CURRENT_REPO"
+            echo "REPO_OWNER: ${REPO_OWNER:-tako-test}"
+            echo "CACHE_DIR: $CACHE_DIR"
+            
             echo "Triggering lib-a dependency update..."
+            echo "Command: ${TAKO_BINARY:-tako} exec propose-and-release-update --repo \"${REPO_OWNER:-tako-test}/java-bom-fanout-java-bom-fanout-lib-a\" --inputs.core_version=\"{{ .Inputs.version }}\" --cache-dir \"$CACHE_DIR\""
             ${TAKO_BINARY:-tako} exec propose-and-release-update --repo "${REPO_OWNER:-tako-test}/java-bom-fanout-java-bom-fanout-lib-a" --inputs.core_version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR" &
             LIB_A_PID=$!
+            echo "Started lib-a update with PID: $LIB_A_PID"
             
             echo "Triggering lib-b dependency update..."
+            echo "Command: ${TAKO_BINARY:-tako} exec propose-and-release-update --repo \"${REPO_OWNER:-tako-test}/java-bom-fanout-java-bom-fanout-lib-b\" --inputs.core_version=\"{{ .Inputs.version }}\" --cache-dir \"$CACHE_DIR\""
             ${TAKO_BINARY:-tako} exec propose-and-release-update --repo "${REPO_OWNER:-tako-test}/java-bom-fanout-java-bom-fanout-lib-b" --inputs.core_version="{{ .Inputs.version }}" --cache-dir "$CACHE_DIR" &
             LIB_B_PID=$!
+            echo "Started lib-b update with PID: $LIB_B_PID"
           else
             # Local mode - navigate to directories
             echo "Running in local mode"
@@ -113,17 +121,24 @@ workflows:
           echo "Waiting for lib-a and lib-b dependency updates to complete..."
           
           # Wait for both processes to complete
+          echo "Waiting for lib-a (PID: $LIB_A_PID)..."
           if wait $LIB_A_PID; then
             echo "✓ lib-a dependency update completed successfully"
           else
-            echo "✗ lib-a dependency update failed"
+            LIB_A_EXIT_CODE=$?
+            echo "✗ lib-a dependency update failed with exit code: $LIB_A_EXIT_CODE"
+            echo "Checking if lib-b is still running..."
+            kill $LIB_B_PID 2>/dev/null || true
+            wait $LIB_B_PID 2>/dev/null || true
             exit 1
           fi
           
+          echo "Waiting for lib-b (PID: $LIB_B_PID)..."
           if wait $LIB_B_PID; then
             echo "✓ lib-b dependency update completed successfully"
           else
-            echo "✗ lib-b dependency update failed"
+            LIB_B_EXIT_CODE=$?
+            echo "✗ lib-b dependency update failed with exit code: $LIB_B_EXIT_CODE"
             exit 1
           fi
           
