@@ -244,7 +244,7 @@ workflows:
     steps:
       - run: echo "update triggered"
 subscriptions:
-  - artifact: "source-org/library"
+  - artifact: "source-org/library:main"
     events: ["library_built"]
     workflow: "update"
 `
@@ -255,7 +255,7 @@ workflows:
     steps:
       - run: echo "build triggered"
 subscriptions:
-  - artifact: "source-org/library"
+  - artifact: "source-org/library:main"
     events: ["library_built", "library_updated"]
     workflow: "build"
 `
@@ -570,7 +570,7 @@ workflows:
     steps:
       - run: echo "update triggered"
 subscriptions:
-  - artifact: "source-org/library"
+  - artifact: "source-org/library:main"
     events: ["library_built"]
     workflow: "update"
 `
@@ -597,7 +597,7 @@ subscriptions:
 			},
 		},
 	}
-	sourceRepo := "source-org/library"
+	sourceRepo := "source-org/library:main"
 
 	// Execute first time
 	result1, err := executor.Execute(step, sourceRepo)
@@ -674,7 +674,7 @@ workflows:
     steps:
       - run: echo "update triggered"
 subscriptions:
-  - artifact: "source-org/library"
+  - artifact: "source-org/library:main"
     events: ["library_built"]
     workflow: "update"
 `
@@ -703,7 +703,7 @@ subscriptions:
 			},
 		},
 	}
-	sourceRepo := "source-org/library"
+	sourceRepo := "source-org/library:main"
 
 	// Execute first time
 	result1, err := executor.Execute(step, sourceRepo)
@@ -746,7 +746,7 @@ workflows:
     steps:
       - run: echo "update triggered"
 subscriptions:
-  - artifact: "source-org/library"
+  - artifact: "source-org/library:main"
     events: ["library_built"]
     workflow: "update"
 `
@@ -774,7 +774,7 @@ subscriptions:
 			},
 		},
 	}
-	sourceRepo := "source-org/library"
+	sourceRepo := "source-org/library:main"
 
 	// Execute first time
 	result1, err := executor.Execute(step, sourceRepo)
@@ -817,7 +817,7 @@ workflows:
     steps:
       - run: echo "update triggered"
 subscriptions:
-  - artifact: "source-org/library"
+  - artifact: "source-org/library:main"
     events: ["library_built"]
     workflow: "update"
 `
@@ -844,7 +844,7 @@ subscriptions:
 			},
 		},
 	}
-	sourceRepo := "source-org/library"
+	sourceRepo := "source-org/library:main"
 
 	// Execute the event multiple times sequentially (concurrent testing is complex for filesystem operations)
 	var results []*FanOutResult
@@ -896,7 +896,7 @@ workflows:
     steps:
       - run: echo "update triggered"
 subscriptions:
-  - artifact: "source-org/library"
+  - artifact: "source-org/library:main"
     events: ["library_built"]
     workflow: "update"
 `
@@ -922,7 +922,7 @@ subscriptions:
 			},
 		},
 	}
-	sourceRepo := "source-org/library"
+	sourceRepo := "source-org/library:main"
 
 	// Execute first time
 	result1, err := executor1.Execute(step, sourceRepo)
