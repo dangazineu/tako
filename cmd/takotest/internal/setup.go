@@ -141,6 +141,9 @@ func setupLocal(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) e
 
 func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) error {
 	withRepoEntrypoint, _ := cmd.Flags().GetBool("with-repo-entrypoint")
+	workDir, _ := cmd.Flags().GetString("work-dir")
+	cacheDir, _ := cmd.Flags().GetString("cache-dir")
+
 	client, err := e2e.GetClient()
 	if err != nil {
 		return err
@@ -283,8 +286,37 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 		}
 	}
 
-	tmpDir, err := os.MkdirTemp("", "tako-e2e-")
-	if err != nil {
+	// Handle directory setup similar to setupLocal
+	if workDir == "" {
+		tmpDir, err := os.MkdirTemp("", "tako-e2e-")
+		if err != nil {
+			return err
+		}
+		workDir = tmpDir
+		cacheDir = filepath.Join(tmpDir, "cache")
+	} else {
+		// Convert relative paths to absolute paths
+		if !filepath.IsAbs(workDir) {
+			wd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			workDir = filepath.Join(wd, workDir)
+		}
+		if cacheDir != "" && !filepath.IsAbs(cacheDir) {
+			wd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			cacheDir = filepath.Join(wd, cacheDir)
+		}
+	}
+
+	// Ensure directories exist
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return err
 	}
 
@@ -293,12 +325,11 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 		// Clone entrypoint repo for path mode
 		repoName := fmt.Sprintf("%s-%s", env.Name, env.Repositories[0].Name)
 		cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", owner, repoName)
-		if err := git.Clone(cloneURL, filepath.Join(tmpDir, repoName)); err != nil {
+		if err := git.Clone(cloneURL, filepath.Join(workDir, repoName)); err != nil {
 			return err
 		}
 	} else {
 		// Clone all repos to cache for repo entrypoint mode
-		cacheDir := filepath.Join(tmpDir, "cache")
 		for _, repoDef := range env.Repositories {
 			repoName := fmt.Sprintf("%s-%s", env.Name, repoDef.Name)
 			cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", owner, repoName)
@@ -313,8 +344,8 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 	}
 
 	output := SetupOutput{
-		WorkDir:  tmpDir,
-		CacheDir: filepath.Join(tmpDir, "cache"),
+		WorkDir:  workDir,
+		CacheDir: cacheDir,
 	}
 	return json.NewEncoder(cmd.OutOrStdout()).Encode(output)
 }

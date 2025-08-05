@@ -147,75 +147,18 @@ mkdir -p "$PR_STATE_DIR"
 echo "Setting up test environment using takotest..."
 if [ "$LOCAL_MODE" = "true" ]; then
     TAKOTEST_OUTPUT=$("$PROJECT_ROOT/takotest" setup --local --work-dir "$TEST_DIR" --cache-dir "$CACHE_DIR" --owner "$OWNER" "$TEST_ENVIRONMENT" 2>&1)
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}Error: Failed to set up test environment with takotest${NC}"
-        echo "$TAKOTEST_OUTPUT"
-        exit 1
-    fi
 else
     TAKOTEST_OUTPUT=$("$PROJECT_ROOT/takotest" setup --work-dir "$TEST_DIR" --cache-dir "$CACHE_DIR" --owner "$OWNER" "$TEST_ENVIRONMENT" 2>&1)
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}Error: Failed to set up test environment with takotest${NC}"
-        echo "$TAKOTEST_OUTPUT"
-        exit 1
-    fi
-    
-    # In remote mode, parse the JSON output to get actual directories
-    JSON_LINE=$(echo "$TAKOTEST_OUTPUT" | tail -1 | grep '^{')
-    if [ -n "$JSON_LINE" ]; then
-        # Extract directories from JSON
-        ACTUAL_WORK_DIR=$(echo "$JSON_LINE" | grep -o '"workDir":"[^"]*"' | cut -d'"' -f4)
-        ACTUAL_CACHE_DIR=$(echo "$JSON_LINE" | grep -o '"cacheDir":"[^"]*"' | cut -d'"' -f4)
-        if [ -n "$ACTUAL_WORK_DIR" ] && [ -n "$ACTUAL_CACHE_DIR" ]; then
-            TEST_DIR="$ACTUAL_WORK_DIR"
-            CACHE_DIR="$ACTUAL_CACHE_DIR"
-            echo "Remote mode: Using actual directories from takotest"
-            echo "Work dir: $TEST_DIR"
-            echo "Cache dir: $CACHE_DIR"
-        fi
-    fi
 fi
+
+if [ $? -ne 0 ]; then
+    echo -e "${RED}Error: Failed to set up test environment with takotest${NC}"
+    echo "$TAKOTEST_OUTPUT"
+    exit 1
+fi
+
 echo "$TAKOTEST_OUTPUT"
 print_status "PASS" "Test environment set up with takotest"
-
-# For remote mode, set up cache directory structure after all repositories are created
-if [ "$LOCAL_MODE" != "true" ]; then
-    echo "Setting up cache structure for remote repositories..."
-    mkdir -p "$CACHE_DIR/repos/$OWNER"
-    
-    # Change to work directory to find repositories
-    cd "$TEST_DIR"
-    
-    # Create symlinks in cache for each local repository
-    for repo in java-bom-fanout-*; do
-        if [ -d "$repo" ]; then
-            mkdir -p "$CACHE_DIR/repos/$OWNER/$repo"
-            ln -sf "$TEST_DIR/$repo" "$CACHE_DIR/repos/$OWNER/$repo/main"
-            echo "  Cached (local): $repo"
-        fi
-    done
-    
-    # Clone additional repositories that are needed but not local
-    echo "Cloning additional repositories from GitHub..."
-    ADDITIONAL_REPOS=(
-        "java-bom-fanout-java-bom-fanout-orchestrator"
-        "java-bom-fanout-java-bom-fanout-lib-a" 
-        "java-bom-fanout-java-bom-fanout-lib-b"
-        "java-bom-fanout-java-bom-fanout-java-bom"
-    )
-    
-    for repo in "${ADDITIONAL_REPOS[@]}"; do
-        if [ ! -d "$CACHE_DIR/repos/$OWNER/$repo/main" ]; then
-            echo "  Cloning: $repo"
-            mkdir -p "$CACHE_DIR/repos/$OWNER/$repo"
-            if gh repo clone "$OWNER/$repo" "$CACHE_DIR/repos/$OWNER/$repo/main" &>/dev/null; then
-                echo "    ✓ Cloned $repo"
-            else
-                echo "    ✗ Failed to clone $repo"
-            fi
-        fi
-    done
-fi
 
 # Change to the test working directory
 cd "$TEST_DIR"
