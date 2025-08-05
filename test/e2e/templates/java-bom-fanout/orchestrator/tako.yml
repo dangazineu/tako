@@ -119,16 +119,35 @@ workflows:
           echo "Waiting for java-bom to aggregate both library releases..."
           
           # Wait for java-bom update to complete
-          MAX_WAIT=300
+          MAX_WAIT=60
           WAIT_TIME=0
           while [ $WAIT_TIME -lt $MAX_WAIT ]; do
-            if [ -f "../../repos/*/java-bom-fanout-java-bom-fanout-java-bom/main/java-bom-version.txt" ] || \
-               [ -f "../java-bom-fanout-java-bom/java-bom-version.txt" ]; then
+            # Check various possible locations for the version file
+            VERSION_FILE_FOUND=false
+            for location in "../../repos/*/java-bom-fanout-java-bom-fanout-java-bom/main/java-bom-version.txt" \
+                           "../java-bom-fanout-java-bom/java-bom-version.txt" \
+                           "../../java-bom-fanout-java-bom-fanout-java-bom/main/java-bom-version.txt"; do
+              if ls $location 2>/dev/null; then
+                echo "✓ Found java-bom version file at: $location"
+                VERSION_FILE_FOUND=true
+                break
+              fi
+            done
+            
+            if [ "$VERSION_FILE_FOUND" = "true" ]; then
               echo "✓ Java-BOM has been updated and released"
               break
             fi
             
             echo "Still waiting for java-bom aggregation... ($WAIT_TIME/$MAX_WAIT seconds)"
+            
+            # Debug: Show what files exist
+            if [ $((WAIT_TIME % 20)) -eq 0 ]; then
+              echo "Debug: Current directory: $(pwd)"
+              echo "Debug: Files in parent directories:"
+              find ../.. -name "*version.txt" -o -name "tako.state.json" 2>/dev/null | head -10
+            fi
+            
             sleep 5
             WAIT_TIME=$((WAIT_TIME + 5))
           done
