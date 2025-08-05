@@ -148,7 +148,7 @@ echo "Setting up test environment using takotest..."
 if [ "$LOCAL_MODE" = "true" ]; then
     TAKOTEST_OUTPUT=$("$PROJECT_ROOT/takotest" setup --local --work-dir "$TEST_DIR" --cache-dir "$CACHE_DIR" --owner "$OWNER" "$TEST_ENVIRONMENT" 2>&1)
 else
-    TAKOTEST_OUTPUT=$("$PROJECT_ROOT/takotest" setup --work-dir "$TEST_DIR" --cache-dir "$CACHE_DIR" --owner "$OWNER" "$TEST_ENVIRONMENT" 2>&1)
+    TAKOTEST_OUTPUT=$("$PROJECT_ROOT/takotest" setup --with-repo-entrypoint --work-dir "$TEST_DIR" --cache-dir "$CACHE_DIR" --owner "$OWNER" "$TEST_ENVIRONMENT" 2>&1)
 fi
 
 if [ $? -ne 0 ]; then
@@ -177,8 +177,14 @@ echo "Repositories created:"
 ls -la
 echo
 
-# Find the actual repo directories (both modes use work directory)
-REPO_DIRS=($(find . -maxdepth 1 -type d -name "*java-bom-fanout*" | sed 's|./||'))
+# Find the actual repo directories 
+if [ "$LOCAL_MODE" = "true" ]; then
+    # In local mode, repositories are in work directory
+    REPO_DIRS=($(find . -maxdepth 1 -type d -name "*java-bom-fanout*" | sed 's|./||'))
+else
+    # In remote mode with --with-repo-entrypoint, repositories are in cache directory
+    REPO_DIRS=($(find "$CACHE_DIR" -path "*/repos/*/java-bom-fanout*/main" -type d | grep -v "src/main"))
+fi
 
 if [ ${#REPO_DIRS[@]} -eq 0 ]; then
     print_status "FAIL" "No test repositories found"
@@ -189,11 +195,17 @@ if [ ${#REPO_DIRS[@]} -eq 0 ]; then
     exit 1
 else
     for repo in "${REPO_DIRS[@]}"; do
-        if "$TAKO_CMD" validate --root "$repo" &> /dev/null; then
-            print_status "PASS" "Configuration valid for $repo"
+        if [ "$LOCAL_MODE" = "true" ]; then
+            repo_path="$repo"
         else
-            print_status "FAIL" "Configuration invalid for $repo"
-            "$TAKO_CMD" validate --root "$repo"
+            repo_path="$repo"  # Already full path from find command
+        fi
+        
+        if "$TAKO_CMD" validate --root "$repo_path" &> /dev/null; then
+            print_status "PASS" "Configuration valid for $(basename $repo_path)"
+        else
+            print_status "FAIL" "Configuration invalid for $(basename $repo_path)"
+            "$TAKO_CMD" validate --root "$repo_path"
             exit 1
         fi
     done
