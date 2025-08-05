@@ -67,7 +67,14 @@ workflows:
           NEW_VERSION=$(semver -i patch "$CURRENT_VERSION")
           
           echo "Triggering release of lib-b version $NEW_VERSION"
-          ${TAKO_BINARY:-tako} exec release --inputs.version="$NEW_VERSION" --local --cache-dir "$CACHE_DIR"
+          # Determine execution mode and use appropriate flags
+          if [ -n "$TAKO_CURRENT_REPO" ]; then
+            # Repository mode - no --local flag needed
+            ${TAKO_BINARY:-tako} exec release --inputs.version="$NEW_VERSION" --cache-dir "$CACHE_DIR"
+          else
+            # Local mode - use --local flag
+            ${TAKO_BINARY:-tako} exec release --inputs.version="$NEW_VERSION" --local --cache-dir "$CACHE_DIR"
+          fi
 
   release:
     inputs:
