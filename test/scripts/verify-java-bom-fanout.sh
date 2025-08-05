@@ -333,7 +333,7 @@ done
 # Test 6: Verify success indicators in output
 echo
 echo "Test 6: Verifying success indicators..."
-success_indicators=("Success: true" "Steps executed: 4" "Execution completed:")
+success_indicators=("Success: true" "Steps executed: 5" "Execution completed:")
 for indicator in "${success_indicators[@]}"; do
     if echo "$EXECUTION_OUTPUT" | grep -q "$indicator"; then
         print_status "PASS" "Found success indicator: '$indicator'"
