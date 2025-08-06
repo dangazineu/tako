@@ -261,12 +261,12 @@ func (r *Runner) ExecuteWorkflow(ctx context.Context, workflowName string, input
 }
 
 // ExecuteMultiRepoWorkflow executes a workflow with multi-repository orchestration.
-func (r *Runner) ExecuteMultiRepoWorkflow(ctx context.Context, workflowName string, inputs map[string]string, parentRepo string) (*ExecutionResult, error) {
+func (r *Runner) ExecuteMultiRepoWorkflow(ctx context.Context, workflowName string, inputs map[string]string, parentRepo string, localOnly bool) (*ExecutionResult, error) {
 	// Create discovery manager for subscription handling
 	discoveryManager := NewDiscoveryManager(r.cacheDir)
 
 	// Create hybrid orchestrator - use runner's workspace for homeDir
-	orchestrator := NewWorkflowOrchestrator(r, discoveryManager, r.cacheDir, r.workspaceRoot, false)
+	orchestrator := NewWorkflowOrchestrator(r, discoveryManager, r.cacheDir, r.workspaceRoot, localOnly)
 
 	// Execute hybrid workflow with both event-driven subscriptions and directed dependents
 	return orchestrator.ExecuteHybridWorkflow(ctx, workflowName, inputs, parentRepo)

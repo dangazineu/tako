@@ -26,6 +26,7 @@ You can specify a workflow by its name.`,
 			debug, _ := cmd.Flags().GetBool("debug")
 			noCache, _ := cmd.Flags().GetBool("no-cache")
 			maxConcurrentRepos, _ := cmd.Flags().GetInt("max-concurrent-repos")
+			localOnly, _ := cmd.Flags().GetBool("local")
 
 			// Get cache directory
 			cacheDir, _ := cmd.Flags().GetString("cache-dir")
@@ -94,7 +95,7 @@ You can specify a workflow by its name.`,
 
 			if repo != "" {
 				// Multi-repository execution mode
-				result, err := runner.ExecuteMultiRepoWorkflow(ctx, workflowName, inputs, repo)
+				result, err := runner.ExecuteMultiRepoWorkflow(ctx, workflowName, inputs, repo, localOnly)
 				if err != nil {
 					return fmt.Errorf("multi-repository execution failed: %v", err)
 				}
@@ -122,6 +123,7 @@ You can specify a workflow by its name.`,
 	cmd.Flags().Bool("no-cache", false, "Invalidate the cache and execute all steps")
 	cmd.Flags().Int("max-concurrent-repos", 4, "Maximum number of repositories to process in parallel")
 	cmd.Flags().Bool("debug", false, "Enable interactive step-by-step execution")
+	cmd.Flags().Bool("local", false, "Run in local mode without network access")
 	cmd.Flags().String("cache-dir", "", "Directory for caching repositories (default: ~/.tako/cache)")
 	cmd.Flags().String("root", "", "Root directory for local repository execution")
 	cmd.FParseErrWhitelist.UnknownFlags = true

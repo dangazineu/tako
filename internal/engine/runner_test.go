@@ -238,7 +238,7 @@ func TestRunnerMultiRepoRepositoryNotFound(t *testing.T) {
 	ctx := context.Background()
 	inputs := map[string]string{}
 
-	_, err = runner.ExecuteMultiRepoWorkflow(ctx, "test-workflow", inputs, "org/repo")
+	_, err = runner.ExecuteMultiRepoWorkflow(ctx, "test-workflow", inputs, "org/repo", false)
 	if err == nil {
 		t.Error("Multi-repo execution should return repository not found error")
 	}
