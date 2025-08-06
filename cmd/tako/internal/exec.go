@@ -97,6 +97,14 @@ You can specify a workflow by its name.`,
 				// Multi-repository execution mode
 				result, err := runner.ExecuteMultiRepoWorkflow(ctx, workflowName, inputs, repo, localOnly)
 				if err != nil {
+					// Still print the result if available, even when there's an error
+					if result != nil {
+						printErr := printExecutionResult(result)
+						if printErr != nil && printErr.Error() == "execution failed" {
+							// The workflow execution failed (expected for some tests)
+							return printErr
+						}
+					}
 					return fmt.Errorf("multi-repository execution failed: %v", err)
 				}
 				return printExecutionResult(result)
