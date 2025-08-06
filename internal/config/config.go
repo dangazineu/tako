@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Version       string              `yaml:"version"`
 	Artifacts     map[string]Artifact `yaml:"artifacts"`
+	Dependents    []Dependent         `yaml:"dependents,omitempty"`
 	Workflows     map[string]Workflow `yaml:"workflows"`
 	Subscriptions []Subscription      `yaml:"subscriptions,omitempty"`
 }
@@ -20,6 +21,12 @@ type Artifact struct {
 	Name      string `yaml:"-"`
 	Path      string `yaml:"path"`
 	Ecosystem string `yaml:"ecosystem,omitempty"`
+}
+
+type Dependent struct {
+	Repo      string   `yaml:"repo"`
+	Artifacts []string `yaml:"artifacts"`
+	Workflows []string `yaml:"workflows"`
 }
 
 type Workflow struct {
@@ -144,6 +151,16 @@ func validate(config *Config) error {
 			if _, exists := config.Workflows[subscription.Workflow]; !exists {
 				return fmt.Errorf("subscription %d references non-existent workflow '%s'", i, subscription.Workflow)
 			}
+		}
+	}
+
+	// Validate dependents
+	for _, dependent := range config.Dependents {
+		if err := validateRepoFormat(dependent.Repo); err != nil {
+			return fmt.Errorf("invalid dependent repo format: %w", err)
+		}
+		if err := validateArtifacts(dependent.Artifacts, config.Artifacts); err != nil {
+			return fmt.Errorf("invalid dependent artifacts: %w", err)
 		}
 	}
 
@@ -362,5 +379,29 @@ func validateTemplateExpression(expression string) error {
 		return fmt.Errorf("empty template expression in: %s", expression)
 	}
 
+	return nil
+}
+
+func validateRepoFormat(repo string) error {
+	// Local paths are not validated
+	if strings.HasPrefix(repo, ".") || strings.HasPrefix(repo, "file://") {
+		return nil
+	}
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid repo format: %s", repo)
+	}
+	if !strings.Contains(parts[1], ":") {
+		return fmt.Errorf("invalid repo format, missing branch: %s", repo)
+	}
+	return nil
+}
+
+func validateArtifacts(dependentArtifacts []string, definedArtifacts map[string]Artifact) error {
+	for _, dependentArtifact := range dependentArtifacts {
+		if _, ok := definedArtifacts[dependentArtifact]; !ok {
+			return fmt.Errorf("dependent artifact not found: %s", dependentArtifact)
+		}
+	}
 	return nil
 }
