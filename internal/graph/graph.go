@@ -240,6 +240,7 @@ func buildGraphRecursive(repoName, path, cacheDir, homeDir string, visited map[s
 	newPath := append(currentPath, absPath)
 	newPathNames := append(currentPathNames, root.Name)
 
+	// Build graph from subscriptions (existing event-driven logic)
 	for _, subscription := range cfg.Subscriptions {
 		// subscription.Artifact is in the format "owner/repo:artifact"
 		parts := strings.Split(subscription.Artifact, ":")
@@ -247,6 +248,23 @@ func buildGraphRecursive(repoName, path, cacheDir, homeDir string, visited map[s
 			return nil, fmt.Errorf("invalid artifact reference in subscription: %s", subscription.Artifact)
 		}
 		depRepoName := parts[0]
+
+		repoPath, err := git.GetRepoPath(depRepoName, absPath, cacheDir, homeDir, localOnly)
+		if err != nil {
+			return nil, err
+		}
+
+		child, err := buildGraphRecursive(depRepoName, repoPath, cacheDir, homeDir, visited, newPath, newPathNames, localOnly)
+		if err != nil {
+			return nil, err
+		}
+		root.AddChild(child)
+	}
+
+	// Build graph from dependents (new directed orchestration logic)
+	for _, dependent := range cfg.Dependents {
+		// dependent.Repo is in the format "owner/repo:branch"
+		depRepoName := dependent.Repo
 
 		repoPath, err := git.GetRepoPath(depRepoName, absPath, cacheDir, homeDir, localOnly)
 		if err != nil {

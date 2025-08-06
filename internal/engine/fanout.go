@@ -387,7 +387,7 @@ func (fe *FanOutExecutor) executeWithContextAndSubscriptions(step config.Workflo
 		}
 	} else {
 		// Find subscribers for this event (backward compatibility)
-		artifact := fmt.Sprintf("%s:default", sourceRepo)
+		artifact := sourceRepo // sourceRepo already includes branch in "owner/repo:branch" format
 		discoveredSubscribers, err := fe.discoveryManager.FindSubscribers(artifact, params.EventType)
 		if err != nil {
 			state.FailFanOut(fmt.Sprintf("failed to find subscribers: %v", err))

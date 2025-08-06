@@ -170,7 +170,7 @@ func TestExecuteBuiltinStep_FanOut(t *testing.T) {
 					if mockDiscoverer.eventType != eventType {
 						t.Errorf("Expected event type %s but got %s", eventType, mockDiscoverer.eventType)
 					}
-					expectedArtifact := "current-repo:default"
+					expectedArtifact := "unknown/repo:main"
 					if mockDiscoverer.artifact != expectedArtifact {
 						t.Errorf("Expected artifact %s but got %s", expectedArtifact, mockDiscoverer.artifact)
 					}

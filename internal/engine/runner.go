@@ -43,6 +43,9 @@ type Runner struct {
 	state *ExecutionState
 	locks *LockManager
 
+	// Repository context
+	currentRepoSpec string // Format: "owner/repo:branch"
+
 	// Template processing
 	templateEngine *TemplateEngine
 
@@ -229,6 +232,11 @@ func (r *Runner) ExecuteWorkflow(ctx context.Context, workflowName string, input
 		}, err
 	}
 
+	// Set repository context from path if not already set
+	if r.currentRepoSpec == "" {
+		r.currentRepoSpec = r.extractRepoSpecFromPath(repoPath)
+	}
+
 	// Execute workflow steps
 	stepResults, err := r.executeSteps(ctx, workflow.Steps, repoPath, inputs)
 
@@ -253,55 +261,15 @@ func (r *Runner) ExecuteWorkflow(ctx context.Context, workflowName string, input
 }
 
 // ExecuteMultiRepoWorkflow executes a workflow with multi-repository orchestration.
-func (r *Runner) ExecuteMultiRepoWorkflow(ctx context.Context, workflowName string, inputs map[string]string, parentRepo string) (*ExecutionResult, error) {
-	// For now, implement basic multi-repository execution by resolving the repo path
-	// and delegating to single-repository execution
-	// TODO: Implement full multi-repository execution with event-driven orchestration
-	// This will be the main orchestration logic that handles:
-	// 1. Parent repository workflow execution
-	// 2. Event emission via tako/fan-out@v1 steps
-	// 3. Child repository subscription evaluation
-	// 4. Parallel execution of child workflows
-	// 5. State synchronization across all repositories
+func (r *Runner) ExecuteMultiRepoWorkflow(ctx context.Context, workflowName string, inputs map[string]string, parentRepo string, localOnly bool) (*ExecutionResult, error) {
+	// Create discovery manager for subscription handling
+	discoveryManager := NewDiscoveryManager(r.cacheDir)
 
-	// Parse repository specification (e.g., "owner/repo:branch")
-	repoPath, err := r.resolveRepositoryPath(parentRepo)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve repository path: %v", err)
-	}
+	// Create hybrid orchestrator - use runner's workspace for homeDir
+	orchestrator := NewWorkflowOrchestrator(r, discoveryManager, r.cacheDir, r.workspaceRoot, localOnly)
 
-	// Delegate to single-repository execution for now
-	return r.ExecuteWorkflow(ctx, workflowName, inputs, repoPath)
-}
-
-// resolveRepositoryPath resolves a repository specification to a local path.
-func (r *Runner) resolveRepositoryPath(repoSpec string) (string, error) {
-	// Parse repository specification: "owner/repo:branch" or "owner/repo"
-	parts := strings.Split(repoSpec, ":")
-	repoPath := parts[0]
-	branch := "main"
-	if len(parts) > 1 {
-		branch = parts[1]
-	}
-
-	// Split owner/repo
-	ownerRepo := strings.Split(repoPath, "/")
-	if len(ownerRepo) != 2 {
-		return "", fmt.Errorf("invalid repository specification: %s (expected format: owner/repo or owner/repo:branch)", repoSpec)
-	}
-
-	owner := ownerRepo[0]
-	repo := ownerRepo[1]
-
-	// Construct cache path: ~/.tako/cache/repos/owner/repo/branch
-	cachePath := filepath.Join(r.cacheDir, "repos", owner, repo, branch)
-
-	// Check if repository exists in cache
-	if _, err := os.Stat(cachePath); os.IsNotExist(err) {
-		return "", fmt.Errorf("repository %s not found in cache at %s", repoSpec, cachePath)
-	}
-
-	return cachePath, nil
+	// Execute hybrid workflow with both event-driven subscriptions and directed dependents
+	return orchestrator.ExecuteHybridWorkflow(ctx, workflowName, inputs, parentRepo)
 }
 
 // Resume resumes a previously failed or interrupted execution.
@@ -461,6 +429,7 @@ func (r *Runner) executeShellStep(ctx context.Context, step config.WorkflowStep,
 		fmt.Sprintf("TAKO_RUN_ID=%s", r.runID),
 		fmt.Sprintf("TAKO_STEP_ID=%s", stepID),
 		fmt.Sprintf("TAKO_WORKSPACE=%s", r.workspaceRoot),
+		fmt.Sprintf("TAKO_CURRENT_REPO=%s", r.currentRepoSpec),
 	)
 
 	// Add inputs as environment variables
@@ -572,7 +541,7 @@ func (r *Runner) executeFanOutStep(ctx context.Context, step config.WorkflowStep
 
 	// Get source repository for artifact discovery
 	sourceRepo := r.getSourceRepository()
-	artifact := fmt.Sprintf("%s:default", sourceRepo)
+	artifact := sourceRepo // sourceRepo already includes branch in "owner/repo:branch" format
 
 	// Use Orchestrator to discover subscriptions
 	subscriptions, err := r.orchestrator.DiscoverSubscriptions(ctx, artifact, eventType)
@@ -676,10 +645,40 @@ func (r *Runner) isDebugMode() bool {
 // getSourceRepository returns the source repository identifier for fan-out events.
 // This identifies which repository is emitting the event.
 func (r *Runner) getSourceRepository() string {
-	// For now, return a placeholder
-	// In production, this should be derived from the workflow context
-	// TODO: Enhance to get actual repository from workflow context
-	return "current-repo"
+	// Return the current repository specification in "owner/repo:branch" format
+	if r.currentRepoSpec != "" {
+		return r.currentRepoSpec
+	}
+	// Fallback for cases where repository context is not available
+	return "unknown/repo:main"
+}
+
+// extractRepoSpecFromPath extracts repository specification from a cache path.
+// Converts paths like "/cache/repos/owner/repo/branch" to "owner/repo:branch".
+func (r *Runner) extractRepoSpecFromPath(repoPath string) string {
+	// Extract repository info from path like /cache/repos/owner/repo/branch
+	parts := strings.Split(filepath.Clean(repoPath), string(filepath.Separator))
+
+	// Look for the pattern .../repos/owner/repo/branch/...
+	for i, part := range parts {
+		if part == "repos" && i+3 < len(parts) {
+			owner := parts[i+1]
+			repo := parts[i+2]
+			branch := parts[i+3]
+			return fmt.Sprintf("%s/%s:%s", owner, repo, branch)
+		}
+	}
+
+	// Fallback: attempt to extract from directory structure
+	if len(parts) >= 3 {
+		// Take last 3 parts as owner/repo/branch
+		owner := parts[len(parts)-3]
+		repo := parts[len(parts)-2]
+		branch := parts[len(parts)-1]
+		return fmt.Sprintf("%s/%s:%s", owner, repo, branch)
+	}
+
+	return "unknown/repo:main"
 }
 
 // executeContainerStep executes a step in a container.

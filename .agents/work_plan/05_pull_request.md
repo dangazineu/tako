@@ -25,7 +25,7 @@ This phase handles the creation and monitoring of the pull request until success
     - `go test -v -tags=e2e --remote ./...` # Remote E2E tests
     - `act --container-architecture linux/amd64 -P ubuntu-latest=catthehacker/ubuntu:act-latest` # CI simulation
     - Fix any issues and run again until no issues are found
-  - Commit and push fixes
+  - Commit and push fixes, only after you have executed all the steps above. Do not push until all tests pass locally.
   - Repeat until all checks pass
   - Do not exit this step until the Pull Request checks have finished and succeeded
 

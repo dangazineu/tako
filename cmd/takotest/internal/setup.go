@@ -141,6 +141,9 @@ func setupLocal(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) e
 
 func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) error {
 	withRepoEntrypoint, _ := cmd.Flags().GetBool("with-repo-entrypoint")
+	workDir, _ := cmd.Flags().GetString("work-dir")
+	cacheDir, _ := cmd.Flags().GetString("cache-dir")
+
 	client, err := e2e.GetClient()
 	if err != nil {
 		return err
@@ -158,15 +161,15 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 			_, _, _, err = client.Repositories.GetContents(context.Background(), owner, repoName, "tako.yml", nil)
 			if err == nil {
 				// Repository already has tako.yml, reuse it
-				fmt.Printf("Repository %s already exists and is properly configured, reusing it\n", repoName)
+				fmt.Fprintf(os.Stderr, "Repository %s already exists and is properly configured, reusing it\n", repoName)
 				continue
 			}
 
 			// Repository exists but doesn't have proper structure, we need to recreate files
-			fmt.Printf("Repository %s exists but needs file updates\n", repoName)
+			fmt.Fprintf(os.Stderr, "Repository %s exists but needs file updates\n", repoName)
 		} else {
 			// Repository doesn't exist, we need to create it
-			fmt.Printf("Creating repository %s\n", repoName)
+			fmt.Fprintf(os.Stderr, "Creating repository %s\n", repoName)
 
 			// Add exponential backoff for rate limiting
 			retryDelay := 30 * time.Second // Start with longer delay for secondary rate limits
@@ -180,7 +183,7 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 				if err != nil {
 					if errResp, ok := err.(*github.ErrorResponse); ok && errResp.Response.StatusCode == 403 && strings.Contains(errResp.Message, "rate limit") {
 						waitTime := retryDelay * time.Duration(attempt+1)
-						fmt.Printf("Rate limit hit during repo creation, waiting %v before retry (attempt %d/%d)\n", waitTime, attempt+1, maxRetries)
+						fmt.Fprintf(os.Stderr, "Rate limit hit during repo creation, waiting %v before retry (attempt %d/%d)\n", waitTime, attempt+1, maxRetries)
 						time.Sleep(waitTime)
 						continue
 					}
@@ -225,7 +228,7 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 						if err != nil {
 							if errResp, ok := err.(*github.ErrorResponse); ok && errResp.Response.StatusCode == 403 && strings.Contains(errResp.Message, "rate limit") {
 								waitTime := time.Duration(attempt+1) * 5 * time.Second
-								fmt.Printf("Rate limit hit during file update (%s), waiting %v before retry (attempt %d/%d)\n", path, waitTime, attempt+1, maxFileRetries)
+								fmt.Fprintf(os.Stderr, "Rate limit hit during file update (%s), waiting %v before retry (attempt %d/%d)\n", path, waitTime, attempt+1, maxFileRetries)
 								time.Sleep(waitTime)
 								continue
 							}
@@ -233,7 +236,7 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 						}
 					} else if errResp, ok := err.(*github.ErrorResponse); ok && errResp.Response.StatusCode == 403 && strings.Contains(errResp.Message, "rate limit") {
 						waitTime := time.Duration(attempt+1) * 5 * time.Second
-						fmt.Printf("Rate limit hit during file creation (%s), waiting %v before retry (attempt %d/%d)\n", path, waitTime, attempt+1, maxFileRetries)
+						fmt.Fprintf(os.Stderr, "Rate limit hit during file creation (%s), waiting %v before retry (attempt %d/%d)\n", path, waitTime, attempt+1, maxFileRetries)
 						time.Sleep(waitTime)
 						continue
 					} else {
@@ -283,8 +286,37 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 		}
 	}
 
-	tmpDir, err := os.MkdirTemp("", "tako-e2e-")
-	if err != nil {
+	// Handle directory setup similar to setupLocal
+	if workDir == "" {
+		tmpDir, err := os.MkdirTemp("", "tako-e2e-")
+		if err != nil {
+			return err
+		}
+		workDir = tmpDir
+		cacheDir = filepath.Join(tmpDir, "cache")
+	} else {
+		// Convert relative paths to absolute paths
+		if !filepath.IsAbs(workDir) {
+			wd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			workDir = filepath.Join(wd, workDir)
+		}
+		if cacheDir != "" && !filepath.IsAbs(cacheDir) {
+			wd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			cacheDir = filepath.Join(wd, cacheDir)
+		}
+	}
+
+	// Ensure directories exist
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return err
 	}
 
@@ -293,12 +325,11 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 		// Clone entrypoint repo for path mode
 		repoName := fmt.Sprintf("%s-%s", env.Name, env.Repositories[0].Name)
 		cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", owner, repoName)
-		if err := git.Clone(cloneURL, filepath.Join(tmpDir, repoName)); err != nil {
+		if err := git.Clone(cloneURL, filepath.Join(workDir, repoName)); err != nil {
 			return err
 		}
 	} else {
 		// Clone all repos to cache for repo entrypoint mode
-		cacheDir := filepath.Join(tmpDir, "cache")
 		for _, repoDef := range env.Repositories {
 			repoName := fmt.Sprintf("%s-%s", env.Name, repoDef.Name)
 			cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", owner, repoName)
@@ -313,8 +344,8 @@ func setupRemote(cmd *cobra.Command, env *e2e.TestEnvironmentDef, owner string) 
 	}
 
 	output := SetupOutput{
-		WorkDir:  tmpDir,
-		CacheDir: filepath.Join(tmpDir, "cache"),
+		WorkDir:  workDir,
+		CacheDir: cacheDir,
 	}
 	return json.NewEncoder(cmd.OutOrStdout()).Encode(output)
 }

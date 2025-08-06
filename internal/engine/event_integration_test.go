@@ -30,7 +30,7 @@ workflows:
     steps:
       - run: echo "update triggered"
 subscriptions:
-  - artifact: "source-org/library:default"
+  - artifact: "source-org/library:main"
     events: ["build_completed"]
     workflow: "update"
     schema_version: "^1.0.0"
@@ -45,7 +45,7 @@ workflows:
     steps:
       - run: echo "deploy triggered"
 subscriptions:
-  - artifact: "source-org/library:default"
+  - artifact: "source-org/library:main"
     events: ["build_completed"]
     workflow: "deploy"
     schema_version: "~1.0.0"
@@ -89,7 +89,7 @@ subscriptions:
 					},
 				},
 			},
-			sourceRepo:        "source-org/library",
+			sourceRepo:        "source-org/library:main",
 			expectedTriggered: 2, // Both subscribers should match
 			expectSuccess:     true,
 		},
@@ -106,7 +106,7 @@ subscriptions:
 					},
 				},
 			},
-			sourceRepo:        "source-org/library",
+			sourceRepo:        "source-org/library:main",
 			expectedTriggered: 2, // Should work without schema validation
 			expectSuccess:     true,
 		},
@@ -123,7 +123,7 @@ subscriptions:
 					},
 				},
 			},
-			sourceRepo:        "source-org/library",
+			sourceRepo:        "source-org/library:main",
 			expectedTriggered: 0, // No subscribers should match due to filter mismatch
 			expectSuccess:     true,
 		},

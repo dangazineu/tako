@@ -189,7 +189,7 @@ workflows:
     steps:
       - run: echo "consumer1 update workflow triggered"
 subscriptions:
-  - artifact: "current-repo:default"
+  - artifact: "test-org/publisher:main"
     events: ["build_completed"]
     workflow: "update"
 EOF
@@ -201,7 +201,7 @@ workflows:
     steps:
       - run: echo "consumer2 deploy workflow triggered"
 subscriptions:
-  - artifact: "current-repo:default"
+  - artifact: "test-org/publisher:main"
     events: ["build_completed"]
     workflow: "deploy"
 EOF
