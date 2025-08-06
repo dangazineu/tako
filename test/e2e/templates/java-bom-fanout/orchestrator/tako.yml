@@ -97,16 +97,7 @@ workflows:
           echo "1.2.0" > java-bom-version.txt
           
           # Create final BOM state file
-          cat > "final_bom_state_${TIMESTAMP}.json" << EOF
-{
-  "bom_version": "1.2.0",
-  "timestamp": "$(date -Iseconds)",
-  "core_lib_version": "{{ .Inputs.version }}",
-  "lib_a_version": "1.0.1",
-  "lib_b_version": "1.0.1",
-  "status": "completed"
-}
-EOF
+          echo "{\"bom_version\":\"1.2.0\",\"timestamp\":\"$(date -Iseconds)\",\"core_lib_version\":\"{{ .Inputs.version }}\",\"lib_a_version\":\"1.0.1\",\"lib_b_version\":\"1.0.1\",\"status\":\"completed\"}" > "final_bom_state_${TIMESTAMP}.json"
           
       - id: verify-release-train
         name: "Verify complete release train success"
