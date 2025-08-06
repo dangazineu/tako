@@ -55,6 +55,10 @@ workflows:
           
           echo "Core-lib release triggered successfully"
           
+          # Create evidence files in orchestrator directory to show core-lib was released
+          echo "Published core-lib-{{ .Inputs.version }}" > "published_core-lib_{{ .Inputs.version }}.txt"
+          echo "{{ .Inputs.version }}" > core-lib-version.txt
+          
       - id: trigger-downstream-updates
         name: "Trigger downstream dependency updates" 
         run: |
