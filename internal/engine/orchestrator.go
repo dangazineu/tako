@@ -331,6 +331,17 @@ func (wo *WorkflowOrchestrator) executeWorkflowWithEventHandling(ctx context.Con
 		return nil, fmt.Errorf("workflow '%s' not found", workflowName)
 	}
 
+	// Validate workflow inputs
+	if err := wo.validateInputs(workflow, inputs); err != nil {
+		return &interfaces.ExecutionResult{
+			Success:   false,
+			Error:     fmt.Errorf("input validation failed: %v", err),
+			StartTime: time.Now(),
+			EndTime:   time.Now(),
+			Steps:     []interfaces.StepResult{},
+		}, err
+	}
+
 	startTime := time.Now()
 	var stepResults []interfaces.StepResult
 	stepOutputs := make(map[string]map[string]string)
@@ -670,4 +681,47 @@ func (wo *WorkflowOrchestrator) resolveRepositoryPath(repoSpec string) (string, 
 	}
 
 	return cachePath, nil
+}
+
+// validateInputs validates workflow inputs against the schema.
+func (wo *WorkflowOrchestrator) validateInputs(workflow config.Workflow, inputs map[string]string) error {
+	for name, input := range workflow.Inputs {
+		value, provided := inputs[name]
+
+		// Check required inputs
+		if input.Required && !provided {
+			return fmt.Errorf("required input '%s' not provided", name)
+		}
+
+		// Use default if not provided
+		if !provided && input.Default != nil {
+			inputs[name] = fmt.Sprintf("%v", input.Default)
+			continue
+		}
+
+		// Validate provided value
+		if provided {
+			if err := wo.validateInputValue(name, input, value); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateInputValue validates a single input value against its schema.
+func (wo *WorkflowOrchestrator) validateInputValue(name string, input config.WorkflowInput, value string) error {
+	// Type validation would go here
+	// For now, we'll implement basic enum validation
+	if len(input.Validation.Enum) > 0 {
+		for _, validValue := range input.Validation.Enum {
+			if value == validValue {
+				return nil
+			}
+		}
+		return fmt.Errorf("input '%s' value '%s' is not in allowed values %v", name, value, input.Validation.Enum)
+	}
+
+	return nil
 }
