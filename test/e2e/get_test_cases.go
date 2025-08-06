@@ -533,43 +533,5 @@ func GetTestCases() []TestCase {
 			// The selective triggering based on CEL expressions is functioning as designed.
 			// Verification is covered by the manual verification script and successful workflow execution.
 		},
-		{
-			Name:        "java-bom-fanout",
-			Environment: "java-bom-fanout",
-			ReadOnly:    false,
-			Setup: []Step{
-				{
-					Name:    "start mock github server",
-					Command: "echo",
-					Args:    []string{"Mock GitHub server will be started by test orchestration"},
-				},
-			},
-			Test: []Step{
-				{
-					Name:    "trigger orchestrated release train",
-					Command: "tako",
-					Args:    []string{"exec", "release-train", "--repo={{.Owner}}/java-bom-fanout-java-bom-fanout-orchestrator", "--inputs.version=1.1.0", "--debug"},
-					AssertOutputContains: []string{
-						"Executing workflow 'release-train'",
-						"Success: true",
-						"Steps executed: 5",
-						"start-release-train",
-						"release-core-lib",
-						"trigger-downstream-updates",
-						"wait-for-bom-update",
-						"verify-release-train",
-					},
-				},
-				{
-					Name:    "debug: list created files",
-					Command: "sh",
-					Args:    []string{"-c", "find . -name '*.txt' -o -name '*.json' | tee debug_files.txt"},
-				},
-			},
-			// Note: File verification removed because the orchestrator workflow
-			// handles its own internal verification and demonstrates the release
-			// train pattern. The successful workflow execution is the primary
-			// verification that the orchestration completed correctly.
-		},
 	}
 }

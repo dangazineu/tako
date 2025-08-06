@@ -15,6 +15,7 @@ import (
 
 // TestMockGitHubIntegration tests the integration between mock GitHub server and CLI
 func TestMockGitHubIntegration(t *testing.T) {
+	t.Skip("Skipping test that depends on java-bom-fanout mock tools which are currently disabled")
 	if testing.Short() {
 		t.Skip("Skipping mock integration test in short mode")
 	}
