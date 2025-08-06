@@ -270,7 +270,7 @@ func NewWorkflowOrchestrator(runner *Runner, discoverer interfaces.SubscriptionD
 }
 
 // ExecuteHybridWorkflow implements the complete hybrid directed+event-driven orchestration.
-func (wo *WorkflowOrchestrator) ExecuteHybridWorkflow(ctx context.Context, workflowName string, inputs map[string]string, parentRepo string) (*ExecutionResult, error) {
+func (wo *WorkflowOrchestrator) ExecuteHybridWorkflow(ctx context.Context, workflowName string, inputs map[string]string, parentRepo string) (*interfaces.ExecutionResult, error) {
 	startTime := time.Now()
 
 	// Initialize orchestration state
@@ -309,7 +309,7 @@ func (wo *WorkflowOrchestrator) ExecuteHybridWorkflow(ctx context.Context, workf
 }
 
 // executeWorkflowWithEventHandling executes workflow steps and handles event reactions.
-func (wo *WorkflowOrchestrator) executeWorkflowWithEventHandling(ctx context.Context, workflowName string, inputs map[string]string, parentRepo string) (*ExecutionResult, error) {
+func (wo *WorkflowOrchestrator) executeWorkflowWithEventHandling(ctx context.Context, workflowName string, inputs map[string]string, parentRepo string) (*interfaces.ExecutionResult, error) {
 	wo.state.WorkflowPhase = PhaseExecutingSteps
 	wo.state.LastUpdate = time.Now()
 
@@ -332,14 +332,14 @@ func (wo *WorkflowOrchestrator) executeWorkflowWithEventHandling(ctx context.Con
 	}
 
 	startTime := time.Now()
-	var stepResults []StepResult
+	var stepResults []interfaces.StepResult
 	stepOutputs := make(map[string]map[string]string)
 
 	// Execute each step sequentially with event handling
 	for _, step := range workflow.Steps {
 		select {
 		case <-ctx.Done():
-			return &ExecutionResult{
+			return &interfaces.ExecutionResult{
 				RunID:     wo.runner.runID,
 				Success:   false,
 				Error:     ctx.Err(),
@@ -355,7 +355,7 @@ func (wo *WorkflowOrchestrator) executeWorkflowWithEventHandling(ctx context.Con
 		stepResults = append(stepResults, stepResult)
 
 		if err != nil {
-			return &ExecutionResult{
+			return &interfaces.ExecutionResult{
 				RunID:     wo.runner.runID,
 				Success:   false,
 				Error:     fmt.Errorf("step '%s' failed: %w", step.ID, err),
@@ -371,7 +371,7 @@ func (wo *WorkflowOrchestrator) executeWorkflowWithEventHandling(ctx context.Con
 		}
 	}
 
-	return &ExecutionResult{
+	return &interfaces.ExecutionResult{
 		RunID:     wo.runner.runID,
 		Success:   true,
 		StartTime: startTime,
@@ -381,7 +381,7 @@ func (wo *WorkflowOrchestrator) executeWorkflowWithEventHandling(ctx context.Con
 }
 
 // executeStepWithEventReactions executes a single step and handles any event reactions.
-func (wo *WorkflowOrchestrator) executeStepWithEventReactions(ctx context.Context, step config.WorkflowStep, repoPath, parentRepo string, inputs map[string]string, stepOutputs map[string]map[string]string) (StepResult, error) {
+func (wo *WorkflowOrchestrator) executeStepWithEventReactions(ctx context.Context, step config.WorkflowStep, repoPath, parentRepo string, inputs map[string]string, stepOutputs map[string]map[string]string) (interfaces.StepResult, error) {
 	// Execute the step using the existing runner logic
 	stepResult, err := wo.runner.executeStep(ctx, step, repoPath, inputs, stepOutputs)
 	if err != nil {
