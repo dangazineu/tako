@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -675,8 +676,8 @@ func (wo *WorkflowOrchestrator) resolveRepositoryPath(repoSpec string) (string, 
 	// Construct cache path: ~/.tako/cache/repos/owner/repo/branch
 	cachePath := fmt.Sprintf("%s/repos/%s/%s/%s", wo.cacheDir, owner, repo, branch)
 
-	// Check if repository exists in cache (like the original Runner does)
-	if _, err := config.Load(fmt.Sprintf("%s/tako.yml", cachePath)); err != nil {
+	// Check if repository directory exists in cache
+	if _, err := os.Stat(cachePath); os.IsNotExist(err) {
 		return "", fmt.Errorf("repository %s not found in cache at %s", repoSpec, cachePath)
 	}
 
