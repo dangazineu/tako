@@ -102,6 +102,10 @@ You can specify a workflow by its name.`,
 						printErr := printExecutionResult(result)
 						if printErr != nil && printErr.Error() == "execution failed" {
 							// The workflow execution failed (expected for some tests)
+							// Return detailed error message that includes both "execution failed" and the specific step error
+							if result.Error != nil {
+								return fmt.Errorf("execution failed: %v", result.Error)
+							}
 							return printErr
 						}
 					}
