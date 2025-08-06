@@ -374,9 +374,12 @@ if [ "$LOCAL_MODE" = "true" ]; then
         fi
     done
     
-    if [ $file_checks_passed -lt 4 ]; then
+    # All 6 file checks must pass for a successful orchestration verification
+    if [ $file_checks_passed -lt 6 ]; then
         echo "Files found in orchestrator directory:"
         ls -la "$ORCHESTRATOR_REPO" || true
+        echo "Expected 6 file checks to pass, but only $file_checks_passed passed"
+        echo "All orchestrator evidence files are required for complete verification"
         exit 1
     fi
 fi
