@@ -155,7 +155,6 @@ verify_file_exists "$CURRENT_DIR/internal/engine/discovery.go" "DiscoveryManager
 
 # Step 4: Verify code compiles
 print_status "INFO" "Verifying code compilation"
-run_command "Compile orchestrator package" "cd '$CURRENT_DIR' && go build ./internal/engine/orchestrator.go"
 run_command "Compile entire engine package" "cd '$CURRENT_DIR' && go build ./internal/engine/..."
 
 # Step 5: Run orchestrator unit tests
